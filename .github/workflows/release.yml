@@ -4,9 +4,12 @@ on:
   push:
     tags: ['v*']
 
+permissions:
+  contents: write
+
 jobs:
   publish:
-    name: Publish to VS Code Marketplace
+    name: Publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +21,7 @@ jobs:
       - run: npm run build
       - run: npm test
 
-      - name: Publish to Marketplace
+      - name: Publish to VS Code Marketplace
         run: npx @vscode/vsce publish --no-git-tag-version
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
