@@ -6,6 +6,12 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ### Added
 - "What's New" notification after extension update with link to changelog
+- `reload_connections` MCP tool for CLI agents to re-read config files
+- Bidirectional connection sync between VS Code extension and standalone MCP server via `~/.viewstor/connections.json`
+
+### Fixed
+- VS Code extension now reads connections from `~/.viewstor/connections.json` on startup
+- VS Code extension now writes user connections to `~/.viewstor/connections.json` on save
 
 ## [0.2.0] — 2026-03-29
 

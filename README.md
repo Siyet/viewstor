@@ -150,7 +150,7 @@ Two MCP interfaces — pick the one that fits your workflow:
 }
 ```
 
-6 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`.
+7 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
 
 All MCP interfaces auto-connect and respect read-only mode.
 

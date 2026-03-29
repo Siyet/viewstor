@@ -106,7 +106,7 @@ All auto-connect. Returns structured JSON or `{ error }`.
 
 `src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle.
 
-6 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`.
+7 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`.
 
 Usage in Claude Code config:
 ```json
@@ -139,3 +139,12 @@ Usage in Claude Code config:
 - PG arrays: `pgArrayToString()` renders `{curly braces}` instead of JSON `[brackets]`
 - ClickHouse getSchema uses batch queries to `system.tables` and `system.columns` (not per-table DESCRIBE)
 - ClickHouse execute uses `JSON` format (not `JSONEachRow`) to get column types from response metadata
+
+## Process
+
+When implementing a new feature, ALWAYS update in the same PR:
+1. **README.md** — add/update the feature in the appropriate section
+2. **CHANGELOG.md** — add entry under `[Unreleased]` or the current version
+3. **CLAUDE.md** — update architecture docs if new files/modules are added
+4. **Wiki** — update relevant pages (push to `git@github.com:Siyet/viewstor.wiki.git` in `/tmp/viewstor-wiki/`)
+5. **l10n translations** — if new user-facing strings are added
