@@ -572,11 +572,53 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       const version = ext?.packageJSON?.version || 'unknown';
       const vscodeVersion = vscode.version;
       const platform = process.platform;
-      const body = encodeURIComponent(
-        `## Description\n\n<!-- Describe the issue -->\n\n## Steps to Reproduce\n\n1. \n2. \n\n## Environment\n- Viewstor: v${version}\n- VS Code: ${vscodeVersion}\n- OS: ${platform}\n`
-      );
-      const url = `https://github.com/Siyet/viewstor/issues/new?body=${body}&labels=bug`;
-      vscode.env.openExternal(vscode.Uri.parse(url));
+      const arch = process.arch;
+      const nodeVersion = process.version;
+      const locale = vscode.env.language;
+      const theme = vscode.window.activeColorTheme?.kind === 2 ? 'Dark' : vscode.window.activeColorTheme?.kind === 1 ? 'Light' : 'High Contrast';
+
+      const connections = connectionManager.getAll();
+      const connSummary = connections.length > 0
+        ? connections.map(s => `${s.config.type}${s.connected ? ' (connected)' : ''}`).join(', ')
+        : 'none';
+
+      const safeMode = vscode.workspace.getConfiguration('viewstor').get<string>('safeMode', 'warn');
+
+      const body =
+`## What happened?
+
+<!-- Describe what went wrong -->
+
+## What did you expect?
+
+<!-- Describe expected behavior -->
+
+## Steps to reproduce
+
+1.
+2.
+3.
+
+## Screenshots
+
+<!-- Drag & drop screenshots here if applicable -->
+
+## Environment
+
+| | |
+|---|---|
+| Viewstor | v${version} |
+| VS Code | ${vscodeVersion} |
+| OS | ${platform} ${arch} |
+| Node | ${nodeVersion} |
+| Theme | ${theme} |
+| Locale | ${locale} |
+| Safe mode | ${safeMode} |
+| Connections | ${connSummary} |
+`;
+      const encoded = encodeURIComponent(body);
+      const url = `https://github.com/Siyet/viewstor/issues/new?labels=bug&body=${encoded}`;
+      vscode.env.openExternal(vscode.Uri.parse(url, true));
     }),
   );
 }

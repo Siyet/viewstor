@@ -9,7 +9,7 @@
   <!-- transparent background -->
 
   <!-- Matrix rain: ~40 columns of falling drops, random 0/1 digits, fading tail to bright head -->
-  <g font-family="'Courier New',monospace" font-size="12">
+  <g font-family="'Courier New',monospace" font-size="14">
     <!-- Col 1 (x=15) head_y=69 len=13 -->
     <text x="15" y="13" fill="#a4a4a4">1</text><text x="15" y="27" fill="#b7b7b7">1</text><text x="15" y="41" fill="#c9c9c9">0</text><text x="15" y="55" fill="#dcdcdc">0</text><text x="15" y="69" fill="#eeeeee">0</text>
     <!-- Col 2 (x=45) head_y=54 len=8 -->
@@ -98,5 +98,5 @@
   <path d="M558 72 L600 190 L643 72 L625 72 L600 163 L575 72 Z" fill="none" stroke="#e6edf3" stroke-width="3" stroke-linejoin="miter" opacity="0.85"/>
 
   <!-- Title -->
-  <text x="600" y="282" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="16" font-weight="300" fill="#8b949e" letter-spacing="10">VIEWSTOR</text>
+  <text x="600" y="282" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="20" font-weight="300" fill="#8b949e" letter-spacing="12">VIEWSTOR</text>
 </svg>

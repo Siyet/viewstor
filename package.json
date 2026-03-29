@@ -191,7 +191,7 @@
         {
           "command": "viewstor.reportIssue",
           "when": "view == viewstor.connections",
-          "group": "z_help"
+          "group": "navigation"
         }
       ],
       "view/item/context": [

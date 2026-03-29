@@ -51,9 +51,28 @@ export function activate(context: vscode.ExtensionContext) {
   // Index hints (missing index warnings)
   const indexHintProvider = new IndexHintProvider(connectionManager, queryEditorProvider);
   indexHintProvider.register(context);
+  // Status bar: Report Issue button (visible only when Viewstor is active)
+  const reportBtn = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
+  reportBtn.text = '$(github) Viewstor: bug report';
+  reportBtn.tooltip = 'Report an issue on GitHub';
+  reportBtn.command = 'viewstor.reportIssue';
+
+  function updateReportBtnVisibility() {
+    const editor = vscode.window.activeTextEditor;
+    const isSqlEditor = editor?.document.languageId === 'sql' || editor?.document.uri.scheme === 'viewstor';
+    // Show when: tree visible, SQL editor active, OR no text editor active (webview panel like data table/results)
+    const isViewstorContext = connectionTreeView.visible || isSqlEditor || !editor;
+    if (isViewstorContext) reportBtn.show();
+    else reportBtn.hide();
+  }
+  updateReportBtnVisibility();
+  connectionTreeView.onDidChangeVisibility(() => updateReportBtnVisibility());
+  vscode.window.onDidChangeActiveTextEditor(() => updateReportBtnVisibility());
+
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider('sql', completionProvider, '.'),
     connectionTreeView,
+    reportBtn,
   );
 }
 
