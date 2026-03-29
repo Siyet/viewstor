@@ -19,10 +19,11 @@ export class ConnectionStore {
   private drivers = new Map<string, DatabaseDriver>();
 
   constructor() {
-    this.load();
+    this.reload();
   }
 
-  private load() {
+  reload() {
+    this.connections.clear();
     // Load user-level config
     this.loadFile(USER_CONFIG_FILE, 'user');
 
