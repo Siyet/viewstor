@@ -64,16 +64,19 @@ export class FolderFormPanel {
     });
   }
 
-  private async handleSave(data: { name: string; color: string; readonly: string }, existing?: ConnectionFolder) {
+  private async handleSave(data: { name: string; color: string; readonly: string; scope: string }, existing?: ConnectionFolder) {
     const name = data.name.trim();
     const color = data.color.trim() || undefined;
     const readonly = data.readonly === 'true';
+    const scope = (data.scope as 'user' | 'project') || 'user';
 
     if (existing) {
       await this.connectionManager.updateFolder(existing.id, { name, color, readonly });
       vscode.window.showInformationMessage(`Folder "${name}" updated.`);
     } else {
-      await this.connectionManager.addFolder(name, color, readonly, this.parentFolderIdForNew);
+      const folder = await this.connectionManager.addFolder(name, color, readonly, this.parentFolderIdForNew);
+      folder.scope = scope;
+      await this.connectionManager.updateFolder(folder.id, {});
       vscode.window.showInformationMessage(`Folder "${name}" created.`);
     }
     this.parentFolderIdForNew = undefined;
@@ -109,6 +112,14 @@ export class FolderFormPanel {
         <button type="button" id="btnClearColor" class="btn btn-secondary btn-small">Clear</button>
       </div>
       <div class="color-palette" id="colorPalette"></div>
+    </div>
+
+    <div class="form-group">
+      <label for="scope">Store in</label>
+      <select id="scope">
+        <option value="user" ${(f?.scope || 'user') === 'user' ? 'selected' : ''}>User (global)</option>
+        <option value="project" ${f?.scope === 'project' ? 'selected' : ''}>Project (.vscode/viewstor.json)</option>
+      </select>
     </div>
 
     <div class="form-group checkbox-group">
@@ -202,6 +213,7 @@ export class FolderFormPanel {
           name: folderName.value.trim(),
           color: folderColor.value.trim(),
           readonly: readonlyMode.checked ? 'true' : 'false',
+          scope: document.getElementById('scope').value,
         }
       });
     });

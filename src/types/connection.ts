@@ -20,6 +20,10 @@ export interface ConnectionConfig {
   hiddenSchemas?: Record<string, string[]>;
   /** Hidden databases (by name) */
   hiddenDatabases?: string[];
+  /** Storage scope: 'user' (globalState) or 'project' (.vscode/viewstor.json) */
+  scope?: 'user' | 'project';
+  /** Safe mode override per connection: 'off' | 'warn' | 'block' */
+  safeMode?: 'off' | 'warn' | 'block';
 }
 
 export interface ConnectionFolder {
@@ -29,6 +33,7 @@ export interface ConnectionFolder {
   readonly?: boolean;
   sortOrder: number;
   parentFolderId?: string;
+  scope?: 'user' | 'project';
 }
 
 export interface ConnectionState {

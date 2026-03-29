@@ -152,6 +152,8 @@ export class ConnectionFormPanel {
       color: data.color || undefined,
       readonly: data.readonly === 'true' ? true : undefined,
       folderId: data.folderId || undefined,
+      scope: (data.scope as 'user' | 'project') || 'user',
+      safeMode: data.safeMode ? (data.safeMode as 'off' | 'warn' | 'block') : undefined,
     };
   }
 
@@ -185,6 +187,19 @@ export class ConnectionFormPanel {
     </div>
 
     <div class="form-group">
+      <label for="safeMode">Safe mode</label>
+      <select id="safeMode">
+        <option value="" ${!c?.safeMode ? 'selected' : ''}>Default (from settings)</option>
+        <option value="block" ${c?.safeMode === 'block' ? 'selected' : ''}>🛡️ Block — beginner-friendly, blocks dangerous queries</option>
+        <option value="warn" ${c?.safeMode === 'warn' ? 'selected' : ''}>⚠️ Warn — recommended for daily work, warns on Seq Scans</option>
+        <option value="off" ${c?.safeMode === 'off' ? 'selected' : ''}>🔓 Off — for Jedi who trust the Force</option>
+      </select>
+      <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-top:4px;line-height:1.4;">
+        Auto-adds LIMIT to SELECTs, runs EXPLAIN to detect full table scans before execution.
+      </div>
+    </div>
+
+    <div class="form-group">
       <label for="connName">Connection Name</label>
       <input type="text" id="connName" placeholder="My Database" value="${esc(c?.name)}" />
     </div>
@@ -212,15 +227,13 @@ export class ConnectionFormPanel {
       </div>
 
       <div class="form-group" style="position:relative;">
-        <label for="database">Database</label>
-        <input type="text" id="database" autocomplete="off" value="${esc(c?.database)}" />
+        <label for="dbInput">Databases</label>
+        <div class="chips-container" id="chipsContainer">
+          <input type="text" id="dbInput" class="chips-input" placeholder="Type database name..." autocomplete="off" />
+        </div>
         <div id="dbDropdown" class="db-dropdown hidden"></div>
-      </div>
-
-      <div class="form-group">
-        <label>Additional databases <small style="color:var(--vscode-descriptionForeground)">(click to toggle)</small></label>
+        <input type="hidden" id="database" value="${esc(c?.database)}" />
         <input type="hidden" id="databases" value="${esc(c?.databases?.join(','))}" />
-        <div id="dbTags" class="color-palette" style="min-height:24px;"></div>
       </div>
     </div>
 
@@ -240,6 +253,14 @@ export class ConnectionFormPanel {
         <button type="button" id="btnClearColor" class="btn btn-secondary btn-small">Clear</button>
       </div>
       <div class="color-palette" id="colorPalette"></div>
+    </div>
+
+    <div class="form-group">
+      <label for="scope">Store in</label>
+      <select id="scope">
+        <option value="user" ${(c?.scope || 'user') === 'user' ? 'selected' : ''}>User (global)</option>
+        <option value="project" ${c?.scope === 'project' ? 'selected' : ''}>Project (.vscode/viewstor.json)</option>
+      </select>
     </div>
 
     <div class="form-group checkbox-group">

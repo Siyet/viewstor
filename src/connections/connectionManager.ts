@@ -6,6 +6,12 @@ import { createDriver } from '../drivers';
 
 const STORAGE_KEY = 'viewstor.connections';
 const FOLDERS_KEY = 'viewstor.connectionFolders';
+const PROJECT_FILE = '.vscode/viewstor.json';
+
+interface ProjectData {
+  connections: ConnectionConfig[];
+  folders: ConnectionFolder[];
+}
 
 export class ConnectionManager {
   private connections: Map<string, ConnectionState> = new Map();
@@ -13,15 +19,19 @@ export class ConnectionManager {
   private folders: Map<string, ConnectionFolder> = new Map();
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChange = this._onDidChange.event;
+  private projectFileWatcher: vscode.FileSystemWatcher | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadConnections();
     this.loadFolders();
+    this.loadProjectData();
+    this.watchProjectFile();
   }
 
   private loadConnections() {
     const stored = this.context.globalState.get<ConnectionConfig[]>(STORAGE_KEY, []);
     for (const config of stored) {
+      config.scope = config.scope || 'user';
       this.connections.set(config.id, { config, connected: false });
     }
   }
@@ -29,18 +39,93 @@ export class ConnectionManager {
   private loadFolders() {
     const stored = this.context.globalState.get<ConnectionFolder[]>(FOLDERS_KEY, []);
     for (const folder of stored) {
+      folder.scope = folder.scope || 'user';
       this.folders.set(folder.id, folder);
     }
   }
 
+  private loadProjectData() {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) return;
+    const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, PROJECT_FILE);
+    try {
+      // Synchronous read not available — schedule async load
+      vscode.workspace.fs.readFile(fileUri).then(content => {
+        const data: ProjectData = JSON.parse(Buffer.from(content).toString('utf8'));
+        for (const config of data.connections || []) {
+          config.scope = 'project';
+          if (!this.connections.has(config.id)) {
+            this.connections.set(config.id, { config, connected: false });
+          }
+        }
+        for (const folder of data.folders || []) {
+          folder.scope = 'project';
+          if (!this.folders.has(folder.id)) {
+            this.folders.set(folder.id, folder);
+          }
+        }
+        this._onDidChange.fire();
+      }).then(undefined, () => { /* file doesn't exist — ok */ });
+    } catch { /* ignore */ }
+  }
+
+  private watchProjectFile() {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) return;
+    const pattern = new vscode.RelativePattern(workspaceFolders[0], PROJECT_FILE);
+    this.projectFileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
+    this.projectFileWatcher.onDidChange(() => this.reloadProjectData());
+    this.projectFileWatcher.onDidCreate(() => this.reloadProjectData());
+    this.projectFileWatcher.onDidDelete(() => this.reloadProjectData());
+  }
+
+  private reloadProjectData() {
+    // Remove old project-scoped items
+    for (const [id, state] of this.connections) {
+      if (state.config.scope === 'project') this.connections.delete(id);
+    }
+    for (const [id, folder] of this.folders) {
+      if (folder.scope === 'project') this.folders.delete(id);
+    }
+    this.loadProjectData();
+  }
+
   private async saveConnections() {
-    const configs = Array.from(this.connections.values()).map(s => s.config);
-    await this.context.globalState.update(STORAGE_KEY, configs);
+    // Save user-scoped to globalState
+    const userConfigs = Array.from(this.connections.values())
+      .filter(s => s.config.scope !== 'project')
+      .map(s => s.config);
+    await this.context.globalState.update(STORAGE_KEY, userConfigs);
+    // Save project-scoped to file
+    await this.saveProjectData();
   }
 
   private async saveFolders() {
-    const folders = Array.from(this.folders.values());
-    await this.context.globalState.update(FOLDERS_KEY, folders);
+    const userFolders = Array.from(this.folders.values())
+      .filter(f => f.scope !== 'project');
+    await this.context.globalState.update(FOLDERS_KEY, userFolders);
+    await this.saveProjectData();
+  }
+
+  private async saveProjectData() {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) return;
+
+    const projectConns = Array.from(this.connections.values())
+      .filter(s => s.config.scope === 'project')
+      .map(s => {
+        // Strip password from project file for security
+        const { password, ...rest } = s.config;
+        return rest as ConnectionConfig;
+      });
+    const projectFolders = Array.from(this.folders.values())
+      .filter(f => f.scope === 'project');
+
+    if (projectConns.length === 0 && projectFolders.length === 0) return;
+
+    const data: ProjectData = { connections: projectConns, folders: projectFolders };
+    const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, PROJECT_FILE);
+    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(JSON.stringify(data, null, 2), 'utf8'));
   }
 
   // --- Connections ---
@@ -272,6 +357,7 @@ export class ConnectionManager {
     for (const [id] of this.drivers) {
       this.disconnect(id).catch(() => {});
     }
+    this.projectFileWatcher?.dispose();
     this._onDidChange.dispose();
   }
 }

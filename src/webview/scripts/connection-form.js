@@ -115,21 +115,61 @@
 
   var databases = document.getElementById('databases');
   var dbDropdown = document.getElementById('dbDropdown');
-  var dbTags = document.getElementById('dbTags');
+  var dbInput = document.getElementById('dbInput');
+  var chipsContainer = document.getElementById('chipsContainer');
   var dbListCache = [];
   var dbFetched = false;
+  var selectedDbs = [];
 
-  function getSelectedDbs() {
-    return databases.value ? databases.value.split(',').filter(Boolean) : [];
-  }
-  function setSelectedDbs(dbs) {
-    databases.value = dbs.join(',');
+  // Init chips from existing values
+  function initChips() {
+    selectedDbs = [];
+    if (database.value.trim()) selectedDbs.push(database.value.trim());
+    if (databases.value) {
+      databases.value.split(',').filter(Boolean).forEach(function(db) {
+        if (selectedDbs.indexOf(db) < 0) selectedDbs.push(db);
+      });
+    }
+    renderChips();
   }
 
-  // Custom dropdown for Database field
+  function syncHiddenFields() {
+    database.value = selectedDbs[0] || '';
+    databases.value = selectedDbs.slice(1).join(',');
+  }
+
+  function addChip(name) {
+    name = name.trim();
+    if (!name || selectedDbs.indexOf(name) >= 0) return;
+    selectedDbs.push(name);
+    syncHiddenFields();
+    renderChips();
+  }
+
+  function removeChip(name) {
+    selectedDbs = selectedDbs.filter(function(d) { return d !== name; });
+    syncHiddenFields();
+    renderChips();
+  }
+
+  function renderChips() {
+    // Remove existing chips (keep input)
+    chipsContainer.querySelectorAll('.chip').forEach(function(el) { el.remove(); });
+    selectedDbs.forEach(function(name, idx) {
+      var chip = document.createElement('span');
+      chip.className = 'chip' + (idx === 0 ? ' primary' : '');
+      chip.innerHTML = name + ' <span class="chip-remove">&times;</span>';
+      chip.querySelector('.chip-remove').addEventListener('click', function() { removeChip(name); });
+      chipsContainer.insertBefore(chip, dbInput);
+    });
+  }
+
+  // Dropdown
   function showDbDropdown() {
-    var filter = database.value.trim().toLowerCase();
-    var items = dbListCache.filter(function(n) { return n.toLowerCase().includes(filter); });
+    var filter = dbInput.value.trim().toLowerCase();
+    var items = dbListCache.filter(function(n) {
+      return n.toLowerCase().includes(filter) && selectedDbs.indexOf(n) < 0;
+    });
     if (items.length === 0) { dbDropdown.classList.add('hidden'); return; }
     dbDropdown.innerHTML = '';
     items.forEach(function(name) {
@@ -138,16 +178,16 @@
       div.textContent = name;
       div.addEventListener('mousedown', function(e) {
         e.preventDefault();
-        database.value = name;
+        addChip(name);
+        dbInput.value = '';
         dbDropdown.classList.add('hidden');
-        renderDbTags();
       });
       dbDropdown.appendChild(div);
     });
     dbDropdown.classList.remove('hidden');
   }
 
-  database.addEventListener('focus', function() {
+  dbInput.addEventListener('focus', function() {
     if (!dbFetched && host.value.trim()) {
       dbFetched = true;
       vscode.postMessage({ type: 'fetchDatabases', config: getFormData() });
@@ -155,41 +195,69 @@
       showDbDropdown();
     }
   });
-  database.addEventListener('input', showDbDropdown);
-  database.addEventListener('blur', function() {
-    setTimeout(function() { dbDropdown.classList.add('hidden'); renderDbTags(); }, 150);
+  dbInput.addEventListener('input', showDbDropdown);
+  dbInput.addEventListener('blur', function() {
+    setTimeout(function() { dbDropdown.classList.add('hidden'); }, 150);
   });
+  var dropdownIdx = -1;
 
-  // Tags for additional databases
-  function renderDbTags() {
-    dbTags.innerHTML = '';
-    if (dbListCache.length === 0) return;
-    var selected = getSelectedDbs();
-    var mainDb = database.value.trim();
-    dbListCache.forEach(function(name) {
-      if (name === mainDb) return;
-      var tag = document.createElement('button');
-      tag.type = 'button';
-      tag.textContent = name;
-      tag.style.cssText = 'padding:2px 8px;font-size:12px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-input-border,var(--vscode-panel-border));';
-      if (selected.indexOf(name) >= 0) {
-        tag.style.background = 'var(--vscode-button-background)';
-        tag.style.color = 'var(--vscode-button-foreground)';
-      } else {
-        tag.style.background = 'var(--vscode-input-background)';
-        tag.style.color = 'var(--vscode-input-foreground)';
-      }
-      tag.addEventListener('click', function() {
-        var sel = getSelectedDbs();
-        var idx = sel.indexOf(name);
-        if (idx >= 0) sel.splice(idx, 1);
-        else sel.push(name);
-        setSelectedDbs(sel);
-        renderDbTags();
-      });
-      dbTags.appendChild(tag);
+  function updateDropdownHighlight() {
+    var options = dbDropdown.querySelectorAll('.db-option');
+    options.forEach(function(o, i) {
+      o.classList.toggle('active', i === dropdownIdx);
     });
+    if (dropdownIdx >= 0 && options[dropdownIdx]) {
+      options[dropdownIdx].scrollIntoView({ block: 'nearest' });
+    }
   }
+
+  dbInput.addEventListener('keydown', function(e) {
+    var options = dbDropdown.querySelectorAll('.db-option');
+    var isOpen = !dbDropdown.classList.contains('hidden') && options.length > 0;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!isOpen) { showDbDropdown(); return; }
+      dropdownIdx = Math.min(dropdownIdx + 1, options.length - 1);
+      updateDropdownHighlight();
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (isOpen) {
+        dropdownIdx = Math.max(dropdownIdx - 1, 0);
+        updateDropdownHighlight();
+      }
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (isOpen && dropdownIdx >= 0 && options[dropdownIdx]) {
+        addChip(options[dropdownIdx].textContent);
+        dbInput.value = '';
+        dbDropdown.classList.add('hidden');
+        dropdownIdx = -1;
+      } else if (dbInput.value.trim()) {
+        addChip(dbInput.value);
+        dbInput.value = '';
+        dbDropdown.classList.add('hidden');
+        dropdownIdx = -1;
+      }
+      return;
+    }
+    if (e.key === 'Escape' && isOpen) {
+      dbDropdown.classList.add('hidden');
+      dropdownIdx = -1;
+      return;
+    }
+    if (e.key === 'Backspace' && !dbInput.value && selectedDbs.length > 0) {
+      removeChip(selectedDbs[selectedDbs.length - 1]);
+    }
+    dropdownIdx = -1;
+  });
+  chipsContainer.addEventListener('click', function() { dbInput.focus(); });
+
+  initChips();
 
   function getFormData() {
     return {
@@ -206,6 +274,8 @@
       color: connColor.value.trim(),
       readonly: readonlyMode.checked ? 'true' : 'false',
       folderId: folderId.value || '',
+      scope: document.getElementById('scope').value,
+      safeMode: document.getElementById('safeMode').value,
     };
   }
 
@@ -279,11 +349,14 @@
           password.value = c.password || '';
           database.value = c.database || '';
           databases.value = (c.databases || []).join(',');
+          initChips();
           ssl.checked = !!c.ssl;
           connColor.value = c.color || '';
           connColorPicker.value = c.color || '#1e1e1e';
           readonlyMode.checked = !!c.readonly;
           folderId.value = c.folderId || '';
+          document.getElementById('scope').value = c.scope || 'user';
+          document.getElementById('safeMode').value = c.safeMode || '';
           updateFieldVisibility();
         } else {
           // New connection — apply folder defaults
@@ -296,7 +369,6 @@
       case 'databaseList':
         dbListCache = message.databases || [];
         showDbDropdown();
-        renderDbTags();
         break;
     }
   });

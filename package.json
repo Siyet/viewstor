@@ -281,6 +281,17 @@
           "enum": [50, 100, 500, 1000],
           "description": "Default number of rows per page when viewing table data."
         },
+        "viewstor.safeMode": {
+          "type": "string",
+          "default": "warn",
+          "enum": ["off", "warn", "block"],
+          "enumDescriptions": [
+            "No safety checks",
+            "Warn on Seq Scan, auto-add LIMIT (default)",
+            "Block queries with Seq Scan"
+          ],
+          "description": "Safe mode: auto-add LIMIT to SELECT queries without one, run EXPLAIN to detect Seq Scans."
+        },
         "viewstor.indexHintThreshold": {
           "type": "number",
           "default": 100000,

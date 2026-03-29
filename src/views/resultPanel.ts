@@ -292,14 +292,18 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
 
   function escHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
+  function isComplexValue(value) {
+    return value !== null && value !== undefined && (typeof value === 'object' || Array.isArray(value));
+  }
+
   function formatCell(value, col) {
     if (value === null || value === undefined) return '<span class="null-val">NULL</span>';
-    // PostgreSQL arrays: display with {curly braces} instead of [square brackets]
-    if (Array.isArray(value)) {
-      const str = pgArrayToString(value);
+    // Complex types (arrays, objects, JSON) — show truncated string
+    if (isComplexValue(value)) {
+      const str = Array.isArray(value) ? pgArrayToString(value) : JSON.stringify(value);
       return escHtml(str.length > 60 ? str.substring(0, 60) + '...' : str);
     }
-    const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    const str = String(value);
     if (jsonTypes.has(col.dataType)) {
       const short = str.length > 60 ? str.substring(0, 60) + '...' : str;
       return escHtml(short);
@@ -311,6 +315,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     return '{' + arr.map(function(v) {
       if (v === null || v === undefined) return 'NULL';
       if (Array.isArray(v)) return pgArrayToString(v);
+      if (typeof v === 'object') return JSON.stringify(v);
       var s = String(v);
       if (s === '' || s.includes(',') || s.includes('"') || s.includes('{') || s.includes('}') || s.includes(' ')) return '"' + s.replace(/"/g, '\\\\"') + '"';
       return s;
@@ -333,6 +338,26 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     }).join('');
     headerRow.querySelectorAll('th[data-col]').forEach(th => {
       th.addEventListener('click', (e) => handleSortClick(Number(th.dataset.col), e.shiftKey));
+      th.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        closeContextMenu();
+        const ci = Number(th.dataset.col);
+        ctxMenuEl = document.createElement('div');
+        ctxMenuEl.className = 'ctx-menu';
+        ctxMenuEl.style.left = e.clientX + 'px';
+        ctxMenuEl.style.top = e.clientY + 'px';
+        const selectBtn = document.createElement('button');
+        selectBtn.textContent = 'Select Column';
+        selectBtn.addEventListener('click', () => {
+          selectedCells.clear();
+          for (let r = 0; r < pageRows.length; r++) selectedCells.add(cellKey(r, ci));
+          anchorCell = { row: 0, col: ci };
+          updateSelectionUI();
+          closeContextMenu();
+        });
+        ctxMenuEl.appendChild(selectBtn);
+        document.body.appendChild(ctxMenuEl);
+      });
     });
   }
 
@@ -341,11 +366,12 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     const body = document.getElementById('dataBody');
     body.innerHTML = pageRows.map((row, ri) => {
       const globalRi = offset + ri;
-      const rowNum = '<td class="row-num">' + (globalRi + 1) + '</td>';
+      const rowNum = '<td class="row-num" data-rownum="' + ri + '">' + (globalRi + 1) + '</td>';
       const cells = columns.map((c, ci) => {
         const key = ri + ':' + c.name;
         const modClass = pendingEdits.has(key) ? ' modified' : '';
-        const jsonClass = jsonTypes.has(c.dataType) && row[c.name] !== null && row[c.name] !== undefined ? ' json-cell' : '';
+        const isComplex = row[c.name] !== null && row[c.name] !== undefined && (jsonTypes.has(c.dataType) || isComplexValue(row[c.name]));
+        const jsonClass = isComplex ? ' json-cell' : '';
         return '<td data-row="' + ri + '" data-col="' + ci + '" class="' + modClass + jsonClass + '">' + formatCell(row[c.name], c) + '</td>';
       }).join('');
       return '<tr>' + rowNum + cells + '</tr>';
@@ -372,15 +398,33 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
         const ri = Number(td.dataset.row);
         const ci = Number(td.dataset.col);
         const col = columns[ci];
-        if (jsonTypes.has(col.dataType)) {
-          const val = pageRows[ri][col.name];
-          if (val !== null && val !== undefined) {
-            const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
-            showJsonPopup(str, ri, col);
-          }
+        const val = pageRows[ri][col.name];
+        if (val !== null && val !== undefined && (jsonTypes.has(col.dataType) || isComplexValue(val))) {
+          const str = typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val);
+          showJsonPopup(str, ri, col);
           return;
         }
         if (!IS_READONLY) startEdit(td, ci, ri);
+      });
+    });
+    // Row number: click selects row, right-click opens copy menu
+    document.getElementById('dataBody').querySelectorAll('td[data-rownum]').forEach(td => {
+      td.addEventListener('click', () => {
+        const ri = Number(td.dataset.rownum);
+        selectedCells.clear();
+        for (let c = 0; c < columns.length; c++) selectedCells.add(cellKey(ri, c));
+        anchorCell = { row: ri, col: 0 };
+        updateSelectionUI();
+      });
+      td.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const ri = Number(td.dataset.rownum);
+        // Select row first
+        selectedCells.clear();
+        for (let c = 0; c < columns.length; c++) selectedCells.add(cellKey(ri, c));
+        anchorCell = { row: ri, col: 0 };
+        updateSelectionUI();
+        showContextMenu(e);
       });
     });
   }
@@ -679,9 +723,9 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     td.addEventListener('click', (e) => handleCellClick(td, e));
     td.addEventListener('dblclick', () => {
       const col = columns[colIdx];
-      if (jsonTypes.has(col.dataType)) {
-        const val = pageRows[rowIdx][col.name];
-        if (val !== null && val !== undefined) showJsonPopup(typeof val === 'object' ? JSON.stringify(val) : String(val), rowIdx, col);
+      const val = pageRows[rowIdx][col.name];
+      if (val !== null && val !== undefined && (jsonTypes.has(col.dataType) || isComplexValue(val))) {
+        showJsonPopup(typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val), rowIdx, col);
         return;
       }
       if (!IS_READONLY) startEdit(td, colIdx, rowIdx);

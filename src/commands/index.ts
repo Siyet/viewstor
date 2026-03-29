@@ -120,11 +120,62 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       if (!query.trim()) return;
 
       const state = connectionManager.get(connectionId);
+      const globalSafeMode = vscode.workspace.getConfiguration('viewstor').get<string>('safeMode', 'warn');
+      const safeMode = state?.config.safeMode || globalSafeMode;
+      let finalQuery = query;
+
+      // Auto-add LIMIT if missing on SELECT queries (always, regardless of safe mode)
+      {
+        const trimmed = query.trim().replace(/;+\s*$/, '');
+        const upper = trimmed.toUpperCase();
+        if (upper.startsWith('SELECT') && !upper.includes('LIMIT')) {
+          const defaultLimit = vscode.workspace.getConfiguration('viewstor').get<number>('defaultPageSize', 100);
+          finalQuery = trimmed + ` LIMIT ${defaultLimit}`;
+        }
+      }
+
+      // Safe mode: EXPLAIN check for seq scans
+      if (safeMode !== 'off' && finalQuery.trim().toUpperCase().startsWith('SELECT')) {
+        try {
+          const explainResult = await driver.execute('EXPLAIN ' + finalQuery);
+          const plan = explainResult.rows.map(r => Object.values(r).join(' ')).join('\n');
+          if (plan.includes('Seq Scan')) {
+            const seqMatch = plan.match(/Seq Scan on (\w+)/);
+            const tableName = seqMatch ? seqMatch[1] : 'unknown';
+
+            // Create a diagnostic with the EXPLAIN plan attached for AI agents
+            const message = `Seq Scan on "${tableName}" — may be slow on large tables.`;
+
+            if (safeMode === 'block') {
+              const action = await vscode.window.showErrorMessage(
+                `Blocked: ${message}`,
+                'See EXPLAIN', 'Cancel'
+              );
+              if (action === 'See EXPLAIN') {
+                const doc = await vscode.workspace.openTextDocument({ content: plan, language: 'plaintext' });
+                await vscode.window.showTextDocument(doc, { preview: true });
+              }
+              return;
+            } else {
+              const action = await vscode.window.showWarningMessage(
+                message,
+                'Run Anyway', 'See EXPLAIN', 'Cancel'
+              );
+              if (action === 'See EXPLAIN') {
+                const doc = await vscode.workspace.openTextDocument({ content: plan, language: 'plaintext' });
+                await vscode.window.showTextDocument(doc, { preview: true });
+                return;
+              }
+              if (action !== 'Run Anyway') return;
+            }
+          }
+        } catch { /* EXPLAIN failed — proceed anyway */ }
+      }
 
       try {
         const result = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: 'Running query...' },
-          () => driver.execute(query)
+          () => driver.execute(finalQuery)
         );
 
         const color = connectionManager.getConnectionColor(connectionId);

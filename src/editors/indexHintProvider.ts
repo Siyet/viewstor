@@ -21,6 +21,44 @@ export class IndexHintProvider {
       this.diagnosticCollection,
       vscode.workspace.onDidChangeTextDocument(e => this.scheduleCheck(e.document)),
       vscode.window.onDidChangeActiveTextEditor(e => { if (e) this.scheduleCheck(e.document); }),
+      vscode.languages.registerCodeActionsProvider('sql', {
+        provideCodeActions: (document, range, ctx) => {
+          const viewstorDiags = ctx.diagnostics.filter(d => d.source === 'viewstor');
+          if (viewstorDiags.length === 0) return [];
+
+          const connId = this.queryEditorProvider.getConnectionIdFromUri(document.uri);
+          if (!connId) return [];
+
+          const explainAction = new vscode.CodeAction('See EXPLAIN plan', vscode.CodeActionKind.QuickFix);
+          explainAction.command = {
+            command: 'viewstor._showExplain',
+            title: 'See EXPLAIN plan',
+            arguments: [connId, document.getText()],
+          };
+          explainAction.diagnostics = viewstorDiags;
+          explainAction.isPreferred = false;
+          return [explainAction];
+        },
+      }),
+    );
+
+    // Register the EXPLAIN command
+    context.subscriptions.push(
+      vscode.commands.registerCommand('viewstor._showExplain', async (connectionId: string, query: string) => {
+        const driver = this.connectionManager.getDriver(connectionId);
+        if (!driver) return;
+        try {
+          const result = await driver.execute('EXPLAIN ' + query.trim().replace(/;+\s*$/, ''));
+          const plan = result.rows.map(r => Object.values(r).join(' ')).join('\n');
+          const doc = await vscode.workspace.openTextDocument({
+            content: `-- EXPLAIN plan\n-- Query: ${query.trim().substring(0, 100)}...\n\n${plan}`,
+            language: 'plaintext',
+          });
+          await vscode.window.showTextDocument(doc, { preview: true });
+        } catch (err) {
+          vscode.window.showErrorMessage(`EXPLAIN failed: ${err instanceof Error ? err.message : err}`);
+        }
+      }),
     );
   }
 
