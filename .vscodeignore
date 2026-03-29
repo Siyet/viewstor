@@ -1,0 +1,17 @@
+.vscode/**
+.github/**
+.claude/**
+src/**
+l10n/nls/**
+node_modules/**
+*.vsix
+.gitignore
+.eslintrc.json
+tsconfig.json
+tsconfig.test.json
+vitest.config.ts
+vitest.e2e.config.ts
+webpack.config.js
+package-lock.json
+CLAUDE.md
+tmp/**
