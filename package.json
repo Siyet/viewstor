@@ -29,7 +29,9 @@
   "l10n": "./l10n",
   "main": "./dist/extension.js",
   "scripts": {
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "npm run copy-nls && npm run build",
+    "postinstall": "npm run copy-nls",
+    "copy-nls": "node -e \"fs=require('fs');p=require('path');d='l10n/nls';fs.readdirSync(d).filter(f=>f.startsWith('package.nls')).forEach(f=>fs.copyFileSync(p.join(d,f),f))\"",
     "build": "webpack --mode production",
     "watch": "webpack --mode development --watch",
     "dev": "webpack --mode development",

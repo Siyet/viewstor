@@ -190,7 +190,7 @@ Unit tests use [vitest](https://vitest.dev/). E2E tests use [testcontainers](htt
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md).
 
 ## License
 

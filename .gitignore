@@ -6,3 +6,6 @@ dist/
 *.log
 .env
 .claude
+
+# NLS files copied from l10n/nls/ at install time
+/package.nls*.json
