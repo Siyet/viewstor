@@ -15,95 +15,31 @@
 </p>
 
 <p align="center">
-  Browse schemas, write queries, inspect data — across PostgreSQL, Redis, and ClickHouse.
+  <b>PostgreSQL + Redis + ClickHouse in one extension.<br>Free. Open source. No paywalls.</b>
 </p>
 
-## Supported Databases
+---
 
-| Database | Protocol | Library |
-|---|---|---|
-| PostgreSQL | TCP | [pg](https://www.npmjs.com/package/pg) |
-| Redis | TCP | [ioredis](https://www.npmjs.com/package/ioredis) |
-| ClickHouse | HTTP | [@clickhouse/client](https://www.npmjs.com/package/@clickhouse/client) |
+## Why Viewstor?
 
-## Features
+Database extensions for VS Code are either locked to one database, or freemium with crippled free tiers (limited connections, no export, closed source). Switching between DBeaver and VS Code breaks flow. DataGrip costs money.
 
-### Connections
-- Nested folders with drag-and-drop for connections and folders
-- Multi-database — list several databases in one connection, each shown as a separate node
-- Color coding — theme-aware palette (ANSI terminal colors) or random generator, tints folder/connection icons
-- Read-only mode — per connection or folder (inherited by child connections)
-- Import from **DBeaver** (`data-sources.json`), **DataGrip** (`dataSources.xml`), **pgAdmin** (`servers.json`)
-- Database field autocomplete — fetches available databases from the server on focus
+Viewstor is a free, open-source extension that covers PostgreSQL, Redis, and ClickHouse in a single tool — with features you won't find elsewhere:
 
-### Schema Browser
-- Tree view: databases → schemas → tables, views, indexes, triggers, sequences
-- Auto-collapse single-database and single-schema levels
-- Hide schemas and databases from context menu, restore with "Show All Hidden"
-- Inaccessible objects (no permissions) rendered in error color
+| | Viewstor | Database Client | SQLTools | DBCode |
+|---|---|---|---|---|
+| **Price** | Free forever | Freemium | Free | Freemium |
+| **Open source** | AGPL-3.0 | Closed (since v4.7) | MIT | Closed |
+| **PG + Redis + CH** | All free | Free tier limits | No Redis | Redis/CH paid |
+| **Safe mode** | Block / Warn / Off | No | No | No |
+| **MCP for AI agents** | Built-in, free | No | No | Paid tier |
+| **Import from DBeaver/DataGrip/pgAdmin** | Yes | No | No | No |
+| **Index hints** | Yes | No | No | No |
+| **Color-coded folders** | Nested, inherited | No | No | No |
 
-### Query Editor
-- Per-connection SQL tabs (`Ctrl+Enter` / `Cmd+Enter` to execute)
-- **SQL autocomplete** — tables after `FROM`/`JOIN`, columns from referenced tables only, `table.column` dot trigger, alias support, SQL keywords
-- **Index hints** — warning underline when `WHERE` or `ORDER BY` columns lack an index
-- Cancel running queries (PostgreSQL: `pg_cancel_backend`, ClickHouse: `AbortController`)
+## Get Started
 
-### Result Grid
-- Server-side pagination (50 / 100 / 500 / 1000 rows per page)
-- Estimated row count from statistics (`~N rows`), exact count via refresh button
-- Inline editing with PK-based `UPDATE` (disabled in read-only mode)
-- Column sorting (click header, shift-click for multi-column)
-- Search with `Ctrl+F`, Enter to cycle matches (`i / N`)
-- Cell selection — click, drag, Shift+Click range, resize handle on bottom-right corner
-- Unified selection border (group outline, not per-cell)
-- Row numbers pinned to the left
-
-### Export & Copy
-- Export dialog — CSV, TSV, JSON, Markdown — exports **all** rows (not just current page)
-- Right-click cells → Copy / Copy as CSV / Copy as TSV / Copy as Markdown / Copy as JSON
-- `Ctrl+C` copies selected cells as TSV
-
-### JSON
-- Double-click JSON/JSONB cells to open editable popup
-- PostgreSQL arrays displayed with `{curly braces}`
-
-### DDL
-- Right-click table/view/index/trigger/sequence → Show DDL
-
-### AI Agent Integration (MCP)
-
-Commands for Claude Code, Cursor, Copilot, and other AI tools:
-
-| Command | Description |
-|---|---|
-| `viewstor.mcp.listConnections` | List all connections with status |
-| `viewstor.mcp.getSchema` | Flattened schema tree (tables, columns, types) |
-| `viewstor.mcp.executeQuery` | Execute SQL (read-only mode enforced) |
-| `viewstor.mcp.getTableData` | Fetch rows with configurable limit |
-| `viewstor.mcp.getTableInfo` | Column metadata, types, primary keys |
-
-All commands auto-connect and return structured JSON. Read-only connections block mutations.
-
-### Other
-- Query history with execution time, row count, errors
-- Report Issue — opens GitHub issue with pre-filled environment info
-- Redis — inspect strings, lists, sets, sorted sets, hashes
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|---|---|
-| `Ctrl+Enter` / `Cmd+Enter` | Run query (or selected text) |
-| `Ctrl+F` / `Cmd+F` | Focus search in data table |
-| `Enter` (in search) | Next match |
-| `Ctrl+C` / `Cmd+C` | Copy selected cells |
-| `Esc` | Close popups |
-
-All shortcuts work on any keyboard layout (uses physical key codes).
-
-## Installation
-
-> Not yet on the VS Code Marketplace. Install from source or `.vsix`.
+> Not yet on the VS Code Marketplace. Install from `.vsix`:
 
 ```bash
 git clone https://github.com/Siyet/viewstor.git
@@ -112,6 +48,115 @@ npm install
 npm run package
 code --install-extension viewstor-0.1.0.vsix
 ```
+
+**Or press F5** in VS Code to launch the Extension Development Host.
+
+### Migrating from another tool?
+
+`Ctrl+Shift+P` → **Viewstor: Import Connections** → pick your format:
+- **DBeaver** — `data-sources.json`
+- **DataGrip** — `dataSources.xml`
+- **pgAdmin** — `servers.json`
+
+Passwords are excluded for security — you'll enter them on first connect.
+
+---
+
+## Features
+
+### Safe Mode
+
+Production databases deserve guardrails. Safe mode runs `EXPLAIN` before every `SELECT` and catches sequential scans on large tables:
+
+| Mode | Behavior |
+|---|---|
+| **Block** | Blocks queries with Seq Scan. Shows EXPLAIN plan |
+| **Warn** | Warning with "Run Anyway" / "See EXPLAIN" / "Cancel" |
+| **Off** | No checks |
+
+Set globally in settings or per connection. Auto-adds `LIMIT` to SELECTs that don't have one.
+
+### Read-only Mode
+
+Mark a connection or an entire folder as read-only. Child connections inherit the setting. Mutations are blocked in the query editor, result grid, and MCP commands.
+
+### Connections
+
+- **Nested folders** with drag-and-drop for connections and folders
+- **Multi-database** — list several databases in one connection, each as a separate tree node
+- **Color coding** — theme-aware palette or hex picker, tints icons; folders pass color to children
+- **SSL** and **SSH tunnel** / **SOCKS5 proxy** support
+
+### Schema Browser
+
+- Tree: databases → schemas → tables, views, indexes, triggers, sequences
+- Auto-collapse single-database and single-schema levels
+- Hide schemas/databases from context menu
+- Inaccessible objects (no permissions) rendered in error color
+
+### Query Editor
+
+- Per-connection SQL tabs (`Ctrl+Enter` to execute)
+- **SQL autocomplete** — context-aware: tables after `FROM`/`JOIN`, columns from referenced tables, `table.column` dot trigger, alias resolution
+- **Index hints** — warning diagnostics on `WHERE`/`ORDER BY` columns without an index
+- Cancel running queries (PG: `pg_cancel_backend`, CH: `AbortController`)
+
+### Result Grid
+
+- Server-side pagination (50 / 100 / 500 / 1000 rows)
+- Estimated row count from statistics, exact count via refresh
+- Inline editing with PK-based `UPDATE` (disabled in read-only)
+- Column sorting (shift-click for multi-column)
+- Cell selection with drag, Shift+Click range, resize handle
+- Search with `Ctrl+F`, Enter to cycle matches
+
+### Export & Copy
+
+- Export all rows (not just current page) — CSV, TSV, JSON, Markdown
+- Right-click cells → Copy as CSV / TSV / Markdown / JSON
+- `Ctrl+C` copies selected cells as TSV
+
+### AI Agent Integration (MCP)
+
+Five commands for Claude Code, Cursor, Copilot, and other MCP-capable tools:
+
+| Command | What it does |
+|---|---|
+| `viewstor.mcp.listConnections` | List connections with status |
+| `viewstor.mcp.getSchema` | Flattened schema (tables, columns, types) |
+| `viewstor.mcp.executeQuery` | Run SQL (read-only enforced) |
+| `viewstor.mcp.getTableData` | Fetch rows with limit |
+| `viewstor.mcp.getTableInfo` | Column metadata, PKs, nullability |
+
+All commands auto-connect and respect read-only mode.
+
+### Other
+
+- Query history with execution time and row count
+- DDL viewer for tables, views, indexes, triggers, sequences
+- JSON/JSONB cell editor (double-click to open)
+- PostgreSQL arrays displayed with `{curly braces}`
+- Redis — inspect strings, lists, sets, sorted sets, hashes
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Enter` / `Cmd+Enter` | Run query (or selected text) |
+| `Ctrl+F` / `Cmd+F` | Search in result grid |
+| `Enter` (in search) | Next match |
+| `Ctrl+C` / `Cmd+C` | Copy selected cells |
+| `Esc` | Close popups |
+
+All shortcuts use physical key codes — work on any keyboard layout.
+
+## Supported Databases
+
+| Database | Protocol | Library |
+|---|---|---|
+| PostgreSQL | TCP | [pg](https://www.npmjs.com/package/pg) |
+| Redis | TCP | [ioredis](https://www.npmjs.com/package/ioredis) |
+| ClickHouse | HTTP | [@clickhouse/client](https://www.npmjs.com/package/@clickhouse/client) |
 
 ## Development
 
@@ -134,8 +179,6 @@ npm run test:e2e     # e2e tests (Docker required)
 npm run package      # .vsix package
 ```
 
-Press **F5** to launch Extension Development Host.
-
 ### Testing
 
 Unit tests use [vitest](https://vitest.dev/). E2E tests use [testcontainers](https://www.npmjs.com/package/testcontainers) to spin up PostgreSQL, Redis, and ClickHouse in Docker. Auto-skipped if Docker is unavailable.
@@ -144,23 +187,6 @@ Unit tests use [vitest](https://vitest.dev/). E2E tests use [testcontainers](htt
 
 - **CI** (on PR, trunk push, tags): lint → unit tests → build → `npm audit`
 - **Release** (on `v*` tag): build → test → publish to Marketplace → GitHub Release with `.vsix`
-
-## Project Structure
-
-```
-src/
-├── commands/          # All viewstor.* command handlers
-├── connections/       # ConnectionManager (globalState, drivers, folders)
-├── drivers/           # PostgreSQL, Redis, ClickHouse implementations
-├── editors/           # Query editor, SQL autocomplete, index hints
-├── mcp/               # AI agent integration (MCP commands)
-├── services/          # Export (CSV/TSV/JSON/MD) and import (DBeaver/DataGrip/pgAdmin)
-├── types/             # ConnectionConfig, DatabaseDriver, QueryResult, SchemaObject
-├── views/             # Tree provider, result panel, connection/folder forms
-├── webview/           # Static CSS/JS for webview panels
-├── test/              # Unit tests + e2e/ (testcontainers)
-└── extension.ts       # Entry point
-```
 
 ## Contributing
 

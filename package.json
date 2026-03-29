@@ -1,7 +1,7 @@
 {
   "name": "viewstor",
   "displayName": "Viewstor",
-  "description": "Database management tool for VS Code — browse schemas, run queries, and inspect data across PostgreSQL, Redis, and ClickHouse.",
+  "description": "%extension.description%",
   "version": "0.1.0",
   "publisher": "viewstor",
   "license": "AGPL-3.0",
@@ -26,6 +26,7 @@
     "query",
     "schema"
   ],
+  "l10n": "./l10n",
   "main": "./dist/extension.js",
   "scripts": {
     "vscode:prepublish": "npm run build",
@@ -56,139 +57,139 @@
       "viewstor": [
         {
           "id": "viewstor.connections",
-          "name": "Connections"
+          "name": "%view.connections.name%"
         },
         {
           "id": "viewstor.queryHistory",
-          "name": "Query History"
+          "name": "%view.queryHistory.name%"
         }
       ]
     },
     "commands": [
       {
         "command": "viewstor.addConnection",
-        "title": "Add Connection",
+        "title": "%command.addConnection%",
         "category": "Viewstor",
         "icon": "$(add)"
       },
       {
         "command": "viewstor.removeConnection",
-        "title": "Remove Connection",
+        "title": "%command.removeConnection%",
         "category": "Viewstor",
         "icon": "$(trash)"
       },
       {
         "command": "viewstor.editConnection",
-        "title": "Edit Connection",
+        "title": "%command.editConnection%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.connect",
-        "title": "Connect",
+        "title": "%command.connect%",
         "category": "Viewstor",
         "icon": "$(plug)"
       },
       {
         "command": "viewstor.disconnect",
-        "title": "Disconnect",
+        "title": "%command.disconnect%",
         "category": "Viewstor",
         "icon": "$(debug-disconnect)"
       },
       {
         "command": "viewstor.refreshConnection",
-        "title": "Refresh",
+        "title": "%command.refresh%",
         "category": "Viewstor",
         "icon": "$(refresh)"
       },
       {
         "command": "viewstor.openQuery",
-        "title": "New Query",
+        "title": "%command.openQuery%",
         "category": "Viewstor",
         "icon": "$(file-code)"
       },
       {
         "command": "viewstor.runQuery",
-        "title": "Run Query",
+        "title": "%command.runQuery%",
         "category": "Viewstor",
         "icon": "$(play)"
       },
       {
         "command": "viewstor.exportResults",
-        "title": "Export Results",
+        "title": "%command.exportResults%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.showTableData",
-        "title": "Show Table Data",
+        "title": "%command.showTableData%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.showDDL",
-        "title": "Show DDL",
+        "title": "%command.showDDL%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.createFolder",
-        "title": "Create Folder",
+        "title": "%command.createFolder%",
         "category": "Viewstor",
         "icon": "$(new-folder)"
       },
       {
         "command": "viewstor.editFolder",
-        "title": "Folder Settings",
+        "title": "%command.editFolder%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.importConnections",
-        "title": "Import Connections",
+        "title": "%command.importConnections%",
         "category": "Viewstor",
         "icon": "$(cloud-download)"
       },
       {
         "command": "viewstor.hideSchema",
-        "title": "Hide Schema",
+        "title": "%command.hideSchema%",
         "category": "Viewstor",
         "icon": "$(eye-closed)"
       },
       {
         "command": "viewstor.hideDatabase",
-        "title": "Hide Database",
+        "title": "%command.hideDatabase%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.showAllSchemas",
-        "title": "Show All Hidden",
+        "title": "%command.showAllSchemas%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.reportIssue",
-        "title": "Report Issue",
+        "title": "%command.reportIssue%",
         "category": "Viewstor",
         "icon": "$(github)"
       },
       {
         "command": "viewstor.copyName",
-        "title": "Copy Name",
+        "title": "%command.copyName%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.renameObject",
-        "title": "Rename...",
+        "title": "%command.renameObject%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.createObject",
-        "title": "Create...",
+        "title": "%command.createObject%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.dropObject",
-        "title": "Drop...",
+        "title": "%command.dropObject%",
         "category": "Viewstor"
       },
       {
         "command": "viewstor.deleteFolder",
-        "title": "Delete Folder",
+        "title": "%command.deleteFolder%",
         "category": "Viewstor"
       }
     ],
@@ -320,7 +321,7 @@
             500,
             1000
           ],
-          "description": "Default number of rows per page when viewing table data."
+          "description": "%config.defaultPageSize.description%"
         },
         "viewstor.safeMode": {
           "type": "string",
@@ -331,21 +332,21 @@
             "block"
           ],
           "enumDescriptions": [
-            "No safety checks",
-            "Warn on Seq Scan, auto-add LIMIT (default)",
-            "Block queries with Seq Scan"
+            "%config.safeMode.off%",
+            "%config.safeMode.warn%",
+            "%config.safeMode.block%"
           ],
-          "description": "Safe mode: auto-add LIMIT to SELECT queries without one, run EXPLAIN to detect Seq Scans."
+          "description": "%config.safeMode.description%"
         },
         "viewstor.indexHintThreshold": {
           "type": "number",
           "default": 100000,
-          "description": "Minimum estimated row count to show missing index warnings. Tables smaller than this are ignored."
+          "description": "%config.indexHintThreshold.description%"
         },
         "viewstor.confirmEdits": {
           "type": "boolean",
           "default": true,
-          "description": "Show SQL and ask for confirmation before saving inline edits to the database."
+          "description": "%config.confirmEdits.description%"
         }
       }
     },

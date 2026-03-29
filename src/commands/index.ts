@@ -49,10 +49,11 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       if (!item?.connectionId) return;
       const state = connectionManager.get(item.connectionId);
       if (!state) return;
+      const removeBtn = vscode.l10n.t('Remove');
       const confirm = await vscode.window.showWarningMessage(
-        `Remove connection "${state.config.name}"?`, { modal: true }, 'Remove'
+        vscode.l10n.t('Remove connection "{0}"?', state.config.name), { modal: true }, removeBtn
       );
-      if (confirm !== 'Remove') return;
+      if (confirm !== removeBtn) return;
       await connectionManager.remove(item.connectionId);
     }),
 
@@ -67,11 +68,11 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       if (!item?.connectionId) return;
       try {
         await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: 'Connecting...' },
+          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Connecting...') },
           () => connectionManager.connect(item.connectionId!)
         );
       } catch (err) {
-        vscode.window.showErrorMessage(`Connection failed: ${err instanceof Error ? err.message : err}`);
+        vscode.window.showErrorMessage(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
@@ -91,7 +92,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         try {
           await connectionManager.connect(item.connectionId);
         } catch (err) {
-          vscode.window.showErrorMessage(`Connection failed: ${err instanceof Error ? err.message : err}`);
+          vscode.window.showErrorMessage(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
           return;
         }
       }
@@ -104,13 +105,13 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 
       const connectionId = queryEditorProvider.getConnectionIdFromUri(editor.document.uri);
       if (!connectionId) {
-        vscode.window.showWarningMessage('No connection associated with this query tab.');
+        vscode.window.showWarningMessage(vscode.l10n.t('No connection associated with this query tab.'));
         return;
       }
 
       const driver = connectionManager.getDriver(connectionId);
       if (!driver) {
-        vscode.window.showWarningMessage('Not connected. Please connect first.');
+        vscode.window.showWarningMessage(vscode.l10n.t('Not connected. Please connect first.'));
         return;
       }
 
@@ -146,29 +147,34 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
             const tableName = seqMatch ? seqMatch[1] : 'unknown';
 
             // Create a diagnostic with the EXPLAIN plan attached for AI agents
-            const message = `Seq Scan on "${tableName}" — may be slow on large tables.`;
+            const message = vscode.l10n.t('Seq Scan on "{0}" — may be slow on large tables.', tableName);
 
             if (safeMode === 'block') {
+              const seeExplainBtn = vscode.l10n.t('See EXPLAIN');
+              const cancelBtn = vscode.l10n.t('Cancel');
               const action = await vscode.window.showErrorMessage(
-                `Blocked: ${message}`,
-                'See EXPLAIN', 'Cancel'
+                vscode.l10n.t('Blocked: {0}', message),
+                seeExplainBtn, cancelBtn
               );
-              if (action === 'See EXPLAIN') {
+              if (action === seeExplainBtn) {
                 const doc = await vscode.workspace.openTextDocument({ content: plan, language: 'plaintext' });
                 await vscode.window.showTextDocument(doc, { preview: true });
               }
               return;
             } else {
+              const runAnywayBtn = vscode.l10n.t('Run Anyway');
+              const seeExplainBtn2 = vscode.l10n.t('See EXPLAIN');
+              const cancelBtn2 = vscode.l10n.t('Cancel');
               const action = await vscode.window.showWarningMessage(
                 message,
-                'Run Anyway', 'See EXPLAIN', 'Cancel'
+                runAnywayBtn, seeExplainBtn2, cancelBtn2
               );
-              if (action === 'See EXPLAIN') {
+              if (action === seeExplainBtn2) {
                 const doc = await vscode.workspace.openTextDocument({ content: plan, language: 'plaintext' });
                 await vscode.window.showTextDocument(doc, { preview: true });
                 return;
               }
-              if (action !== 'Run Anyway') return;
+              if (action !== runAnywayBtn) return;
             }
           }
         } catch { /* EXPLAIN failed — proceed anyway */ }
@@ -176,7 +182,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 
       try {
         const result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: 'Running query...' },
+          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running query...') },
           () => driver.execute(finalQuery)
         );
 
@@ -205,7 +211,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 
     vscode.commands.registerCommand('viewstor.exportResults', async (resultData?: { columns: QueryColumn[]; rows: Record<string, unknown>[]; format?: string }) => {
       if (!resultData || !resultData.columns || resultData.columns.length === 0) {
-        vscode.window.showWarningMessage('No data to export.');
+        vscode.window.showWarningMessage(vscode.l10n.t('No data to export.'));
         return;
       }
       const result: QueryResult = {
@@ -234,10 +240,10 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
 
       const action = await vscode.window.showQuickPick([
-        { label: 'Open in Editor', value: 'editor' },
-        { label: 'Save to File', value: 'file' },
-        { label: 'Copy to Clipboard', value: 'clipboard' },
-      ], { placeHolder: 'Action' });
+        { label: vscode.l10n.t('Open in Editor'), value: 'editor' },
+        { label: vscode.l10n.t('Save to File'), value: 'file' },
+        { label: vscode.l10n.t('Copy to Clipboard'), value: 'clipboard' },
+      ], { placeHolder: vscode.l10n.t('Action') });
       if (!action) return;
 
       switch (action.value) {
@@ -252,13 +258,13 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           const uri = await vscode.window.showSaveDialog({ filters: { [label]: [ext] } });
           if (uri) {
             await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
-            vscode.window.showInformationMessage(`Exported to ${uri.fsPath}`);
+            vscode.window.showInformationMessage(vscode.l10n.t('Exported to {0}', uri.fsPath));
           }
           break;
         }
         case 'clipboard':
           await vscode.env.clipboard.writeText(content);
-          vscode.window.showInformationMessage('Copied to clipboard');
+          vscode.window.showInformationMessage(vscode.l10n.t('Copied to clipboard'));
           break;
       }
     }),
@@ -289,7 +295,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         }
 
         const result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: `Loading ${item.schemaObject.name}...` },
+          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Loading {0}...', item.schemaObject.name) },
           () => driver.getTableData(item.schemaObject!.name, item.schemaObject!.schema, pageSize, 0),
         );
         const state = connectionManager.get(item.connectionId);
@@ -303,7 +309,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           pkColumns, color, readonly, pageSize, currentPage: 0, totalRowCount, isEstimatedCount,
         });
       } catch (err) {
-        vscode.window.showErrorMessage(`Failed to load data: ${err instanceof Error ? err.message : err}`);
+        vscode.window.showErrorMessage(vscode.l10n.t('Failed to load data: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
@@ -329,7 +335,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const offset = page * pageSize;
 
         const result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: `Loading ${tableName}...` },
+          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Loading {0}...', tableName) },
           () => driver.getTableData(tableName, schema, pageSize, offset, orderBy),
         );
         const state = connectionManager.get(connectionId);
@@ -341,7 +347,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           pageSize, currentPage: page, totalRowCount, isEstimatedCount,
         });
       } catch (err) {
-        vscode.window.showErrorMessage(`Failed to load data: ${err instanceof Error ? err.message : err}`);
+        vscode.window.showErrorMessage(vscode.l10n.t('Failed to load data: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
@@ -351,7 +357,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 
       try {
         const result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: `Exporting ${tableName}...`, cancellable: false },
+          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Exporting {0}...', tableName), cancellable: false },
           () => customQuery
             ? driver.execute(customQuery.replace(/LIMIT\s+\d+/i, 'LIMIT 100000'))
             : driver.getTableData(tableName, schema, 100000, 0, orderBy),
@@ -373,10 +379,10 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         }
 
         const action = await vscode.window.showQuickPick([
-          { label: 'Open in Editor', value: 'editor' },
-          { label: 'Save to File', value: 'file' },
-          { label: 'Copy to Clipboard', value: 'clipboard' },
-        ], { placeHolder: 'Action' });
+          { label: vscode.l10n.t('Open in Editor'), value: 'editor' },
+          { label: vscode.l10n.t('Save to File'), value: 'file' },
+          { label: vscode.l10n.t('Copy to Clipboard'), value: 'clipboard' },
+        ], { placeHolder: vscode.l10n.t('Action') });
         if (!action) return;
 
         switch (action.value) {
@@ -391,17 +397,17 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
             const uri = await vscode.window.showSaveDialog({ filters: { [label]: [ext] } });
             if (uri) {
               await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
-              vscode.window.showInformationMessage(`Exported to ${uri.fsPath}`);
+              vscode.window.showInformationMessage(vscode.l10n.t('Exported to {0}', uri.fsPath));
             }
             break;
           }
           case 'clipboard':
             await vscode.env.clipboard.writeText(content);
-            vscode.window.showInformationMessage('Copied to clipboard');
+            vscode.window.showInformationMessage(vscode.l10n.t('Copied to clipboard'));
             break;
         }
       } catch (err) {
-        vscode.window.showErrorMessage(`Export failed: ${err instanceof Error ? err.message : err}`);
+        vscode.window.showErrorMessage(vscode.l10n.t('Export failed: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
@@ -429,16 +435,19 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const doc = await vscode.workspace.openTextDocument({ content: fullSql, language: 'sql' });
         const editor = await vscode.window.showTextDocument(doc, { preview: false });
 
+        const executeBtn = vscode.l10n.t('Execute');
+        const dontAskBtn = vscode.l10n.t('Don\'t ask again');
+        const cancelBtn = vscode.l10n.t('Cancel');
         const action = await vscode.window.showWarningMessage(
-          `Execute ${statements.length} UPDATE statement(s)?`,
-          'Execute', 'Don\'t ask again', 'Cancel'
+          vscode.l10n.t('Execute {0} UPDATE statement(s)?', statements.length),
+          executeBtn, dontAskBtn, cancelBtn
         );
 
-        if (action === 'Don\'t ask again') {
+        if (action === dontAskBtn) {
           await vscode.workspace.getConfiguration('viewstor').update('confirmEdits', false, vscode.ConfigurationTarget.Global);
         }
 
-        if (action !== 'Execute' && action !== 'Don\'t ask again') {
+        if (action !== executeBtn && action !== dontAskBtn) {
           return;
         }
 
@@ -453,9 +462,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         }
 
         if (errors.length > 0) {
-          vscode.window.showErrorMessage(`Save errors: ${errors.join('; ')}`);
+          vscode.window.showErrorMessage(vscode.l10n.t('Save errors: {0}', errors.join('; ')));
         } else {
-          vscode.window.showInformationMessage(`${editedStatements.length} row(s) saved.`);
+          vscode.window.showInformationMessage(vscode.l10n.t('{0} row(s) saved.', editedStatements.length));
         }
       } else {
         // Execute without confirmation
@@ -466,9 +475,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         }
 
         if (errors.length > 0) {
-          vscode.window.showErrorMessage(`Save errors: ${errors.join('; ')}`);
+          vscode.window.showErrorMessage(vscode.l10n.t('Save errors: {0}', errors.join('; ')));
         } else {
-          vscode.window.showInformationMessage(`${statements.length} row(s) saved.`);
+          vscode.window.showInformationMessage(vscode.l10n.t('{0} row(s) saved.', statements.length));
         }
       }
     }),
@@ -488,7 +497,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         }
 
         const result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: 'Running query...' },
+          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running query...') },
           () => driver.execute(displayQuery),
         );
         const state = connectionManager.get(connectionId);
@@ -503,7 +512,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           query,
         });
       } catch (err) {
-        vscode.window.showErrorMessage(`Query failed: ${err instanceof Error ? err.message : err}`);
+        vscode.window.showErrorMessage(vscode.l10n.t('Query failed: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
@@ -512,9 +521,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       if (driver?.cancelQuery) {
         try {
           await driver.cancelQuery();
-          vscode.window.showInformationMessage('Query cancelled.');
+          vscode.window.showInformationMessage(vscode.l10n.t('Query cancelled.'));
         } catch (err) {
-          vscode.window.showWarningMessage(`Cancel failed: ${err instanceof Error ? err.message : err}`);
+          vscode.window.showWarningMessage(vscode.l10n.t('Cancel failed: {0}', err instanceof Error ? err.message : String(err)));
         }
       }
     }),
@@ -526,7 +535,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const count = await driver.getTableRowCount(tableName, schema);
         resultPanelManager.postMessage(panelKey, { type: 'updateRowCount', count });
       } catch (err) {
-        vscode.window.showErrorMessage(`Failed to count rows: ${err instanceof Error ? err.message : err}`);
+        vscode.window.showErrorMessage(vscode.l10n.t('Failed to count rows: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
@@ -542,7 +551,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       if (!item?.connectionId || !item.schemaObject) return;
       const driver = connectionManager.getDriver(item.connectionId);
       if (!driver || !driver.getDDL) {
-        vscode.window.showWarningMessage('DDL generation is not supported for this connection type.');
+        vscode.window.showWarningMessage(vscode.l10n.t('DDL generation is not supported for this connection type.'));
         return;
       }
       try {
@@ -550,7 +559,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const doc = await vscode.workspace.openTextDocument({ content: ddl, language: 'sql' });
         await vscode.window.showTextDocument(doc, { preview: true });
       } catch (err) {
-        vscode.window.showErrorMessage(`Failed to get DDL: ${err instanceof Error ? err.message : err}`);
+        vscode.window.showErrorMessage(vscode.l10n.t('Failed to get DDL: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
@@ -569,10 +578,11 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 
     vscode.commands.registerCommand('viewstor.deleteFolder', async (item?: ConnectionTreeItem) => {
       if (!item?.folderId) return;
+      const deleteBtn = vscode.l10n.t('Delete');
       const confirm = await vscode.window.showWarningMessage(
-        'Delete this folder? Connections will be moved to root.', { modal: true }, 'Delete'
+        vscode.l10n.t('Delete this folder? Connections will be moved to root.'), { modal: true }, deleteBtn
       );
-      if (confirm !== 'Delete') return;
+      if (confirm !== deleteBtn) return;
       await connectionManager.removeFolder(item.folderId);
     }),
 
@@ -581,7 +591,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         { label: 'DBeaver', description: 'data-sources.json', value: 'dbeaver' as ImportSource },
         { label: 'DataGrip', description: 'dataSources.xml', value: 'datagrip' as ImportSource },
         { label: 'pgAdmin', description: 'servers.json', value: 'pgadmin' as ImportSource },
-      ], { placeHolder: 'Import connections from...' });
+      ], { placeHolder: vscode.l10n.t('Import connections from...') });
       if (!source) return;
 
       const filters: Record<string, string[]> = {
@@ -608,7 +618,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
 
       if (result.connections.length === 0) {
-        vscode.window.showInformationMessage('No compatible connections found.');
+        vscode.window.showInformationMessage(vscode.l10n.t('No compatible connections found.'));
         return;
       }
 
@@ -619,7 +629,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           picked: true,
           connection: c,
         })),
-        { canPickMany: true, placeHolder: `Found ${result.connections.length} connection(s). Select to import:` },
+        { canPickMany: true, placeHolder: vscode.l10n.t('Found {0} connection(s). Select to import:', result.connections.length) },
       );
       if (!pick || pick.length === 0) return;
 
@@ -627,7 +637,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         await connectionManager.add(item.connection);
       }
 
-      vscode.window.showInformationMessage(`Imported ${pick.length} connection(s). Passwords must be entered manually.`);
+      vscode.window.showInformationMessage(vscode.l10n.t('Imported {0} connection(s). Passwords must be entered manually.', pick.length));
     }),
 
     vscode.commands.registerCommand('viewstor.hideSchema', async (item?: ConnectionTreeItem) => {
@@ -659,7 +669,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       const name = item?.schemaObject?.name || item?.label?.toString() || '';
       if (name) {
         await vscode.env.clipboard.writeText(name);
-        vscode.window.showInformationMessage(`Copied: ${name}`);
+        vscode.window.showInformationMessage(vscode.l10n.t('Copied: {0}', name));
       }
     }),
 

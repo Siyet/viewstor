@@ -29,10 +29,10 @@ export class IndexHintProvider {
           const connId = this.queryEditorProvider.getConnectionIdFromUri(document.uri);
           if (!connId) return [];
 
-          const explainAction = new vscode.CodeAction('See EXPLAIN plan', vscode.CodeActionKind.QuickFix);
+          const explainAction = new vscode.CodeAction(vscode.l10n.t('See EXPLAIN plan'), vscode.CodeActionKind.QuickFix);
           explainAction.command = {
             command: 'viewstor._showExplain',
-            title: 'See EXPLAIN plan',
+            title: vscode.l10n.t('See EXPLAIN plan'),
             arguments: [connId, document.getText()],
           };
           explainAction.diagnostics = viewstorDiags;
@@ -56,7 +56,7 @@ export class IndexHintProvider {
           });
           await vscode.window.showTextDocument(doc, { preview: true });
         } catch (err) {
-          vscode.window.showErrorMessage(`EXPLAIN failed: ${err instanceof Error ? err.message : err}`);
+          vscode.window.showErrorMessage(vscode.l10n.t('EXPLAIN failed: {0}', err instanceof Error ? err.message : String(err)));
         }
       }),
     );
@@ -130,7 +130,7 @@ export class IndexHintProvider {
       if (indexed === false) {
         const range = findColumnRange(document, col.offset, col.column);
         if (range) {
-          const d = new vscode.Diagnostic(range, `Column "${col.column}" has no index`, vscode.DiagnosticSeverity.Warning);
+          const d = new vscode.Diagnostic(range, vscode.l10n.t('Column "{0}" has no index', col.column), vscode.DiagnosticSeverity.Warning);
           d.source = 'viewstor';
 
           diagnostics.push(d);
@@ -145,7 +145,7 @@ export class IndexHintProvider {
       if (indexed === false) {
         const range = findColumnRange(document, col.offset, col.column);
         if (range) {
-          const d = new vscode.Diagnostic(range, `Column "${col.column}" in ORDER BY has no index — may cause slow sorting`, vscode.DiagnosticSeverity.Warning);
+          const d = new vscode.Diagnostic(range, vscode.l10n.t('Column "{0}" in ORDER BY has no index — may cause slow sorting', col.column), vscode.DiagnosticSeverity.Warning);
           d.source = 'viewstor';
           diagnostics.push(d);
         }

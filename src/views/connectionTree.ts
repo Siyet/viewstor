@@ -40,7 +40,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         try {
           await this.connectionManager.connect(element.connectionId);
         } catch {
-          return [new ConnectionTreeItem('Connection failed', vscode.TreeItemCollapsibleState.None)];
+          return [new ConnectionTreeItem(vscode.l10n.t('Connection failed'), vscode.TreeItemCollapsibleState.None)];
         }
       }
 
@@ -82,7 +82,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         return this.createSchemaItems(schema, element.connectionId!);
       } catch (err) {
         return [new ConnectionTreeItem(
-          `Error: ${err instanceof Error ? err.message : 'Unknown'}`,
+          vscode.l10n.t('Error: {0}', err instanceof Error ? err.message : 'Unknown'),
           vscode.TreeItemCollapsibleState.None,
         )];
       }
@@ -100,7 +100,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         return this.createSchemaItems(filtered, element.connectionId);
       } catch (err) {
         return [new ConnectionTreeItem(
-          `Error: ${err instanceof Error ? err.message : 'Unknown'}`,
+          vscode.l10n.t('Error: {0}', err instanceof Error ? err.message : 'Unknown'),
           vscode.TreeItemCollapsibleState.None,
         )];
       }

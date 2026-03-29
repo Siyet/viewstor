@@ -84,10 +84,10 @@ export class ConnectionFormPanel {
 
     if (existing) {
       await this.connectionManager.update(config);
-      vscode.window.showInformationMessage(`Connection "${config.name}" updated.`);
+      vscode.window.showInformationMessage(vscode.l10n.t('Connection "{0}" updated.', config.name));
     } else {
       await this.connectionManager.add(config);
-      vscode.window.showInformationMessage(`Connection "${config.name}" added.`);
+      vscode.window.showInformationMessage(vscode.l10n.t('Connection "{0}" added.', config.name));
     }
 
     this.panel?.dispose();
@@ -102,7 +102,7 @@ export class ConnectionFormPanel {
       this.panel?.webview.postMessage({
         type: 'testResult',
         status: success ? 'success' : 'failure',
-        message: success ? 'Connection successful!' : 'Connection failed.',
+        message: success ? vscode.l10n.t('Connection successful!') : vscode.l10n.t('Connection failed.'),
       });
     } catch (err) {
       this.panel?.webview.postMessage({
