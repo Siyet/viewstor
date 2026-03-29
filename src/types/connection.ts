@@ -24,6 +24,26 @@ export interface ConnectionConfig {
   scope?: 'user' | 'project';
   /** Safe mode override per connection: 'off' | 'warn' | 'block' */
   safeMode?: 'off' | 'warn' | 'block';
+  /** Proxy/tunnel configuration */
+  proxy?: ProxyConfig;
+}
+
+export type ProxyType = 'none' | 'ssh' | 'socks5' | 'http';
+
+export interface ProxyConfig {
+  type: ProxyType;
+  /** SSH tunnel */
+  sshHost?: string;
+  sshPort?: number;
+  sshUsername?: string;
+  sshPassword?: string;
+  sshPrivateKey?: string;
+  sshPassphrase?: string;
+  /** SOCKS5 / HTTP proxy */
+  proxyHost?: string;
+  proxyPort?: number;
+  proxyUsername?: string;
+  proxyPassword?: string;
 }
 
 export interface ConnectionFolder {

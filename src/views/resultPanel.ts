@@ -14,6 +14,8 @@ export interface ShowOptions {
   totalRowCount?: number;
   isEstimatedCount?: boolean;
   orderBy?: Array<{ column: string; direction: 'asc' | 'desc' }>;
+  /** The SQL query used to fetch this data */
+  query?: string;
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 500, 1000];
@@ -91,6 +93,12 @@ export class ResultPanelManager {
             vscode.commands.executeCommand('viewstor._cancelQuery', ctx.connectionId);
           }
           break;
+        case 'runCustomQuery':
+          if (ctx.connectionId) {
+            vscode.commands.executeCommand('viewstor._runCustomTableQuery',
+              ctx.connectionId, ctx.tableName, ctx.schema, msg.query, msg.pageSize);
+          }
+          break;
         case 'saveEdits':
           vscode.commands.executeCommand('viewstor._saveEdits',
             ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.edits);
@@ -101,7 +109,7 @@ export class ResultPanelManager {
         case 'exportAllData':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._exportAllData',
-              ctx.connectionId, ctx.tableName, ctx.schema, msg.format, msg.orderBy);
+              ctx.connectionId, ctx.tableName, ctx.schema, msg.format, msg.orderBy, msg.customQuery);
           } else {
             vscode.commands.executeCommand('viewstor.exportResults',
               { columns: msg.columns, rows: msg.rows, format: msg.format });
@@ -133,13 +141,17 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     </body></html>`;
   }
 
-  const colorBorder = opts?.color ? `border-top: 3px solid ${opts.color};` : '';
-  const colorBorderBottom = opts?.color ? `border-bottom: 3px solid ${opts.color};` : '';
+  const colorBg = opts?.color ? `background: color-mix(in srgb, ${opts.color} 15%, var(--vscode-editor-background));` : '';
+  const colorBorder = opts?.color ? `border-top: 2px solid ${opts.color}; ${colorBg}` : '';
+  const colorBorderBottom = opts?.color ? `border-bottom: 2px solid ${opts.color}; ${colorBg}` : '';
   const activePageSize = opts?.pageSize || DEFAULT_PAGE_SIZE;
   const currentPage = opts?.currentPage || 0;
   const totalRowCount = opts?.totalRowCount ?? result.rows.length;
   const isEstimatedCount = !!opts?.isEstimatedCount;
   const isTableMode = !!(opts?.connectionId && opts?.tableName);
+  const defaultQuery = opts?.query || (isTableMode
+    ? `SELECT * FROM ${opts?.schema ? '"' + opts.schema + '".' : ''}"${opts?.tableName}"`
+    : '');
 
   return `<!DOCTYPE html>
 <html>
@@ -194,6 +206,10 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   .export-form label { display:block; margin-bottom:4px; font-size:12px; color:var(--vscode-descriptionForeground); }
   .export-form select { width:100%; margin-bottom:12px; }
   .export-form p { font-size:12px; color:var(--vscode-descriptionForeground); margin:0 0 12px; }
+  .query-bar { padding:4px 12px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; display:flex; gap:6px; align-items:center; }
+  .query-bar input { flex:1; font-family:var(--vscode-editor-font-family); font-size:12px; padding:4px 8px; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:2px; outline:none; }
+  .query-bar input:focus { border-color:var(--vscode-focusBorder); }
+  .query-bar button { font-size:11px; }
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:99; }
   .hidden { display:none; }
 </style>
@@ -214,6 +230,10 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     <span id="pageInfo"></span>
     <button id="nextPage">&gt;</button>
   </div>
+  ${isTableMode ? `<div class="query-bar">
+    <input type="text" id="queryInput" value="${esc(defaultQuery)}" />
+    <button id="queryRun" class="btn-primary" title="Run query (Enter)">▶</button>
+  </div>` : ''}
   <div class="container">
     <div id="loadingOverlay" class="loading-overlay hidden">
       <div style="text-align:center;">
@@ -799,7 +819,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   document.getElementById('exportConfirm').addEventListener('click', () => {
     const fmt = document.getElementById('exportFormat').value;
     if (IS_TABLE_MODE) {
-      vscode.postMessage({ type: 'exportAllData', format: fmt, orderBy: sortColumns });
+      vscode.postMessage({ type: 'exportAllData', format: fmt, orderBy: sortColumns, customQuery: customExportQuery || undefined });
     } else {
       vscode.postMessage({ type: 'exportAllData', format: fmt, columns, rows: pageRows });
     }
@@ -840,6 +860,30 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
 
   function showLoading() { document.getElementById('loadingOverlay').classList.remove('hidden'); }
   function hideLoading() { document.getElementById('loadingOverlay').classList.add('hidden'); }
+
+  // Query bar — run custom query
+  var customExportQuery = '';
+  var queryInput = document.getElementById('queryInput');
+  var queryRunBtn = document.getElementById('queryRun');
+  if (queryInput) {
+    queryInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); runCustomQuery(); }
+    });
+    queryRunBtn.addEventListener('click', runCustomQuery);
+  }
+  function runCustomQuery() {
+    if (!queryInput) return;
+    var q = queryInput.value.trim();
+    if (!q) return;
+    // Parse LIMIT from query to remember for export
+    var limitMatch = q.toUpperCase().indexOf('LIMIT') >= 0 ? q.match(/limit[^0-9]*([0-9]+)/i) : null;
+    var userLimit = limitMatch ? parseInt(limitMatch[1], 10) : 0;
+    if (userLimit > pageSize) {
+      customExportQuery = q;
+    }
+    showLoading();
+    vscode.postMessage({ type: 'runCustomQuery', query: q, pageSize: pageSize });
+  }
 
   document.getElementById('cancelQuery').addEventListener('click', () => {
     vscode.postMessage({ type: 'cancelQuery' });

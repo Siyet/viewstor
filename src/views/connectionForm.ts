@@ -154,6 +154,24 @@ export class ConnectionFormPanel {
       folderId: data.folderId || undefined,
       scope: (data.scope as 'user' | 'project') || 'user',
       safeMode: data.safeMode ? (data.safeMode as 'off' | 'warn' | 'block') : undefined,
+      proxy: data.proxyType && data.proxyType !== 'none' ? {
+        type: data.proxyType as 'ssh' | 'socks5' | 'http',
+        sshHost: data.sshHost || undefined,
+        sshPort: parseInt(data.sshPort, 10) || 22,
+        sshUsername: data.sshUsername || undefined,
+        sshPassword: data.sshPassword || undefined,
+        sshPrivateKey: data.sshPrivateKey || undefined,
+        proxyHost: data.proxyHost || undefined,
+        proxyPort: parseInt(data.proxyPort, 10) || 1080,
+        proxyUsername: data.proxyUsername || undefined,
+        proxyPassword: data.proxyPassword || undefined,
+      } : undefined,
+      hiddenSchemas: data.hiddenSchemas ? (() => {
+        const schemas = data.hiddenSchemas.split(',').map((s: string) => s.trim()).filter(Boolean);
+        if (schemas.length === 0) return undefined;
+        const db = data.database || 'default';
+        return { [db]: schemas };
+      })() : undefined,
     };
   }
 
@@ -250,6 +268,62 @@ export class ConnectionFormPanel {
     </div>
 
     <div class="form-group">
+      <label for="proxyType">Proxy / Tunnel</label>
+      <select id="proxyType">
+        <option value="none" ${(!c?.proxy || c?.proxy?.type === 'none') ? 'selected' : ''}>None</option>
+        <option value="ssh" ${c?.proxy?.type === 'ssh' ? 'selected' : ''}>SSH Tunnel</option>
+        <option value="socks5" ${c?.proxy?.type === 'socks5' ? 'selected' : ''}>SOCKS5 Proxy</option>
+        <option value="http" ${c?.proxy?.type === 'http' ? 'selected' : ''}>HTTP Proxy</option>
+      </select>
+    </div>
+
+    <div id="sshFields" class="hidden">
+      <div class="form-row">
+        <div class="form-group flex-grow">
+          <label for="sshHost">SSH Host</label>
+          <input type="text" id="sshHost" placeholder="bastion.example.com" value="${esc(c?.proxy?.sshHost)}" />
+        </div>
+        <div class="form-group port-field">
+          <label for="sshPort">SSH Port</label>
+          <input type="number" id="sshPort" value="${c?.proxy?.sshPort || 22}" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="sshUsername">SSH Username</label>
+        <input type="text" id="sshUsername" value="${esc(c?.proxy?.sshUsername)}" />
+      </div>
+      <div class="form-group">
+        <label for="sshPassword">SSH Password</label>
+        <input type="password" id="sshPassword" value="${esc(c?.proxy?.sshPassword)}" />
+      </div>
+      <div class="form-group">
+        <label for="sshPrivateKey">Private Key (paste content)</label>
+        <textarea id="sshPrivateKey" rows="3" style="width:100%;font-size:12px;font-family:monospace;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:2px;padding:6px;resize:vertical;">${esc(c?.proxy?.sshPrivateKey)}</textarea>
+      </div>
+    </div>
+
+    <div id="proxyFields" class="hidden">
+      <div class="form-row">
+        <div class="form-group flex-grow">
+          <label for="proxyHost">Proxy Host</label>
+          <input type="text" id="proxyHost" placeholder="proxy.example.com" value="${esc(c?.proxy?.proxyHost)}" />
+        </div>
+        <div class="form-group port-field">
+          <label for="proxyPort">Proxy Port</label>
+          <input type="number" id="proxyPort" value="${c?.proxy?.proxyPort || 1080}" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="proxyUsername">Proxy Username</label>
+        <input type="text" id="proxyUsername" value="${esc(c?.proxy?.proxyUsername)}" />
+      </div>
+      <div class="form-group">
+        <label for="proxyPassword">Proxy Password</label>
+        <input type="password" id="proxyPassword" value="${esc(c?.proxy?.proxyPassword)}" />
+      </div>
+    </div>
+
+    <div class="form-group">
       <label for="connColor">Color</label>
       <div class="color-row">
         <input type="color" id="connColorPicker" value="${esc(c?.color || '#1e1e1e')}" />
@@ -276,6 +350,11 @@ export class ConnectionFormPanel {
         <input type="checkbox" id="readonlyMode" ${readonlyChecked ? 'checked' : ''} />
         Read-only (disable data editing)
       </label>
+    </div>
+
+    <div class="form-group" id="hiddenSchemasGroup">
+      <label for="hiddenSchemas">Hidden schemas <small style="color:var(--vscode-descriptionForeground)">(comma-separated)</small></label>
+      <input type="text" id="hiddenSchemas" placeholder="pg_catalog, information_schema" value="${esc(c?.hiddenSchemas ? Object.values(c.hiddenSchemas).flat().join(', ') : '')}" />
     </div>
 
     <div id="testResult" class="test-result hidden"></div>

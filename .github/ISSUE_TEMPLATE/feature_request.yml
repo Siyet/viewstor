@@ -1,0 +1,32 @@
+name: Feature Request
+description: Suggest a feature for Viewstor
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      placeholder: What problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      placeholder: How should it work?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: What other approaches did you consider?
+  - type: dropdown
+    id: db-type
+    attributes:
+      label: Related database
+      options:
+        - PostgreSQL
+        - ClickHouse
+        - Redis
+        - All / General

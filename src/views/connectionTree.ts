@@ -208,7 +208,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     item.contextValue = connected ? 'connection-connected' : 'connection-disconnected';
     const iconColor = colorToThemeColor(this.connectionManager.getConnectionColor(config.id));
     item.iconPath = new vscode.ThemeIcon(connected ? 'plug' : 'circle-outline', iconColor);
-    item.description = connected ? `${config.host}:${config.port}` : 'disconnected';
+    item.description = connected ? `${config.host}:${config.port}` : '';
     item.command = { command: 'viewstor._noop', title: '' };
     return item;
   }
@@ -238,7 +238,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
       item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type));
     }
 
-    if (obj.type === 'column' && obj.detail) {
+    if (obj.detail) {
       item.description = obj.detail;
     }
 
@@ -263,7 +263,7 @@ function schemaIcon(type: SchemaObjectType): string {
     case 'keyspace': return 'folder';
     case 'trigger': return 'zap';
     case 'sequence': return 'symbol-number';
-    case 'group': return 'folder';
+    case 'group': return 'list-flat';
     default: return 'symbol-misc';
   }
 }

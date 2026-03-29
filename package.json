@@ -147,7 +147,8 @@
       {
         "command": "viewstor.hideSchema",
         "title": "Hide Schema",
-        "category": "Viewstor"
+        "category": "Viewstor",
+        "icon": "$(eye-closed)"
       },
       {
         "command": "viewstor.hideDatabase",
@@ -164,6 +165,26 @@
         "title": "Report Issue",
         "category": "Viewstor",
         "icon": "$(github)"
+      },
+      {
+        "command": "viewstor.copyName",
+        "title": "Copy Name",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.renameObject",
+        "title": "Rename...",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.createObject",
+        "title": "Create...",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.dropObject",
+        "title": "Drop...",
+        "category": "Viewstor"
       },
       {
         "command": "viewstor.deleteFolder",
@@ -185,11 +206,6 @@
         },
         {
           "command": "viewstor.importConnections",
-          "when": "view == viewstor.connections",
-          "group": "navigation"
-        },
-        {
-          "command": "viewstor.reportIssue",
           "when": "view == viewstor.connections",
           "group": "navigation"
         }
@@ -219,6 +235,26 @@
           "command": "viewstor.showDDL",
           "when": "view == viewstor.connections && viewItem =~ /^(table|view|index|trigger|sequence)$/",
           "group": "2_data"
+        },
+        {
+          "command": "viewstor.copyName",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view|column|index|trigger|sequence|schema|database)$/",
+          "group": "2_data"
+        },
+        {
+          "command": "viewstor.renameObject",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view|index|sequence|column|schema|database)$/",
+          "group": "2_data"
+        },
+        {
+          "command": "viewstor.createObject",
+          "when": "view == viewstor.connections && viewItem =~ /^(connection-connected|database|schema|table|group)$/",
+          "group": "2_data"
+        },
+        {
+          "command": "viewstor.dropObject",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view|index|trigger|sequence|schema|database)$/",
+          "group": "4_danger"
         },
         {
           "command": "viewstor.hideSchema",
@@ -278,13 +314,22 @@
         "viewstor.defaultPageSize": {
           "type": "number",
           "default": 100,
-          "enum": [50, 100, 500, 1000],
+          "enum": [
+            50,
+            100,
+            500,
+            1000
+          ],
           "description": "Default number of rows per page when viewing table data."
         },
         "viewstor.safeMode": {
           "type": "string",
           "default": "warn",
-          "enum": ["off", "warn", "block"],
+          "enum": [
+            "off",
+            "warn",
+            "block"
+          ],
           "enumDescriptions": [
             "No safety checks",
             "Warn on Seq Scan, auto-add LIMIT (default)",
@@ -296,6 +341,11 @@
           "type": "number",
           "default": 100000,
           "description": "Minimum estimated row count to show missing index warnings. Tables smaller than this are ignored."
+        },
+        "viewstor.confirmEdits": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show SQL and ask for confirmation before saving inline edits to the database."
         }
       }
     },
@@ -322,6 +372,7 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/pg": "^8.20.0",
+    "@types/ssh2": "^1.15.5",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
@@ -340,6 +391,7 @@
   "dependencies": {
     "@clickhouse/client": "^0.2.0",
     "ioredis": "^5.3.0",
-    "pg": "^8.11.0"
+    "pg": "^8.11.0",
+    "ssh2": "^1.17.0"
   }
 }

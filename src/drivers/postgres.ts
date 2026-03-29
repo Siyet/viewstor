@@ -4,6 +4,7 @@ import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { CompletionItem } from '../types/driver';
 import { SchemaObject, TableInfo, ColumnInfo } from '../types/schema';
+import { createSSHTunnel, createSocks5Connection, TunnelInfo } from '../connections/tunnel';
 
 // Return raw strings for bigint, numeric, etc. instead of JS number
 types.setTypeParser(20, (val: string) => val); // int8
@@ -12,16 +13,30 @@ types.setTypeParser(1700, (val: string) => val); // numeric
 export class PostgresDriver implements DatabaseDriver {
   private client: Client | undefined;
   private activeQueryPromise: { reject: (err: Error) => void } | undefined;
+  private tunnel: TunnelInfo | undefined;
 
   async connect(config: ConnectionConfig): Promise<void> {
+    let host = config.host;
+    let port = config.port;
+    let stream: unknown;
+
+    if (config.proxy?.type === 'ssh') {
+      this.tunnel = await createSSHTunnel(config.proxy, config.host, config.port);
+      host = this.tunnel.localHost;
+      port = this.tunnel.localPort;
+    } else if (config.proxy?.type === 'socks5') {
+      stream = await createSocks5Connection(config.proxy, config.host, config.port);
+    }
+
     this.client = new Client({
-      host: config.host,
-      port: config.port,
+      host,
+      port,
       user: config.username,
       password: config.password,
       database: config.database,
       ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
       connectionTimeoutMillis: 10000,
+      ...(stream ? { stream: () => stream as never } : {}),
     });
     await this.client.connect();
   }
@@ -29,6 +44,8 @@ export class PostgresDriver implements DatabaseDriver {
   async disconnect(): Promise<void> {
     await this.client?.end();
     this.client = undefined;
+    this.tunnel?.close();
+    this.tunnel = undefined;
   }
 
   async ping(): Promise<boolean> {
@@ -85,12 +102,14 @@ export class PostgresDriver implements DatabaseDriver {
   }
 
   async getSchema(): Promise<SchemaObject[]> {
-    // Tables
+    // Tables with estimated row counts from pg_class
     const tablesRes = await this.client!.query(`
-      SELECT schemaname, tablename
-      FROM pg_tables
-      WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-      ORDER BY schemaname, tablename
+      SELECT t.schemaname, t.tablename, GREATEST(c.reltuples::bigint, 0) AS row_estimate
+      FROM pg_tables t
+      LEFT JOIN pg_class c ON c.relname = t.tablename
+      LEFT JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
+      WHERE t.schemaname NOT IN ('pg_catalog', 'information_schema')
+      ORDER BY t.schemaname, t.tablename
     `);
 
     // Views
@@ -208,11 +227,14 @@ export class PostgresDriver implements DatabaseDriver {
       }
 
       const hasColumns = cols && cols.length > 0;
+      const rowEstimate = parseInt(row.row_estimate, 10) || 0;
+      const rowCountStr = formatRowCount(rowEstimate);
       schemas.get(schemaName)!.children!.push({
         name: row.tablename,
         type: 'table',
         schema: schemaName,
         children,
+        detail: rowCountStr,
         inaccessible: !hasColumns ? true : undefined,
       });
     }
@@ -294,7 +316,79 @@ export class PostgresDriver implements DatabaseDriver {
           colDefs.push(`  PRIMARY KEY (${[...pkColumns].map(c => `"${c}"`).join(', ')})`);
         }
 
-        return `CREATE TABLE "${schema}"."${name}" (\n${colDefs.join(',\n')}\n);`;
+        // Unique constraints
+        const uniqueRes = await this.client!.query(`
+          SELECT tc.constraint_name, array_agg(ku.column_name ORDER BY ku.ordinal_position) AS columns
+          FROM information_schema.table_constraints tc
+          JOIN information_schema.key_column_usage ku
+            ON tc.constraint_name = ku.constraint_name AND tc.table_schema = ku.table_schema
+          WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'UNIQUE'
+          GROUP BY tc.constraint_name
+        `, [schema, name]);
+        for (const r of uniqueRes.rows) {
+          colDefs.push(`  CONSTRAINT "${r.constraint_name}" UNIQUE (${(r.columns as string[]).map((c: string) => `"${c}"`).join(', ')})`);
+        }
+
+        // Foreign keys
+        const fkRes = await this.client!.query(`
+          SELECT tc.constraint_name, ku.column_name, ccu.table_schema AS ref_schema, ccu.table_name AS ref_table, ccu.column_name AS ref_column
+          FROM information_schema.table_constraints tc
+          JOIN information_schema.key_column_usage ku ON tc.constraint_name = ku.constraint_name AND tc.table_schema = ku.table_schema
+          JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+          WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'FOREIGN KEY'
+        `, [schema, name]);
+        for (const r of fkRes.rows) {
+          colDefs.push(`  CONSTRAINT "${r.constraint_name}" FOREIGN KEY ("${r.column_name}") REFERENCES "${r.ref_schema}"."${r.ref_table}" ("${r.ref_column}")`);
+        }
+
+        // Check constraints
+        const checkRes = await this.client!.query(`
+          SELECT cc.constraint_name, cc.check_clause
+          FROM information_schema.check_constraints cc
+          JOIN information_schema.table_constraints tc ON cc.constraint_name = tc.constraint_name AND cc.constraint_schema = tc.table_schema
+          WHERE tc.table_schema = $1 AND tc.table_name = $2 AND tc.constraint_type = 'CHECK'
+            AND cc.constraint_name NOT LIKE '%_not_null'
+        `, [schema, name]);
+        for (const r of checkRes.rows) {
+          colDefs.push(`  CONSTRAINT "${r.constraint_name}" CHECK (${r.check_clause})`);
+        }
+
+        let ddl = `CREATE TABLE "${schema}"."${name}" (\n${colDefs.join(',\n')}\n);`;
+
+        // Indexes (excluding PK/unique — they're already in constraints)
+        const idxRes = await this.client!.query(`
+          SELECT indexdef FROM pg_indexes
+          WHERE schemaname = $1 AND tablename = $2
+            AND indexname NOT IN (
+              SELECT constraint_name FROM information_schema.table_constraints
+              WHERE table_schema = $1 AND table_name = $2
+            )
+        `, [schema, name]);
+        if (idxRes.rows.length > 0) {
+          ddl += '\n\n-- Indexes';
+          for (const r of idxRes.rows) {
+            ddl += `\n${r.indexdef};`;
+          }
+        }
+
+        // Sequences owned by this table
+        const seqRes = await this.client!.query(`
+          SELECT s.relname AS seq_name, a.attname AS column_name
+          FROM pg_class s
+          JOIN pg_depend d ON d.objid = s.oid
+          JOIN pg_class t ON t.oid = d.refobjid
+          JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE s.relkind = 'S' AND n.nspname = $1 AND t.relname = $2
+        `, [schema, name]);
+        if (seqRes.rows.length > 0) {
+          ddl += '\n\n-- Sequences';
+          for (const r of seqRes.rows) {
+            ddl += `\n-- "${r.seq_name}" owned by "${r.column_name}"`;
+          }
+        }
+
+        return ddl;
       }
       case 'view': {
         const res = await this.client!.query(`
@@ -476,6 +570,14 @@ export class PostgresDriver implements DatabaseDriver {
 
     return items;
   }
+}
+
+function formatRowCount(n: number): string | undefined {
+  if (n <= 0) return undefined;
+  if (n >= 1_000_000_000) return `~${(n / 1_000_000_000).toFixed(1)}b rows`;
+  if (n >= 1_000_000) return `~${(n / 1_000_000).toFixed(1)}m rows`;
+  if (n >= 1_000) return `~${(n / 1_000).toFixed(0)}k rows`;
+  return `${n} rows`;
 }
 
 function pgTypeToString(oid: number): string {

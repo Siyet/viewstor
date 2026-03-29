@@ -275,12 +275,17 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const tableInfo = await driver.getTableInfo(item.schemaObject.name, item.schemaObject.schema);
         const pkColumns = tableInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
 
-        // Use fast estimated count first, exact count only via refresh button
+        // Use estimated count; if < 100k, get exact count (fast enough)
         let totalRowCount: number | undefined;
         let isEstimatedCount = false;
         if (driver.getEstimatedRowCount) {
           totalRowCount = await driver.getEstimatedRowCount(item.schemaObject.name, item.schemaObject.schema);
-          isEstimatedCount = true;
+          if (totalRowCount !== undefined && totalRowCount < 10000 && driver.getTableRowCount) {
+            totalRowCount = await driver.getTableRowCount(item.schemaObject.name, item.schemaObject.schema);
+            isEstimatedCount = false;
+          } else {
+            isEstimatedCount = true;
+          }
         }
 
         const result = await vscode.window.withProgress(
@@ -310,12 +315,16 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const tableInfo = await driver.getTableInfo(tableName, schema);
         const pkColumns = tableInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
 
-        // Use estimated count for page navigation (fast)
         let totalRowCount: number | undefined;
         let isEstimatedCount = false;
         if (driver.getEstimatedRowCount) {
           totalRowCount = await driver.getEstimatedRowCount(tableName, schema);
-          isEstimatedCount = true;
+          if (totalRowCount !== undefined && totalRowCount < 10000 && driver.getTableRowCount) {
+            totalRowCount = await driver.getTableRowCount(tableName, schema);
+            isEstimatedCount = false;
+          } else {
+            isEstimatedCount = true;
+          }
         }
         const offset = page * pageSize;
 
@@ -336,14 +345,16 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._exportAllData', async (connectionId: string, tableName: string, schema: string | undefined, format: string, orderBy?: SortColumn[]) => {
+    vscode.commands.registerCommand('viewstor._exportAllData', async (connectionId: string, tableName: string, schema: string | undefined, format: string, orderBy?: SortColumn[], customQuery?: string) => {
       const driver = connectionManager.getDriver(connectionId);
       if (!driver) return;
 
       try {
         const result = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: `Exporting ${tableName}...`, cancellable: false },
-          () => driver.getTableData(tableName, schema, 100000, 0, orderBy),
+          () => customQuery
+            ? driver.execute(customQuery.replace(/LIMIT\s+\d+/i, 'LIMIT 100000'))
+            : driver.getTableData(tableName, schema, 100000, 0, orderBy),
         );
 
         const formatLabels: Record<string, string> = {
@@ -398,7 +409,8 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       const driver = connectionManager.getDriver(connectionId);
       if (!driver) return;
 
-      const errors: string[] = [];
+      // Build all SQL statements
+      const statements: string[] = [];
       for (const edit of edits) {
         const setClauses = Object.entries(edit.changes)
           .map(([col, val]) => `"${col}" = ${val === null ? 'NULL' : `'${String(val).replace(/'/g, '\'\'')}'`}`)
@@ -407,15 +419,91 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           .map(pk => `"${pk}" = '${String(edit.pkValues[pk]).replace(/'/g, '\'\'')}'`)
           .join(' AND ');
         const quoted = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`;
-        const sql = `UPDATE ${quoted} SET ${setClauses} WHERE ${whereClauses}`;
-        const result = await driver.execute(sql);
-        if (result.error) errors.push(result.error);
+        statements.push(`UPDATE ${quoted} SET ${setClauses} WHERE ${whereClauses};`);
       }
 
-      if (errors.length > 0) {
-        vscode.window.showErrorMessage(`Save errors: ${errors.join('; ')}`);
+      const confirmEdits = vscode.workspace.getConfiguration('viewstor').get<boolean>('confirmEdits', true);
+
+      if (confirmEdits) {
+        const fullSql = statements.join('\n');
+        const doc = await vscode.workspace.openTextDocument({ content: fullSql, language: 'sql' });
+        const editor = await vscode.window.showTextDocument(doc, { preview: false });
+
+        const action = await vscode.window.showWarningMessage(
+          `Execute ${statements.length} UPDATE statement(s)?`,
+          'Execute', 'Don\'t ask again', 'Cancel'
+        );
+
+        if (action === 'Don\'t ask again') {
+          await vscode.workspace.getConfiguration('viewstor').update('confirmEdits', false, vscode.ConfigurationTarget.Global);
+        }
+
+        if (action !== 'Execute' && action !== 'Don\'t ask again') {
+          return;
+        }
+
+        // Re-read from editor in case user edited the SQL
+        const editedSql = editor.document.getText();
+        const editedStatements = editedSql.split(';').map(s => s.trim()).filter(Boolean);
+
+        const errors: string[] = [];
+        for (const sql of editedStatements) {
+          const result = await driver.execute(sql);
+          if (result.error) errors.push(result.error);
+        }
+
+        if (errors.length > 0) {
+          vscode.window.showErrorMessage(`Save errors: ${errors.join('; ')}`);
+        } else {
+          vscode.window.showInformationMessage(`${editedStatements.length} row(s) saved.`);
+        }
       } else {
-        vscode.window.showInformationMessage(`${edits.length} row(s) saved.`);
+        // Execute without confirmation
+        const errors: string[] = [];
+        for (const sql of statements) {
+          const result = await driver.execute(sql);
+          if (result.error) errors.push(result.error);
+        }
+
+        if (errors.length > 0) {
+          vscode.window.showErrorMessage(`Save errors: ${errors.join('; ')}`);
+        } else {
+          vscode.window.showInformationMessage(`${statements.length} row(s) saved.`);
+        }
+      }
+    }),
+
+    vscode.commands.registerCommand('viewstor._runCustomTableQuery', async (connectionId: string, tableName: string, schema: string | undefined, query: string, pageSize: number) => {
+      const driver = connectionManager.getDriver(connectionId);
+      if (!driver) return;
+      try {
+        // Add LIMIT pageSize if the query doesn't already have a LIMIT <= pageSize
+        let displayQuery = query.trim().replace(/;+\s*$/, '');
+        const limitMatch = displayQuery.match(/LIMIT\s+(\d+)/i);
+        const userLimit = limitMatch ? parseInt(limitMatch[1], 10) : 0;
+        if (!limitMatch) {
+          displayQuery += ` LIMIT ${pageSize}`;
+        } else if (userLimit > pageSize) {
+          displayQuery = displayQuery.replace(/LIMIT\s+\d+/i, `LIMIT ${pageSize}`);
+        }
+
+        const result = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: 'Running query...' },
+          () => driver.execute(displayQuery),
+        );
+        const state = connectionManager.get(connectionId);
+        const title = `${tableName} — ${state?.config.name}`;
+        const color = connectionManager.getConnectionColor(connectionId);
+        const readonly = connectionManager.isConnectionReadonly(connectionId);
+        resultPanelManager.show(result, title, {
+          connectionId, tableName, schema, color, readonly,
+          pageSize, currentPage: 0,
+          totalRowCount: result.rowCount,
+          isEstimatedCount: false,
+          query,
+        });
+      } catch (err) {
+        vscode.window.showErrorMessage(`Query failed: ${err instanceof Error ? err.message : err}`);
       }
     }),
 
@@ -567,7 +655,84 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       await connectionManager.update(state.config);
     }),
 
-    vscode.commands.registerCommand('viewstor.reportIssue', () => {
+    vscode.commands.registerCommand('viewstor.copyName', async (item?: ConnectionTreeItem) => {
+      const name = item?.schemaObject?.name || item?.label?.toString() || '';
+      if (name) {
+        await vscode.env.clipboard.writeText(name);
+        vscode.window.showInformationMessage(`Copied: ${name}`);
+      }
+    }),
+
+    vscode.commands.registerCommand('viewstor.renameObject', async (item?: ConnectionTreeItem) => {
+      if (!item?.connectionId || !item.schemaObject) return;
+      const obj = item.schemaObject;
+      const schema = obj.schema || 'public';
+      const quoted = `"${schema}"."${obj.name}"`;
+      let sql = '';
+      switch (obj.type) {
+        case 'table': sql = `ALTER TABLE ${quoted} RENAME TO "${obj.name}_new";`; break;
+        case 'view': sql = `ALTER VIEW ${quoted} RENAME TO "${obj.name}_new";`; break;
+        case 'index': sql = `ALTER INDEX "${schema}"."${obj.name}" RENAME TO "${obj.name}_new";`; break;
+        case 'sequence': sql = `ALTER SEQUENCE ${quoted} RENAME TO "${obj.name}_new";`; break;
+        case 'column': sql = `ALTER TABLE "${schema}"."${obj.schema}" RENAME COLUMN "${obj.name}" TO "${obj.name}_new";`; break;
+        case 'schema': sql = `ALTER SCHEMA "${obj.name}" RENAME TO "${obj.name}_new";`; break;
+        case 'database': sql = `ALTER DATABASE "${obj.name}" RENAME TO "${obj.name}_new";`; break;
+        default: return;
+      }
+      const doc = await vscode.workspace.openTextDocument({ content: sql, language: 'sql' });
+      await vscode.window.showTextDocument(doc, { preview: false });
+    }),
+
+    vscode.commands.registerCommand('viewstor.createObject', async (item?: ConnectionTreeItem) => {
+      if (!item?.connectionId) return;
+      const obj = item.schemaObject;
+      const schema = obj?.schema || obj?.name || 'public';
+      let sql = '';
+      switch (obj?.type || item.itemType) {
+        case 'connection':
+        case 'database':
+          sql = 'CREATE DATABASE "new_database";'; break;
+        case 'schema':
+          sql = 'CREATE SCHEMA "new_schema";'; break;
+        case 'table':
+          sql = `CREATE TABLE "${schema}"."new_table" (\n  id BIGSERIAL PRIMARY KEY,\n  name TEXT NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);`; break;
+        case 'group':
+          if (obj?.name === 'Indexes' || obj?.name?.startsWith('Indexes')) {
+            sql = `CREATE INDEX CONCURRENTLY "idx_table_column"\n  ON "${schema}"."table_name" ("column_name");`;
+          } else if (obj?.name === 'Triggers' || obj?.name?.startsWith('Triggers')) {
+            sql = `CREATE TRIGGER "trigger_name"\n  BEFORE INSERT ON "${schema}"."table_name"\n  FOR EACH ROW\n  EXECUTE FUNCTION trigger_function();`;
+          }
+          break;
+        default:
+          sql = `CREATE TABLE "${schema}"."new_table" (\n  id BIGSERIAL PRIMARY KEY,\n  name TEXT NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);`;
+      }
+      if (sql) {
+        const doc = await vscode.workspace.openTextDocument({ content: sql, language: 'sql' });
+        await vscode.window.showTextDocument(doc, { preview: false });
+      }
+    }),
+
+    vscode.commands.registerCommand('viewstor.dropObject', async (item?: ConnectionTreeItem) => {
+      if (!item?.connectionId || !item.schemaObject) return;
+      const obj = item.schemaObject;
+      const schema = obj.schema || 'public';
+      const quoted = `"${schema}"."${obj.name}"`;
+      let sql = '';
+      switch (obj.type) {
+        case 'table': sql = `DROP TABLE ${quoted} CASCADE;`; break;
+        case 'view': sql = `DROP VIEW ${quoted} CASCADE;`; break;
+        case 'index': sql = `DROP INDEX CONCURRENTLY "${schema}"."${obj.name}";`; break;
+        case 'sequence': sql = `DROP SEQUENCE ${quoted} CASCADE;`; break;
+        case 'trigger': sql = `DROP TRIGGER "${obj.name}" ON "${schema}"."table_name" CASCADE;`; break;
+        case 'schema': sql = `DROP SCHEMA "${obj.name}" CASCADE;`; break;
+        case 'database': sql = `DROP DATABASE "${obj.name}";`; break;
+        default: return;
+      }
+      const doc = await vscode.workspace.openTextDocument({ content: `-- ⚠️ DANGER: This will permanently delete data!\n${sql}`, language: 'sql' });
+      await vscode.window.showTextDocument(doc, { preview: false });
+    }),
+
+    vscode.commands.registerCommand('viewstor.reportIssue', async () => {
       const ext = vscode.extensions.getExtension('viewstor.viewstor');
       const version = ext?.packageJSON?.version || 'unknown';
       const vscodeVersion = vscode.version;
@@ -605,7 +770,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 
 ## Environment
 
-| | |
+| Parameter | Value |
 |---|---|
 | Viewstor | v${version} |
 | VS Code | ${vscodeVersion} |
@@ -616,9 +781,22 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 | Safe mode | ${safeMode} |
 | Connections | ${connSummary} |
 `;
-      const encoded = encodeURIComponent(body);
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const cp = require('child_process');
+      // Encode only chars that break URL query params or shell: & | newline space
+      const encoded = body
+        .replace(/&/g, '%26')
+        .replace(/\|/g, '%7C')
+        .replace(/\n/g, '%0A')
+        .replace(/ /g, '%20');
       const url = `https://github.com/Siyet/viewstor/issues/new?labels=bug&body=${encoded}`;
-      vscode.env.openExternal(vscode.Uri.parse(url, true));
+      if (process.platform === 'win32') {
+        cp.exec(`start "" "${url}"`);
+      } else if (process.platform === 'darwin') {
+        cp.exec(`open "${url}"`);
+      } else {
+        cp.exec(`xdg-open "${url}"`);
+      }
     }),
   );
 }

@@ -28,12 +28,24 @@
   var redisDbField = document.getElementById('redisDbField');
   var redisDb = document.getElementById('redisDb');
 
+  var proxyType = document.getElementById('proxyType');
+  var sshFields = document.getElementById('sshFields');
+  var proxyFields = document.getElementById('proxyFields');
+
   function updateFieldVisibility() {
     var isRedis = dbType.value === 'redis';
     authFields.style.display = isRedis ? 'none' : 'block';
     dbFields.style.display = isRedis ? 'none' : 'block';
     redisDbField.classList.toggle('hidden', !isRedis);
+    updateProxyVisibility();
   }
+
+  function updateProxyVisibility() {
+    var pt = proxyType.value;
+    sshFields.classList.toggle('hidden', pt !== 'ssh');
+    proxyFields.classList.toggle('hidden', pt !== 'socks5' && pt !== 'http');
+  }
+  proxyType.addEventListener('change', updateProxyVisibility);
 
   // Update default port when type changes
   var portManuallyChanged = false;
@@ -290,6 +302,17 @@
       folderId: folderId.value || '',
       scope: document.getElementById('scope').value,
       safeMode: document.getElementById('safeMode').value,
+      proxyType: proxyType.value,
+      sshHost: document.getElementById('sshHost').value.trim(),
+      sshPort: document.getElementById('sshPort').value,
+      sshUsername: document.getElementById('sshUsername').value.trim(),
+      sshPassword: document.getElementById('sshPassword').value,
+      sshPrivateKey: document.getElementById('sshPrivateKey').value.trim(),
+      proxyHost: document.getElementById('proxyHost').value.trim(),
+      proxyPort: document.getElementById('proxyPort').value,
+      proxyUsername: document.getElementById('proxyUsername').value.trim(),
+      proxyPassword: document.getElementById('proxyPassword').value,
+      hiddenSchemas: document.getElementById('hiddenSchemas').value.trim(),
     };
   }
 
@@ -372,6 +395,19 @@
           folderId.value = c.folderId || '';
           document.getElementById('scope').value = c.scope || 'user';
           document.getElementById('safeMode').value = c.safeMode || '';
+          document.getElementById('hiddenSchemas').value = c.hiddenSchemas ? Object.values(c.hiddenSchemas).flat().join(', ') : '';
+          proxyType.value = c.proxy?.type || 'none';
+          if (c.proxy) {
+            document.getElementById('sshHost').value = c.proxy.sshHost || '';
+            document.getElementById('sshPort').value = c.proxy.sshPort || 22;
+            document.getElementById('sshUsername').value = c.proxy.sshUsername || '';
+            document.getElementById('sshPassword').value = c.proxy.sshPassword || '';
+            document.getElementById('sshPrivateKey').value = c.proxy.sshPrivateKey || '';
+            document.getElementById('proxyHost').value = c.proxy.proxyHost || '';
+            document.getElementById('proxyPort').value = c.proxy.proxyPort || 1080;
+            document.getElementById('proxyUsername').value = c.proxy.proxyUsername || '';
+            document.getElementById('proxyPassword').value = c.proxy.proxyPassword || '';
+          }
           updateFieldVisibility();
         } else {
           // New connection — apply folder defaults

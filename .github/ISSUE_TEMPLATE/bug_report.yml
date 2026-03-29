@@ -1,0 +1,68 @@
+name: Bug Report
+description: Report a bug in Viewstor
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      placeholder: Describe the bug
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      placeholder: Describe expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      placeholder: Drag & drop screenshots here if applicable
+  - type: input
+    id: viewstor-version
+    attributes:
+      label: Viewstor version
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: vscode-version
+    attributes:
+      label: VS Code version
+      placeholder: e.g. 1.113.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: dropdown
+    id: db-type
+    attributes:
+      label: Database type
+      options:
+        - PostgreSQL
+        - ClickHouse
+        - Redis
+        - N/A
+    validations:
+      required: true
