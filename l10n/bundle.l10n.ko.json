@@ -56,5 +56,8 @@
   "Specify a table name. Example: `@viewstor /describe users`": "테이블 이름을 지정하세요. 예: `@viewstor /describe users`",
   "Failed to describe table: {0}": "테이블 설명 실패: {0}",
   "No language model available. Make sure GitHub Copilot is installed and signed in.": "사용 가능한 언어 모델이 없습니다. GitHub Copilot이 설치되어 있고 로그인되어 있는지 확인하세요.",
-  "Language model error: {0}": "언어 모델 오류: {0}"
+  "Language model error: {0}": "언어 모델 오류: {0}",
+  "Viewstor updated to v{0}": "Viewstor가 v{0}(으)로 업데이트되었습니다",
+  "See Changes": "변경 사항 보기",
+  "Don't show again": "다시 표시하지 않기"
 }

@@ -125,7 +125,9 @@ Schema context is injected automatically from the active connection. Slash comma
 
 ### AI Agent Integration (MCP)
 
-Five commands for Claude Code, Cursor, Copilot, and other MCP-capable tools:
+Two MCP interfaces — pick the one that fits your workflow:
+
+**VS Code MCP commands** (for Copilot, Cursor — agents running inside VS Code):
 
 | Command | What it does |
 |---|---|
@@ -135,7 +137,22 @@ Five commands for Claude Code, Cursor, Copilot, and other MCP-capable tools:
 | `viewstor.mcp.getTableData` | Fetch rows with limit |
 | `viewstor.mcp.getTableInfo` | Column metadata, PKs, nullability |
 
-All commands auto-connect and respect read-only mode.
+**Standalone MCP server** (for Claude Code, Cline — CLI agents running outside VS Code):
+
+```json
+{
+  "mcpServers": {
+    "viewstor": {
+      "command": "node",
+      "args": ["/path/to/viewstor/dist/mcp-server.js"]
+    }
+  }
+}
+```
+
+7 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
+
+All MCP interfaces auto-connect and respect read-only mode.
 
 ### Other
 
@@ -170,7 +187,7 @@ All shortcuts use physical key codes — work on any keyboard layout.
 ### Prerequisites
 
 - Node.js 18+
-- VS Code 1.85+
+- VS Code 1.93+
 - Docker (for e2e tests)
 
 ### Commands
@@ -198,6 +215,10 @@ Unit tests use [vitest](https://vitest.dev/). E2E tests use [testcontainers](htt
 ## Contributing
 
 See [CONTRIBUTING.md](.github/CONTRIBUTING.md).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a full list of changes per version.
 
 ## License
 

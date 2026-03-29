@@ -56,5 +56,8 @@
   "Specify a table name. Example: `@viewstor /describe users`": "Spécifiez un nom de table. Exemple : `@viewstor /describe users`",
   "Failed to describe table: {0}": "Impossible de décrire la table : {0}",
   "No language model available. Make sure GitHub Copilot is installed and signed in.": "Aucun modèle de langage disponible. Assurez-vous que GitHub Copilot est installé et connecté.",
-  "Language model error: {0}": "Erreur du modèle de langage : {0}"
+  "Language model error: {0}": "Erreur du modèle de langage : {0}",
+  "Viewstor updated to v{0}": "Viewstor a été mis à jour en v{0}",
+  "See Changes": "Voir les nouveautés",
+  "Don't show again": "Ne plus afficher"
 }

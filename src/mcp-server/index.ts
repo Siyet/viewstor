@@ -94,6 +94,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['name', 'type', 'host', 'port'],
       },
     },
+    {
+      name: 'reload_connections',
+      description: 'Reload connections from config files (call after adding connections via VS Code or editing config files)',
+      inputSchema: { type: 'object' as const, properties: {} },
+    },
   ],
 }));
 
@@ -190,6 +195,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const config = { id, name: connName, type, host, port, username, password, database, ssl, readonly };
         await store.add(config);
         return jsonResponse({ id, name: connName, type, host, port, database, message: 'Connection added' });
+      }
+
+      case 'reload_connections': {
+        await store.disconnectAll();
+        store.reload();
+        const all = store.getAll();
+        return jsonResponse({ message: `Reloaded ${all.length} connection(s)`, connections: all.map(c => c.name) });
       }
 
       default:

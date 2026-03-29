@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { ConnectionConfig, ConnectionState, ConnectionFolder } from '../types/connection';
 import { DatabaseDriver } from '../types/driver';
 import { SchemaObject } from '../types/schema';
@@ -7,6 +10,8 @@ import { createDriver } from '../drivers';
 const STORAGE_KEY = 'viewstor.connections';
 const FOLDERS_KEY = 'viewstor.connectionFolders';
 const PROJECT_FILE = '.vscode/viewstor.json';
+const USER_CONFIG_DIR = path.join(os.homedir(), '.viewstor');
+const USER_CONFIG_FILE = path.join(USER_CONFIG_DIR, 'connections.json');
 
 interface ProjectData {
   connections: ConnectionConfig[];
@@ -24,6 +29,7 @@ export class ConnectionManager {
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadConnections();
     this.loadFolders();
+    this.loadUserConfigFile();
     this.loadProjectData();
     this.watchProjectFile();
   }
@@ -42,6 +48,21 @@ export class ConnectionManager {
       folder.scope = folder.scope || 'user';
       this.folders.set(folder.id, folder);
     }
+  }
+
+  private loadUserConfigFile() {
+    try {
+      // fs imported at top level
+      if (!fs.existsSync(USER_CONFIG_FILE)) return;
+      const raw = fs.readFileSync(USER_CONFIG_FILE, 'utf8');
+      const data: ProjectData = JSON.parse(raw);
+      for (const config of data.connections || []) {
+        config.scope = config.scope || 'user';
+        if (!this.connections.has(config.id)) {
+          this.connections.set(config.id, { config, connected: false });
+        }
+      }
+    } catch { /* file doesn't exist or invalid — ok */ }
   }
 
   private loadProjectData() {
@@ -96,8 +117,21 @@ export class ConnectionManager {
       .filter(s => s.config.scope !== 'project')
       .map(s => s.config);
     await this.context.globalState.update(STORAGE_KEY, userConfigs);
+    // Sync user-scoped to ~/.viewstor/connections.json (for standalone MCP server)
+    this.saveUserConfigFile(userConfigs);
     // Save project-scoped to file
     await this.saveProjectData();
+  }
+
+  private saveUserConfigFile(configs: ConnectionConfig[]) {
+    try {
+      // fs imported at top level
+      if (!fs.existsSync(USER_CONFIG_DIR)) {
+        fs.mkdirSync(USER_CONFIG_DIR, { recursive: true });
+      }
+      const data: ProjectData = { connections: configs, folders: [] };
+      fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(data, null, 2), 'utf8');
+    } catch { /* ignore write errors */ }
   }
 
   private async saveFolders() {

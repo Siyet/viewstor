@@ -78,6 +78,36 @@ export function activate(context: vscode.ExtensionContext) {
     connectionTreeView,
     reportBtn,
   );
+
+  // "What's New" notification after update
+  showWhatsNew(context);
+}
+
+function showWhatsNew(context: vscode.ExtensionContext) {
+  const ext = vscode.extensions.getExtension('Siyet.viewstor');
+  if (!ext) return;
+  const currentVersion: string = ext.packageJSON.version;
+  const lastVersion = context.globalState.get<string>('viewstor.lastVersion');
+  const suppressed = context.globalState.get<boolean>('viewstor.suppressWhatsNew', false);
+
+  context.globalState.update('viewstor.lastVersion', currentVersion);
+
+  if (!lastVersion || lastVersion === currentVersion || suppressed) return;
+
+  const seeChanges = vscode.l10n.t('See Changes');
+  const dontShow = vscode.l10n.t('Don\'t show again');
+  vscode.window.showInformationMessage(
+    vscode.l10n.t('Viewstor updated to v{0}', currentVersion),
+    seeChanges,
+    dontShow,
+  ).then(action => {
+    if (action === seeChanges) {
+      const changelogPath = vscode.Uri.joinPath(ext.extensionUri, 'CHANGELOG.md');
+      vscode.commands.executeCommand('markdown.showPreview', changelogPath);
+    } else if (action === dontShow) {
+      context.globalState.update('viewstor.suppressWhatsNew', true);
+    }
+  });
 }
 
 export function deactivate() {
