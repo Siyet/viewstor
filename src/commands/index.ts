@@ -6,7 +6,7 @@ import { QueryEditorProvider, QueryDocumentProvider } from '../editors/queryEdit
 import { ResultPanelManager } from '../views/resultPanel';
 import { ConnectionFormPanel } from '../views/connectionForm';
 import { FolderFormPanel } from '../views/folderForm';
-import { SortColumn, QueryResult, QueryColumn } from '../types/query';
+import { SortColumn, QueryResult, QueryColumn, QueryHistoryEntry } from '../types/query';
 import { ExportService } from '../services/exportService';
 import { ImportSource, parseImportFile } from '../services/importService';
 
@@ -806,6 +806,39 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         cp.exec(`open "${url}"`);
       } else {
         cp.exec(`xdg-open "${url}"`);
+      }
+    }),
+
+    vscode.commands.registerCommand('viewstor.runQueryFromHistory', async (entry: QueryHistoryEntry) => {
+      if (!entry?.connectionId || !entry?.query) return;
+      const state = connectionManager.get(entry.connectionId);
+      if (!state) return;
+
+      // Auto-connect if needed
+      let driver = connectionManager.getDriver(entry.connectionId);
+      if (!driver) {
+        try {
+          await connectionManager.connect(entry.connectionId);
+          driver = connectionManager.getDriver(entry.connectionId);
+        } catch (err) {
+          vscode.window.showErrorMessage(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
+          return;
+        }
+      }
+      if (!driver) return;
+
+      try {
+        const result = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running query...') },
+          () => driver!.execute(entry.query),
+        );
+        const color = connectionManager.getConnectionColor(entry.connectionId);
+        const readonly = connectionManager.isConnectionReadonly(entry.connectionId);
+        queryResultCounter++;
+        resultPanelManager.show(result, `Results #${queryResultCounter} — ${state.config.name}`, { color, readonly });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        resultPanelManager.show({ columns: [], rows: [], rowCount: 0, executionTimeMs: 0, error: errorMsg });
       }
     }),
   );

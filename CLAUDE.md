@@ -77,7 +77,10 @@ Query mode → client-side data + export in-memory rows.
 `safeJsonForScript()` escapes `</script>` and `<!--` in inline JSON.
 
 ### SQL Autocomplete
-`src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`.
+`src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).
+
+### SQL Diagnostics
+`src/editors/sqlDiagnosticProvider.ts` — DiagnosticProvider. Debounced 500ms. Validates table references after FROM/JOIN against cached schema — Error for non-existent tables, Warning for unknown columns with `table.column` prefix. Shares schema cache pattern with CompletionProvider. Only fires for connected SQL documents.
 
 ### Index Hints
 `src/editors/indexHintProvider.ts` — DiagnosticProvider. Debounced 500ms. Parses WHERE/ORDER BY columns, queries `getIndexedColumns()`, shows Warning diagnostic. Handles aliases and multi-table queries. Only fires for connected SQL documents. Skips small tables (below configurable `indexHintThreshold`, default 100k rows).

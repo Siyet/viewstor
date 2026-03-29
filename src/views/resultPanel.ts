@@ -210,6 +210,14 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   .query-bar input { flex:1; font-family:var(--vscode-editor-font-family); font-size:12px; padding:4px 8px; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:2px; outline:none; }
   .query-bar input:focus { border-color:var(--vscode-focusBorder); }
   .query-bar button { font-size:11px; }
+  .code-preview { padding:8px; font-family:var(--vscode-editor-font-family); font-size:var(--vscode-editor-font-size); white-space:pre-wrap; word-break:break-word; line-height:1.5; }
+  .tk-kw { color:var(--vscode-debugTokenExpression-name, #569cd6); font-weight:600; }
+  .tk-str { color:var(--vscode-debugTokenExpression-string, #ce9178); }
+  .tk-num { color:var(--vscode-debugTokenExpression-number, #b5cea8); }
+  .tk-cmt { color:var(--vscode-descriptionForeground); font-style:italic; }
+  .tk-bool { color:var(--vscode-debugTokenExpression-boolean, #569cd6); }
+  .tk-null { color:var(--vscode-descriptionForeground); }
+  .tk-key { color:var(--vscode-debugTokenExpression-name, #9cdcfe); }
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:99; }
   .hidden { display:none; }
 </style>
@@ -265,6 +273,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     </div>
     <div class="popup-body">
       <textarea id="jsonEditor" class="json-editor"></textarea>
+      <div id="jsonPreview" class="code-preview" style="margin-top:8px;border:1px solid var(--vscode-panel-border);border-radius:2px;max-height:40vh;overflow:auto;"></div>
     </div>
   </div>
   <div id="exportPopup" class="popup hidden" style="width:360px;">
@@ -303,6 +312,27 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
 
   let selectedCells = new Set();
   let anchorCell = null;
+
+  // --- Lightweight syntax highlighting ---
+  const SQL_KW_SET = new Set(['SELECT','FROM','WHERE','AND','OR','NOT','IN','EXISTS','INSERT','INTO','VALUES','UPDATE','SET','DELETE','CREATE','ALTER','DROP','TABLE','VIEW','INDEX','SCHEMA','JOIN','LEFT','RIGHT','INNER','OUTER','CROSS','FULL','ON','GROUP','BY','ORDER','ASC','DESC','HAVING','LIMIT','OFFSET','DISTINCT','AS','CASE','WHEN','THEN','ELSE','END','IS','NULL','LIKE','ILIKE','BETWEEN','UNION','ALL','EXCEPT','INTERSECT','COUNT','SUM','AVG','MIN','MAX','COALESCE','CAST','TRUE','FALSE','WITH','RETURNING','EXPLAIN','ANALYZE']);
+
+  // eslint-disable-next-line no-useless-escape
+  function highlightSql(text) {
+    return escHtml(text).replace(/--[^\n]*/g, function(m) { return '<span class="tk-cmt">' + m + '</span>'; })
+      .replace(/'[^']*'/g, function(m) { return '<span class="tk-str">' + m + '</span>'; })
+      .replace(/\\b(\\d+(?:\\.\\d+)?)\\b/g, '<span class="tk-num">$1</span>')
+      .replace(/\\b([A-Z_]{2,})\\b/g, function(m) { return SQL_KW_SET.has(m) ? '<span class="tk-kw">' + m + '</span>' : m; });
+  }
+
+  // eslint-disable-next-line no-useless-escape
+  function highlightJson(text) {
+    return escHtml(text)
+      .replace(/"([^"\\\\]|\\\\.)*"\\s*:/g, function(m) { return '<span class="tk-key">' + m.slice(0, -1) + '</span>:'; })
+      .replace(/"([^"\\\\]|\\\\.)*"/g, '<span class="tk-str">$&</span>')
+      .replace(/\\b(true|false)\\b/g, '<span class="tk-bool">$&</span>')
+      .replace(/\\bnull\\b/g, '<span class="tk-null">$&</span>')
+      .replace(/\\b(\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)\\b/g, '<span class="tk-num">$1</span>');
+  }
 
   let pendingEdits = new Map();
   const originalRows = JSON.parse(JSON.stringify(pageRows));
@@ -775,13 +805,20 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
 
   // --- JSON Popup (editable) ---
   let jsonEditContext = null;
+  function updateJsonPreview() {
+    const editor = document.getElementById('jsonEditor');
+    const preview = document.getElementById('jsonPreview');
+    if (preview) preview.innerHTML = highlightJson(editor.value);
+  }
   function showJsonPopup(jsonStr, rowIdx, col) {
     jsonEditContext = { rowIdx, col };
     const editor = document.getElementById('jsonEditor');
     try { editor.value = JSON.stringify(JSON.parse(jsonStr), null, 2); } catch { editor.value = jsonStr; }
     document.getElementById('jsonPopup').classList.remove('hidden');
     document.getElementById('overlay').classList.remove('hidden');
+    updateJsonPreview();
     editor.focus();
+    editor.addEventListener('input', updateJsonPreview);
   }
   function closeJsonPopup(save) {
     if (save && jsonEditContext && !IS_READONLY) {

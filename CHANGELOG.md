@@ -2,6 +2,14 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- Query History click — opens and re-executes the query (#4)
+- Enum value autocomplete — suggests enum values after `=`, `!=`, `<>`, `IN` operators (#32)
+- SQL diagnostics — error underline for non-existent tables, warning for unknown columns (#33)
+- Syntax highlighting — JSON preview in cell editor popup, SQL token highlighting (#34)
+
 ## [0.2.1] — 2026-03-30
 
 ### Added

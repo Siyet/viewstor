@@ -48,11 +48,16 @@ export class QueryHistoryProvider implements vscode.TreeDataProvider<QueryHistor
       item.tooltip = entry.query;
       item.iconPath = new vscode.ThemeIcon(entry.error ? 'error' : 'history');
       item.entry = entry;
+      item.command = {
+        command: 'viewstor.runQueryFromHistory',
+        title: 'Run Query',
+        arguments: [entry],
+      };
       return item;
     });
   }
 }
 
-class QueryHistoryItem extends vscode.TreeItem {
+export class QueryHistoryItem extends vscode.TreeItem {
   entry?: QueryHistoryEntry;
 }
