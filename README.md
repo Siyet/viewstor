@@ -40,17 +40,13 @@ Viewstor is a free, open-source extension that covers PostgreSQL, Redis, and Cli
 
 ## Get Started
 
-> Not yet on the VS Code Marketplace. Install from `.vsix`:
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=Siyet.viewstor):
 
-```bash
-git clone https://github.com/Siyet/viewstor.git
-cd viewstor
-npm install
-npm run package
-code --install-extension viewstor-0.1.0.vsix
+```
+ext install Siyet.viewstor
 ```
 
-**Or press F5** in VS Code to launch the Extension Development Host.
+Or search **Viewstor** in the Extensions panel (`Ctrl+Shift+X`).
 
 ### Migrating from another tool?
 
