@@ -51,11 +51,11 @@ Or search **Viewstor** in the Extensions panel (`Ctrl+Shift+X`).
 ### Migrating from another tool?
 
 `Ctrl+Shift+P` → **Viewstor: Import Connections** → pick your format:
-- **DBeaver** — `data-sources.json`
-- **DataGrip** — `dataSources.xml`
-- **pgAdmin** — `servers.json`
+- **[DBeaver](https://github.com/Siyet/viewstor/wiki/Migrating-from-DBeaver)** — `data-sources.json`
+- **[DataGrip](https://github.com/Siyet/viewstor/wiki/Migrating-from-DataGrip)** — `dataSources.xml`
+- **[pgAdmin](https://github.com/Siyet/viewstor/wiki/Migrating-from-pgAdmin)** — `servers.json`
 
-Passwords are excluded for security — you'll enter them on first connect.
+Passwords are excluded for security — you'll enter them on first connect. See the [Wiki](https://github.com/Siyet/viewstor/wiki) for detailed migration guides.
 
 ---
 
