@@ -13,6 +13,8 @@ module.exports = {
   },
   externals: {
     vscode: 'commonjs vscode',
+    ssh2: 'commonjs ssh2',
+    'cpu-features': 'commonjs cpu-features',
   },
   resolve: {
     extensions: ['.ts', '.js'],

@@ -16,9 +16,10 @@ export class ExportService {
     const nullVal = opts.nullValue ?? '';
     const eol = opts.lineEnding ?? '\n';
 
+    const quoteRegex = new RegExp(escapeRegex(quote), 'g');
     function escapeField(val: string): string {
       if (val.includes(delim) || val.includes(quote) || val.includes('\n') || val.includes('\r')) {
-        return quote + val.replace(new RegExp(escapeRegex(quote), 'g'), quote + quote) + quote;
+        return quote + val.replace(quoteRegex, quote + quote) + quote;
       }
       return val;
     }

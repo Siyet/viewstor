@@ -4,7 +4,7 @@ Guidance for Claude Code when working with this repository.
 
 ## What is Viewstor
 
-VS Code extension for database management. Supports PostgreSQL, Redis, ClickHouse. Lightweight alternative to DBeaver/DataGrip.
+VS Code extension for database management. Supports PostgreSQL, Redis, ClickHouse. Lightweight alternative to DBeaver/DataGrip. Follows [ZeroVer](https://0ver.org) — version 0.x until API is stable.
 
 ## Commands
 

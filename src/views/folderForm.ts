@@ -76,7 +76,7 @@ export class FolderFormPanel {
     } else {
       const folder = await this.connectionManager.addFolder(name, color, readonly, this.parentFolderIdForNew);
       folder.scope = scope;
-      await this.connectionManager.updateFolder(folder.id, {});
+      await this.connectionManager.updateFolder(folder.id, { name, color, readonly });
       vscode.window.showInformationMessage(`Folder "${name}" created.`);
     }
     this.parentFolderIdForNew = undefined;

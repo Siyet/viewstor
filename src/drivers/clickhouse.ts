@@ -35,13 +35,14 @@ export class ClickHouseDriver implements DatabaseDriver {
 
   async execute(query: string): Promise<QueryResult> {
     const start = Date.now();
-    this.abortController = new AbortController();
+    const abortController = new AbortController();
+    this.abortController = abortController;
     try {
       const trimmed = query.trim().toUpperCase();
       const isSelect = trimmed.startsWith('SELECT') || trimmed.startsWith('SHOW') || trimmed.startsWith('DESCRIBE') || trimmed.startsWith('EXPLAIN');
 
       if (!isSelect) {
-        await this.client!.command({ query, abort_signal: this.abortController.signal });
+        await this.client!.command({ query, abort_signal: abortController.signal });
         return {
           columns: [{ name: 'status', dataType: 'string' }],
           rows: [{ status: 'OK' }],
@@ -50,13 +51,16 @@ export class ClickHouseDriver implements DatabaseDriver {
         };
       }
 
-      const resultSet = await this.client!.query({ query, format: 'JSONEachRow', abort_signal: this.abortController.signal });
-      const rows = await resultSet.json<Record<string, unknown>[]>();
+      const resultSet = await this.client!.query({ query, format: 'JSON', abort_signal: abortController.signal });
+      const json = await resultSet.json<{
+        meta: { name: string; type: string }[];
+        data: Record<string, unknown>[];
+        rows: number;
+      }>();
       const executionTimeMs = Date.now() - start;
 
-      const columns: QueryColumn[] = rows.length > 0
-        ? Object.keys(rows[0]).map(name => ({ name, dataType: typeof rows[0][name] }))
-        : [];
+      const rows = json.data ?? [];
+      const columns: QueryColumn[] = (json.meta ?? []).map(m => ({ name: m.name, dataType: m.type }));
 
       const truncated = rows.length > MAX_RESULT_ROWS;
 
@@ -85,41 +89,58 @@ export class ClickHouseDriver implements DatabaseDriver {
     });
     const databases = await dbResult.json<{ name: string }[]>();
 
-    const schema: SchemaObject[] = [];
+    const userDbs = databases.filter(db =>
+      db.name !== 'system' && db.name !== 'INFORMATION_SCHEMA' && db.name !== 'information_schema'
+    );
 
-    for (const db of databases) {
-      if (db.name === 'system' || db.name === 'INFORMATION_SCHEMA' || db.name === 'information_schema') {
-        continue;
-      }
+    if (userDbs.length === 0) return [];
 
-      const tablesResult = await this.client!.query({
-        query: `SHOW TABLES FROM "${db.name}"`,
-        format: 'JSONEachRow',
+    // Batch: fetch all tables and columns for user databases in two queries
+    const dbNames = userDbs.map(db => db.name);
+
+    const tablesResult = await this.client!.query({
+      query: 'SELECT database, name, engine FROM system.tables WHERE database IN ({dbs:Array(String)})',
+      format: 'JSONEachRow',
+      query_params: { dbs: dbNames },
+    });
+    const allTables = await tablesResult.json<{ database: string; name: string; engine: string }[]>();
+
+    const colsResult = await this.client!.query({
+      query: 'SELECT database, table, name, type FROM system.columns WHERE database IN ({dbs:Array(String)})',
+      format: 'JSONEachRow',
+      query_params: { dbs: dbNames },
+    });
+    const allCols = await colsResult.json<{ database: string; table: string; name: string; type: string }[]>();
+
+    // Build columns map: "db.table" -> SchemaObject[]
+    const colsMap = new Map<string, SchemaObject[]>();
+    for (const c of allCols) {
+      const key = `${c.database}.${c.table}`;
+      if (!colsMap.has(key)) colsMap.set(key, []);
+      colsMap.get(key)!.push({
+        name: c.name,
+        type: 'column' as const,
+        schema: c.database,
+        detail: c.type,
       });
-      const tables = await tablesResult.json<{ name: string }[]>();
+    }
 
-      const tableChildren: SchemaObject[] = [];
-      for (const t of tables) {
-        // Get columns for each table
-        const colResult = await this.client!.query({
-          query: `DESCRIBE TABLE "${db.name}"."${t.name}"`,
-          format: 'JSONEachRow',
-        });
-        const cols = await colResult.json<{ name: string; type: string }[]>();
-        const colObjects: SchemaObject[] = cols.map(c => ({
-          name: c.name,
-          type: 'column' as const,
-          schema: db.name,
-          detail: c.type,
-        }));
+    // Group tables by database
+    const tablesByDb = new Map<string, typeof allTables>();
+    for (const t of allTables) {
+      if (!tablesByDb.has(t.database)) tablesByDb.set(t.database, []);
+      tablesByDb.get(t.database)!.push(t);
+    }
 
-        tableChildren.push({
-          name: t.name,
-          type: 'table' as const,
-          schema: db.name,
-          children: colObjects,
-        });
-      }
+    const schema: SchemaObject[] = [];
+    for (const db of userDbs) {
+      const tables = tablesByDb.get(db.name) || [];
+      const tableChildren: SchemaObject[] = tables.map(t => ({
+        name: t.name,
+        type: 'table' as const,
+        schema: db.name,
+        children: colsMap.get(`${db.name}.${t.name}`) || [],
+      }));
 
       schema.push({
         name: db.name,
@@ -172,15 +193,18 @@ export class ClickHouseDriver implements DatabaseDriver {
 
   async getEstimatedRowCount(name: string, schema?: string): Promise<number> {
     const db = schema || 'default';
-    const result = await this.execute(
-      `SELECT total_rows AS cnt FROM system.tables WHERE database = '${db}' AND name = '${name}'`
-    );
-    return Math.max(0, parseInt(String(result.rows[0]?.cnt), 10) || 0);
+    const result = await this.client!.query({
+      query: 'SELECT total_rows AS cnt FROM system.tables WHERE database = {db:String} AND name = {name:String}',
+      format: 'JSONEachRow',
+      query_params: { db, name },
+    });
+    const rows = await result.json<{ cnt: number }[]>();
+    return Math.max(0, parseInt(String(rows[0]?.cnt), 10) || 0);
   }
 
   async getTableRowCount(name: string, schema?: string): Promise<number> {
     const db = schema || 'default';
-    const result = await this.execute(`SELECT COUNT(*) AS cnt FROM "${db}"."${name}"`);
+    const result = await this.execute(`SELECT COUNT(*) AS cnt FROM "${chEscapeId(db)}"."${chEscapeId(name)}"`);
     return parseInt(String(result.rows[0]?.cnt), 10) || 0;
   }
 
@@ -218,4 +242,9 @@ export class ClickHouseDriver implements DatabaseDriver {
 
     return items;
   }
+}
+
+/** Escape a ClickHouse identifier by doubling embedded double-quotes */
+function chEscapeId(id: string): string {
+  return id.replace(/"/g, '""');
 }

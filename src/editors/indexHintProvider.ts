@@ -156,6 +156,7 @@ export class IndexHintProvider {
   }
 
   dispose() {
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.diagnosticCollection.dispose();
   }
 }

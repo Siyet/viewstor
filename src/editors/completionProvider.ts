@@ -22,6 +22,7 @@ const SQL_KEYWORDS = [
 
 export class SqlCompletionProvider implements vscode.CompletionItemProvider {
   private cache = new Map<string, DriverCompletion[]>();
+  private cacheTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly connectionManager: ConnectionManager,
@@ -104,7 +105,12 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     try {
       const items = await driver.getCompletions();
       this.cache.set(connectionId, items);
-      setTimeout(() => this.cache.delete(connectionId), 60000);
+      const oldTimer = this.cacheTimers.get(connectionId);
+      if (oldTimer) clearTimeout(oldTimer);
+      this.cacheTimers.set(connectionId, setTimeout(() => {
+        this.cache.delete(connectionId);
+        this.cacheTimers.delete(connectionId);
+      }, 60000));
       return items;
     } catch {
       return [];
@@ -112,8 +118,15 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
   }
 
   clearCache(connectionId?: string) {
-    if (connectionId) this.cache.delete(connectionId);
-    else this.cache.clear();
+    if (connectionId) {
+      this.cache.delete(connectionId);
+      const timer = this.cacheTimers.get(connectionId);
+      if (timer) { clearTimeout(timer); this.cacheTimers.delete(connectionId); }
+    } else {
+      this.cache.clear();
+      for (const timer of this.cacheTimers.values()) clearTimeout(timer);
+      this.cacheTimers.clear();
+    }
   }
 }
 

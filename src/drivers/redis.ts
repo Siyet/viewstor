@@ -21,7 +21,7 @@ export class RedisDriver implements DatabaseDriver {
   }
 
   async disconnect(): Promise<void> {
-    this.client?.disconnect();
+    await this.client?.quit().catch(() => {});
     this.client = undefined;
   }
 
@@ -169,7 +169,7 @@ export class RedisDriver implements DatabaseDriver {
   }
 }
 
-function parseRedisCommand(input: string): string[] {
+export function parseRedisCommand(input: string): string[] {
   const trimmed = input.trim();
   if (!trimmed) return [];
 

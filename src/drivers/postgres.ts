@@ -12,7 +12,6 @@ types.setTypeParser(1700, (val: string) => val); // numeric
 
 export class PostgresDriver implements DatabaseDriver {
   private client: Client | undefined;
-  private activeQueryPromise: { reject: (err: Error) => void } | undefined;
   private tunnel: TunnelInfo | undefined;
 
   async connect(config: ConnectionConfig): Promise<void> {
@@ -38,7 +37,14 @@ export class PostgresDriver implements DatabaseDriver {
       connectionTimeoutMillis: 10000,
       ...(stream ? { stream: () => stream as never } : {}),
     });
-    await this.client.connect();
+    try {
+      await this.client.connect();
+    } catch (err) {
+      this.client = undefined;
+      this.tunnel?.close();
+      this.tunnel = undefined;
+      throw err;
+    }
   }
 
   async disconnect(): Promise<void> {

@@ -2,22 +2,22 @@ import { describe, it, expect } from 'vitest';
 import { ExportService } from '../services/exportService';
 import { QueryResult } from '../types/query';
 
-describe('ExportService', () => {
-  const sampleResult: QueryResult = {
-    columns: [
-      { name: 'id', dataType: 'integer' },
-      { name: 'name', dataType: 'text' },
-      { name: 'email', dataType: 'text' },
-    ],
-    rows: [
-      { id: 1, name: 'Alice', email: 'alice@example.com' },
-      { id: 2, name: 'Bob, Jr.', email: 'bob@example.com' },
-      { id: 3, name: 'Carol "C"', email: 'carol@example.com' },
-    ],
-    rowCount: 3,
-    executionTimeMs: 42,
-  };
+const sampleResult: QueryResult = {
+  columns: [
+    { name: 'id', dataType: 'integer' },
+    { name: 'name', dataType: 'text' },
+    { name: 'email', dataType: 'text' },
+  ],
+  rows: [
+    { id: 1, name: 'Alice', email: 'alice@example.com' },
+    { id: 2, name: 'Bob, Jr.', email: 'bob@example.com' },
+    { id: 3, name: 'Carol "C"', email: 'carol@example.com' },
+  ],
+  rowCount: 3,
+  executionTimeMs: 42,
+};
 
+describe('ExportService', () => {
   describe('toCsv', () => {
     it('should produce valid CSV with headers', () => {
       const csv = ExportService.toCsv(sampleResult);
@@ -28,38 +28,23 @@ describe('ExportService', () => {
 
     it('should escape commas in values', () => {
       const csv = ExportService.toCsv(sampleResult);
-      const lines = csv.split('\n');
-      expect(lines[2]).toContain('"Bob, Jr."');
+      expect(csv.split('\n')[2]).toContain('"Bob, Jr."');
     });
 
     it('should escape double quotes in values', () => {
       const csv = ExportService.toCsv(sampleResult);
-      const lines = csv.split('\n');
-      expect(lines[3]).toContain('"Carol ""C"""');
-    });
-  });
-
-  describe('toTsv', () => {
-    it('should use tab delimiter', () => {
-      const tsv = ExportService.toTsv(sampleResult);
-      const lines = tsv.split('\n');
-      expect(lines[0]).toBe('id\tname\temail');
-      expect(lines[1]).toBe('1\tAlice\talice@example.com');
-    });
-  });
-
-  describe('toCsv with options', () => {
-    it('should support semicolon delimiter', () => {
-      const csv = ExportService.toCsv(sampleResult, { delimiter: ';' });
-      const lines = csv.split('\n');
-      expect(lines[0]).toBe('id;name;email');
+      expect(csv.split('\n')[3]).toContain('"Carol ""C"""');
     });
 
-    it('should support no header', () => {
-      const csv = ExportService.toCsv(sampleResult, { includeHeader: false });
-      const lines = csv.split('\n');
-      expect(lines.length).toBe(3);
-      expect(lines[0]).not.toContain('id');
+    it.each([
+      ['semicolon delimiter', { delimiter: ';' }, (lines: string[]) => expect(lines[0]).toBe('id;name;email')],
+      ['no header', { includeHeader: false }, (lines: string[]) => {
+        expect(lines.length).toBe(3);
+        expect(lines[0]).not.toContain('id');
+      }],
+    ])('supports %s', (_desc, opts, assertion) => {
+      const csv = ExportService.toCsv(sampleResult, opts);
+      assertion(csv.split('\n'));
     });
 
     it('should support custom null value', () => {
@@ -69,39 +54,30 @@ describe('ExportService', () => {
         rowCount: 1,
         executionTimeMs: 0,
       };
-      const csv = ExportService.toCsv(result, { nullValue: 'N/A' });
-      expect(csv).toContain('N/A');
+      expect(ExportService.toCsv(result, { nullValue: 'N/A' })).toContain('N/A');
     });
   });
 
-  describe('toJson', () => {
-    it('should produce valid JSON array', () => {
-      const json = ExportService.toJson(sampleResult);
-      const parsed = JSON.parse(json);
-      expect(parsed).toHaveLength(3);
-      expect(parsed[0].name).toBe('Alice');
-    });
+  it('toTsv uses tab delimiter', () => {
+    const lines = ExportService.toTsv(sampleResult).split('\n');
+    expect(lines[0]).toBe('id\tname\temail');
+    expect(lines[1]).toBe('1\tAlice\talice@example.com');
   });
 
-  describe('toMarkdownTable', () => {
-    it('should produce markdown table with header and separator', () => {
-      const md = ExportService.toMarkdownTable(sampleResult);
-      const lines = md.split('\n');
-      expect(lines[0]).toContain('| id');
-      expect(lines[0]).toContain('name');
-      expect(lines[1]).toMatch(/^\|[-|]+\|$/);
-      expect(lines.length).toBe(5); // header + separator + 3 rows
-    });
+  it('toJson produces valid JSON array', () => {
+    const parsed = JSON.parse(ExportService.toJson(sampleResult));
+    expect(parsed).toHaveLength(3);
+    expect(parsed[0].name).toBe('Alice');
   });
 
-  describe('toPlainTextTable', () => {
-    it('should produce aligned text table', () => {
-      const text = ExportService.toPlainTextTable(sampleResult);
-      const lines = text.split('\n');
-      expect(lines[0]).toContain('id');
-      expect(lines[0]).toContain('name');
-      expect(lines[1]).toMatch(/^-+/);
-      expect(lines.length).toBe(5); // header + separator + 3 rows
-    });
+  it.each([
+    ['toMarkdownTable', (r: QueryResult) => ExportService.toMarkdownTable(r), /^\|[-|]+\|$/],
+    ['toPlainTextTable', (r: QueryResult) => ExportService.toPlainTextTable(r), /^-+/],
+  ])('%s produces aligned table with header and separator', (_name, fn, sepPattern) => {
+    const lines = fn(sampleResult).split('\n');
+    expect(lines[0]).toContain('id');
+    expect(lines[0]).toContain('name');
+    expect(lines[1]).toMatch(sepPattern);
+    expect(lines.length).toBe(5); // header + separator + 3 rows
   });
 });

@@ -11,6 +11,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License"></a>
   <a href="https://code.visualstudio.com/"><img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-007ACC" alt="VS Code"></a>
+  <a href="https://0ver.org"><img src="https://img.shields.io/badge/zerover-0.x-blue" alt="ZeroVer"></a>
 </p>
 
 <p align="center">

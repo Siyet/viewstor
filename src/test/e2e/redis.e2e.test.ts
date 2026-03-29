@@ -39,8 +39,7 @@ describeIf(isDockerAvailable)('Redis Driver E2E', () => {
   });
 
   it('ping returns true', async () => {
-    const result = await driver.ping();
-    expect(result).toBe(true);
+    expect(await driver.ping()).toBe(true);
   });
 
   it('execute SET/GET works', async () => {
@@ -60,11 +59,9 @@ describeIf(isDockerAvailable)('Redis Driver E2E', () => {
     const schema = await driver.getSchema();
     expect(schema.length).toBeGreaterThan(0);
 
-    // Should have at least one keyspace
     const keyspace = schema[0];
     expect(keyspace.type).toBe('keyspace');
 
-    // Should contain the seeded keys
     const keyNames = keyspace.children!.map(k => k.name);
     expect(keyNames).toContain('greeting');
     expect(keyNames).toContain('mylist');
@@ -74,56 +71,39 @@ describeIf(isDockerAvailable)('Redis Driver E2E', () => {
   it('getTableInfo returns key type info', async () => {
     const info = await driver.getTableInfo('greeting');
     expect(info.name).toBe('greeting');
-    // Should have type column showing 'string'
-    const typeCol = info.columns.find(c => c.name === 'type');
-    expect(typeCol?.dataType).toBe('string');
+    expect(info.columns.find(c => c.name === 'type')?.dataType).toBe('string');
   });
 
-  it('getTableData for string key', async () => {
-    const result = await driver.getTableData('greeting');
-    expect(result.columns[0].name).toBe('value');
-    expect(result.rows[0].value).toBe('hello world');
+  it.each([
+    ['string', 'greeting', ['value'], 1, (rows: Record<string, unknown>[]) => {
+      expect(rows[0].value).toBe('hello world');
+    }],
+    ['list', 'mylist', ['index', 'value'], 3, (rows: Record<string, unknown>[]) => {
+      // LPUSH pushes in reverse: c, b, a
+      expect(rows.map(r => r.value)).toEqual(['c', 'b', 'a']);
+    }],
+    ['set', 'myset', ['member'], 3, (rows: Record<string, unknown>[]) => {
+      expect(rows.map(r => r.member).sort()).toEqual(['x', 'y', 'z']);
+    }],
+    ['zset', 'myzset', ['member', 'score'], 3, (rows: Record<string, unknown>[]) => {
+      expect(rows[0]).toMatchObject({ member: 'alpha', score: '1' });
+      expect(rows[1]).toMatchObject({ member: 'beta', score: '2' });
+      expect(rows[2]).toMatchObject({ member: 'gamma', score: '3' });
+    }],
+    ['hash', 'myhash', ['field', 'value'], 2, (rows: Record<string, unknown>[]) => {
+      expect(rows.map(r => r.field).sort()).toEqual(['field1', 'field2']);
+    }],
+  ] as const)('getTableData for %s key', async (_type, key, expectedColumns, expectedLen, assertRows) => {
+    const result = await driver.getTableData(key as string);
+    expect(result.columns.map(c => c.name)).toEqual(expectedColumns);
+    expect(result.rows.length).toBe(expectedLen);
+    assertRows(result.rows);
   });
 
-  it('getTableData for list key', async () => {
-    const result = await driver.getTableData('mylist');
-    expect(result.columns.map(c => c.name)).toEqual(['index', 'value']);
-    expect(result.rows.length).toBe(3);
-    // LPUSH pushes in reverse: c, b, a
-    expect(result.rows.map(r => r.value)).toEqual(['c', 'b', 'a']);
-  });
-
-  it('getTableData for set key', async () => {
-    const result = await driver.getTableData('myset');
-    expect(result.columns[0].name).toBe('member');
-    expect(result.rows.length).toBe(3);
-    const members = result.rows.map(r => r.member).sort();
-    expect(members).toEqual(['x', 'y', 'z']);
-  });
-
-  it('getTableData for zset key', async () => {
-    const result = await driver.getTableData('myzset');
-    expect(result.columns.map(c => c.name)).toEqual(['member', 'score']);
-    expect(result.rows.length).toBe(3);
-    expect(result.rows[0]).toMatchObject({ member: 'alpha', score: '1' });
-    expect(result.rows[1]).toMatchObject({ member: 'beta', score: '2' });
-    expect(result.rows[2]).toMatchObject({ member: 'gamma', score: '3' });
-  });
-
-  it('getTableData for hash key', async () => {
-    const result = await driver.getTableData('myhash');
-    expect(result.columns.map(c => c.name)).toEqual(['field', 'value']);
-    expect(result.rows.length).toBe(2);
-    const fields = result.rows.map(r => r.field).sort();
-    expect(fields).toEqual(['field1', 'field2']);
-  });
-
-  it('disconnect completes without error', async () => {
+  it('disconnect and reconnect works', async () => {
     await driver.disconnect();
-    // Reconnect for other tests
     driver = new RedisDriver();
     await driver.connect(config);
-    const ping = await driver.ping();
-    expect(ping).toBe(true);
+    expect(await driver.ping()).toBe(true);
   });
 });
