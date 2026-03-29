@@ -56,5 +56,8 @@
   "Specify a table name. Example: `@viewstor /describe users`": "একটি টেবিলের নাম উল্লেখ করুন। উদাহরণ: `@viewstor /describe users`",
   "Failed to describe table: {0}": "টেবিল বর্ণনা করতে ব্যর্থ: {0}",
   "No language model available. Make sure GitHub Copilot is installed and signed in.": "কোনো ভাষা মডেল উপলব্ধ নেই। নিশ্চিত করুন যে GitHub Copilot ইনস্টল এবং সাইন ইন করা আছে।",
-  "Language model error: {0}": "ভাষা মডেল ত্রুটি: {0}"
+  "Language model error: {0}": "ভাষা মডেল ত্রুটি: {0}",
+  "Viewstor updated to v{0}": "Viewstor v{0}-এ আপডেট হয়েছে",
+  "See Changes": "পরিবর্তনগুলি দেখুন",
+  "Don't show again": "আর দেখাবেন না"
 }

@@ -56,5 +56,8 @@
   "Specify a table name. Example: `@viewstor /describe users`": "请指定表名。示例: `@viewstor /describe users`",
   "Failed to describe table: {0}": "描述表失败: {0}",
   "No language model available. Make sure GitHub Copilot is installed and signed in.": "没有可用的语言模型。请确保已安装 GitHub Copilot 并已登录。",
-  "Language model error: {0}": "语言模型错误: {0}"
+  "Language model error: {0}": "语言模型错误: {0}",
+  "Viewstor updated to v{0}": "Viewstor 已更新至 v{0}",
+  "See Changes": "查看更新内容",
+  "Don't show again": "不再显示"
 }
