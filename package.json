@@ -3,7 +3,7 @@
   "displayName": "Viewstor",
   "description": "%extension.description%",
   "version": "0.1.0",
-  "publisher": "viewstor",
+  "publisher": "Siyet",
   "license": "AGPL-3.0",
   "icon": "resources/icon.png",
   "repository": {
@@ -11,7 +11,7 @@
     "url": "https://github.com/Siyet/viewstor"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.93.0"
   },
   "categories": [
     "Other",
@@ -46,6 +46,29 @@
     "package": "vsce package"
   },
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "viewstor.chat",
+        "fullName": "Viewstor",
+        "name": "viewstor",
+        "description": "%chat.description%",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "schema",
+            "description": "%chat.command.schema%"
+          },
+          {
+            "name": "query",
+            "description": "%chat.command.query%"
+          },
+          {
+            "name": "describe",
+            "description": "%chat.command.describe%"
+          }
+        ]
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {

@@ -31,5 +31,9 @@
   "config.safeMode.warn": "Seq Scan 경고, LIMIT 자동 추가 (기본값)",
   "config.safeMode.block": "Seq Scan이 포함된 쿼리 차단",
   "config.indexHintThreshold.description": "인덱스 누락 경고를 표시할 최소 추정 행 수입니다. 이보다 작은 테이블은 무시됩니다.",
-  "config.confirmEdits.description": "인라인 편집을 데이터베이스에 저장하기 전에 SQL을 표시하고 확인을 요청합니다."
+  "config.confirmEdits.description": "인라인 편집을 데이터베이스에 저장하기 전에 SQL을 표시하고 확인을 요청합니다.",
+  "chat.description": "데이터베이스 스키마에 대해 질문하고, SQL 제안을 받고, 데이터를 탐색하세요.",
+  "chat.command.schema": "활성 연결의 스키마 개요 표시",
+  "chat.command.query": "설명을 기반으로 SQL 쿼리 생성",
+  "chat.command.describe": "테이블 또는 뷰 구조 설명"
 }

@@ -31,5 +31,9 @@
   "config.safeMode.warn": "Seq Scan を警告、LIMIT を自動追加（デフォルト）",
   "config.safeMode.block": "Seq Scan を含むクエリをブロック",
   "config.indexHintThreshold.description": "インデックス欠落の警告を表示する最小推定行数。これより小さいテーブルは無視されます。",
-  "config.confirmEdits.description": "インライン編集をデータベースに保存する前に、SQL を表示して確認を求めます。"
+  "config.confirmEdits.description": "インライン編集をデータベースに保存する前に、SQL を表示して確認を求めます。",
+  "chat.description": "データベーススキーマについて質問したり、SQL の提案を受けたり、データを探索できます。",
+  "chat.command.schema": "アクティブな接続のスキーマ概要を表示",
+  "chat.command.query": "説明に基づいて SQL クエリを生成",
+  "chat.command.describe": "テーブルまたはビューの構造を説明"
 }

@@ -31,5 +31,9 @@
   "config.safeMode.warn": "Bei Seq Scan warnen, LIMIT automatisch hinzufügen (Standard)",
   "config.safeMode.block": "Abfragen mit Seq Scan blockieren",
   "config.indexHintThreshold.description": "Mindestanzahl geschätzter Zeilen, ab der Warnungen zu fehlenden Indizes angezeigt werden. Kleinere Tabellen werden ignoriert.",
-  "config.confirmEdits.description": "SQL anzeigen und Bestätigung einholen, bevor Inline-Änderungen in der Datenbank gespeichert werden."
+  "config.confirmEdits.description": "SQL anzeigen und Bestätigung einholen, bevor Inline-Änderungen in der Datenbank gespeichert werden.",
+  "chat.description": "Stellen Sie Fragen zu Ihrem Datenbankschema, erhalten Sie SQL-Vorschläge und erkunden Sie Daten.",
+  "chat.command.schema": "Schema-Übersicht für die aktive Verbindung anzeigen",
+  "chat.command.query": "SQL-Abfrage basierend auf Ihrer Beschreibung generieren",
+  "chat.command.describe": "Tabellen- oder View-Struktur beschreiben"
 }

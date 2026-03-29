@@ -50,5 +50,11 @@
   "Column \"{0}\" has no index": "العمود \"{0}\" ليس له فهرس",
   "Column \"{0}\" in ORDER BY has no index — may cause slow sorting": "العمود \"{0}\" في ORDER BY ليس له فهرس — قد يسبب بطء الترتيب",
   "See EXPLAIN plan": "عرض خطة EXPLAIN",
-  "EXPLAIN failed: {0}": "فشل EXPLAIN: {0}"
+  "EXPLAIN failed: {0}": "فشل EXPLAIN: {0}",
+  "No active database connection. Connect to a database first, or open a query tab.": "لا يوجد اتصال نشط بقاعدة البيانات. اتصل بقاعدة بيانات أولاً، أو افتح علامة تبويب استعلام.",
+  "No schema information available.": "لا تتوفر معلومات المخطط.",
+  "Specify a table name. Example: `@viewstor /describe users`": "حدد اسم الجدول. مثال: `@viewstor /describe users`",
+  "Failed to describe table: {0}": "فشل وصف الجدول: {0}",
+  "No language model available. Make sure GitHub Copilot is installed and signed in.": "لا يتوفر نموذج لغوي. تأكد من تثبيت GitHub Copilot وتسجيل الدخول.",
+  "Language model error: {0}": "خطأ في النموذج اللغوي: {0}"
 }

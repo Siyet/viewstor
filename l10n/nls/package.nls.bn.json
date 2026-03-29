@@ -31,5 +31,9 @@
   "config.safeMode.warn": "Seq Scan-এ সতর্কতা, স্বয়ংক্রিয় LIMIT যোগ (ডিফল্ট)",
   "config.safeMode.block": "Seq Scan সহ কুয়েরি ব্লক করুন",
   "config.indexHintThreshold.description": "অনুপস্থিত ইনডেক্স সতর্কতা দেখানোর জন্য ন্যূনতম আনুমানিক সারি সংখ্যা। এর চেয়ে ছোট টেবিল উপেক্ষা করা হয়।",
-  "config.confirmEdits.description": "ডেটাবেসে ইনলাইন সম্পাদনা সংরক্ষণ করার আগে SQL দেখান এবং নিশ্চিতকরণ চান।"
+  "config.confirmEdits.description": "ডেটাবেসে ইনলাইন সম্পাদনা সংরক্ষণ করার আগে SQL দেখান এবং নিশ্চিতকরণ চান।",
+  "chat.description": "আপনার ডেটাবেস স্কীমা সম্পর্কে প্রশ্ন করুন, SQL পরামর্শ পান এবং ডেটা অন্বেষণ করুন।",
+  "chat.command.schema": "সক্রিয় সংযোগের জন্য স্কীমা সারসংক্ষেপ দেখান",
+  "chat.command.query": "আপনার বিবরণের উপর ভিত্তি করে SQL কুয়েরি তৈরি করুন",
+  "chat.command.describe": "একটি টেবিল বা ভিউ-এর গঠন বর্ণনা করুন"
 }

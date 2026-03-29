@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License"></a>
-  <a href="https://code.visualstudio.com/"><img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-007ACC" alt="VS Code"></a>
+  <a href="https://code.visualstudio.com/"><img src="https://img.shields.io/badge/VS%20Code-%5E1.93.0-007ACC" alt="VS Code"></a>
   <a href="https://0ver.org"><img src="https://img.shields.io/badge/zerover-0.x-blue" alt="ZeroVer"></a>
 </p>
 
@@ -32,6 +32,7 @@ Viewstor is a free, open-source extension that covers PostgreSQL, Redis, and Cli
 | **Open source** | AGPL-3.0 | Closed (since v4.7) | MIT | Closed |
 | **PG + Redis + CH** | All free | Free tier limits | No Redis | Redis/CH paid |
 | **Safe mode** | Block / Warn / Off | No | No | No |
+| **Copilot Chat participant** | `@viewstor` | No | No | No |
 | **MCP for AI agents** | Built-in, free | No | No | Paid tier |
 | **Import from DBeaver/DataGrip/pgAdmin** | Yes | No | No | No |
 | **Index hints** | Yes | No | No | No |
@@ -115,6 +116,16 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 - Export all rows (not just current page) — CSV, TSV, JSON, Markdown
 - Right-click cells → Copy as CSV / TSV / Markdown / JSON
 - `Ctrl+C` copies selected cells as TSV
+
+### Copilot Chat (`@viewstor`)
+
+Ask questions about your database in natural language:
+
+- `@viewstor describe the users table`
+- `@viewstor write a query to find orders without payments`
+- `@viewstor what indexes are missing for this query?`
+
+Schema context is injected automatically from the active connection. Slash commands: `/schema`, `/query`, `/describe`. Requires GitHub Copilot.
 
 ### AI Agent Integration (MCP)
 

@@ -88,6 +88,9 @@ Query mode → client-side data + export in-memory rows.
 ### Tunnels
 `src/connections/tunnel.ts` — SSH tunnel via `ssh2` library (port forwarding). SOCKS5 proxy via raw socket negotiation. Used by PostgreSQL driver when `config.proxy` is set. Tunnel cleaned up on disconnect or connect failure.
 
+### Chat Participant
+`src/chat/participant.ts` — Copilot Chat participant `@viewstor`. Registered via `vscode.chat.createChatParticipant()`. Slash commands: `/schema` (dump schema), `/describe <table>` (table info), `/query` (generate SQL). Resolves active connection from query editor URI or first connected connection. Injects schema context (tables + columns + types) as system prompt. Uses `vscode.lm.selectChatModels()` to forward to Copilot LLM. Respects readonly mode in system prompt. Requires VS Code 1.93+.
+
 ### MCP
 `src/mcp/server.ts` — 5 VS Code commands for AI agents:
 - `viewstor.mcp.listConnections` → connection list with status

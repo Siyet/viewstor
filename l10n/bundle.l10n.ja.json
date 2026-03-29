@@ -50,5 +50,11 @@
   "Column \"{0}\" has no index": "列 \"{0}\" にインデックスがありません",
   "Column \"{0}\" in ORDER BY has no index — may cause slow sorting": "ORDER BY の列 \"{0}\" にインデックスがありません — ソートが遅くなる可能性があります",
   "See EXPLAIN plan": "EXPLAIN プランを確認",
-  "EXPLAIN failed: {0}": "EXPLAIN に失敗しました: {0}"
+  "EXPLAIN failed: {0}": "EXPLAIN に失敗しました: {0}",
+  "No active database connection. Connect to a database first, or open a query tab.": "アクティブなデータベース接続がありません。先にデータベースに接続するか、クエリタブを開いてください。",
+  "No schema information available.": "スキーマ情報がありません。",
+  "Specify a table name. Example: `@viewstor /describe users`": "テーブル名を指定してください。例: `@viewstor /describe users`",
+  "Failed to describe table: {0}": "テーブルの説明に失敗しました: {0}",
+  "No language model available. Make sure GitHub Copilot is installed and signed in.": "利用可能な言語モデルがありません。GitHub Copilot がインストールされ、サインインしていることを確認してください。",
+  "Language model error: {0}": "言語モデルエラー: {0}"
 }
