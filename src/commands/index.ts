@@ -20,6 +20,8 @@ interface CommandContext {
   folderFormPanel: FolderFormPanel;
 }
 
+let queryResultCounter = 0;
+
 export function registerCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
   const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel } = ctx;
 
@@ -134,8 +136,8 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         }
       }
 
-      // Safe mode: EXPLAIN check for seq scans
-      if (safeMode !== 'off' && finalQuery.trim().toUpperCase().startsWith('SELECT')) {
+      // Safe mode: EXPLAIN check for seq scans (PostgreSQL only)
+      if (safeMode !== 'off' && state?.config.type === 'postgresql' && finalQuery.trim().toUpperCase().startsWith('SELECT')) {
         try {
           const explainResult = await driver.execute('EXPLAIN ' + finalQuery);
           const plan = explainResult.rows.map(r => Object.values(r).join(' ')).join('\n');
@@ -180,7 +182,8 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 
         const color = connectionManager.getConnectionColor(connectionId);
         const readonly = connectionManager.isConnectionReadonly(connectionId);
-        resultPanelManager.show(result, `Results — ${state?.config.name || 'Query'}`, { color, readonly });
+        queryResultCounter++;
+        resultPanelManager.show(result, `Results #${queryResultCounter} — ${state?.config.name || 'Query'}`, { color, readonly });
 
         await queryHistoryProvider.addEntry({
           id: generateId(),

@@ -24,10 +24,15 @@
   const btnTest = document.getElementById('btnTest');
   const btnCancel = document.getElementById('btnCancel');
 
-  // Toggle auth fields based on DB type
+  var dbFields = document.getElementById('dbFields');
+  var redisDbField = document.getElementById('redisDbField');
+  var redisDb = document.getElementById('redisDb');
+
   function updateFieldVisibility() {
     var isRedis = dbType.value === 'redis';
     authFields.style.display = isRedis ? 'none' : 'block';
+    dbFields.style.display = isRedis ? 'none' : 'block';
+    redisDbField.classList.toggle('hidden', !isRedis);
   }
 
   // Update default port when type changes
@@ -259,6 +264,15 @@
 
   initChips();
 
+  // Show hint when project scope selected
+  var scopeEl = document.getElementById('scope');
+  var scopeHint = document.getElementById('scopeHint');
+  function updateScopeHint() {
+    scopeHint.classList.toggle('hidden', scopeEl.value !== 'project');
+  }
+  scopeEl.addEventListener('change', updateScopeHint);
+  updateScopeHint();
+
   function getFormData() {
     return {
       id: connId.value || '',
@@ -268,8 +282,8 @@
       port: port.value,
       username: username.value.trim(),
       password: password.value,
-      database: database.value.trim(),
-      databases: databases.value.trim(),
+      database: dbType.value === 'redis' ? redisDb.value : database.value.trim(),
+      databases: dbType.value === 'redis' ? '' : databases.value.trim(),
       ssl: ssl.checked ? 'true' : 'false',
       color: connColor.value.trim(),
       readonly: readonlyMode.checked ? 'true' : 'false',
@@ -349,6 +363,7 @@
           password.value = c.password || '';
           database.value = c.database || '';
           databases.value = (c.databases || []).join(',');
+          if (c.type === 'redis') { redisDb.value = c.database || '0'; }
           initChips();
           ssl.checked = !!c.ssl;
           connColor.value = c.color || '';

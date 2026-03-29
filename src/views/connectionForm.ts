@@ -225,16 +225,21 @@ export class ConnectionFormPanel {
         <label for="password">Password</label>
         <input type="password" id="password" value="${esc(c?.password)}" />
       </div>
+    </div>
 
-      <div class="form-group" style="position:relative;">
-        <label for="dbInput">Databases</label>
-        <div class="chips-container" id="chipsContainer">
-          <input type="text" id="dbInput" class="chips-input" placeholder="Type database name..." autocomplete="off" />
-        </div>
-        <div id="dbDropdown" class="db-dropdown hidden"></div>
-        <input type="hidden" id="database" value="${esc(c?.database)}" />
-        <input type="hidden" id="databases" value="${esc(c?.databases?.join(','))}" />
+    <div id="dbFields" class="form-group" style="position:relative;">
+      <label for="dbInput">Databases</label>
+      <div class="chips-container" id="chipsContainer">
+        <input type="text" id="dbInput" class="chips-input" placeholder="Type database name..." autocomplete="off" />
       </div>
+      <div id="dbDropdown" class="db-dropdown hidden"></div>
+      <input type="hidden" id="database" value="${esc(c?.database)}" />
+      <input type="hidden" id="databases" value="${esc(c?.databases?.join(','))}" />
+    </div>
+
+    <div id="redisDbField" class="form-group hidden">
+      <label for="redisDb">Database Number (0-15)</label>
+      <input type="number" id="redisDb" min="0" max="15" value="${c?.type === 'redis' && c?.database ? esc(c.database) : '0'}" />
     </div>
 
     <div class="form-group checkbox-group">
@@ -261,6 +266,9 @@ export class ConnectionFormPanel {
         <option value="user" ${(c?.scope || 'user') === 'user' ? 'selected' : ''}>User (global)</option>
         <option value="project" ${c?.scope === 'project' ? 'selected' : ''}>Project (.vscode/viewstor.json)</option>
       </select>
+      <div id="scopeHint" class="hidden" style="font-size:11px;color:var(--vscode-descriptionForeground);margin-top:4px;">
+        Password is not saved to the project file for security. You will be prompted on connect.
+      </div>
     </div>
 
     <div class="form-group checkbox-group">

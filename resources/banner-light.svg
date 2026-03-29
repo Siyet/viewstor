@@ -88,14 +88,14 @@
 
   <!-- DB cylinder masked by V -->
   <!-- DB cylinder: width 110, height ~110 to match icon.svg proportions -->
-  <g fill="none" stroke="#1f2328" stroke-width="3" mask="url(#vmask)">
+  <g fill="none" stroke="#1f2328" stroke-width="3" mask="url(#vmask)" opacity="0.85">
     <ellipse cx="600" cy="95" rx="55" ry="18"/>
     <path d="M545 95v95c0 9.9 24.6 18 55 18s55-8.1 55-18V95"/>
     <path d="M545 143c0 9.9 24.6 18 55 18s55-8.1 55-18"/>
   </g>
 
   <!-- Hollow V — exact proportional copy from icon.svg -->
-  <path d="M558 72 L600 190 L643 72 L625 72 L600 163 L575 72 Z" fill="none" stroke="#1f2328" stroke-width="3" stroke-linejoin="miter"/>
+  <path d="M558 72 L600 190 L643 72 L625 72 L600 163 L575 72 Z" fill="none" stroke="#1f2328" stroke-width="3" stroke-linejoin="miter" opacity="0.85"/>
 
   <!-- Title -->
   <text x="600" y="282" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="16" font-weight="300" fill="#57606a" letter-spacing="10">VIEWSTOR</text>
