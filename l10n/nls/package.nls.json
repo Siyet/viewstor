@@ -31,5 +31,9 @@
   "config.safeMode.warn": "Warn on Seq Scan, auto-add LIMIT (default)",
   "config.safeMode.block": "Block queries with Seq Scan",
   "config.indexHintThreshold.description": "Minimum estimated row count to show missing index warnings. Tables smaller than this are ignored.",
-  "config.confirmEdits.description": "Show SQL and ask for confirmation before saving inline edits to the database."
+  "config.confirmEdits.description": "Show SQL and ask for confirmation before saving inline edits to the database.",
+  "chat.description": "Ask questions about your database schema, get SQL suggestions, and explore data.",
+  "chat.command.schema": "Show schema overview for the active connection",
+  "chat.command.query": "Generate a SQL query based on your description",
+  "chat.command.describe": "Describe a table or view structure"
 }

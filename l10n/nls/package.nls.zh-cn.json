@@ -31,5 +31,9 @@
   "config.safeMode.warn": "Seq Scan 时警告，自动添加 LIMIT（默认）",
   "config.safeMode.block": "阻止包含 Seq Scan 的查询",
   "config.indexHintThreshold.description": "显示缺失索引警告的最小估计行数。小于此值的表将被忽略。",
-  "config.confirmEdits.description": "在将内联编辑保存到数据库之前，显示 SQL 并要求确认。"
+  "config.confirmEdits.description": "在将内联编辑保存到数据库之前，显示 SQL 并要求确认。",
+  "chat.description": "询问有关数据库架构的问题、获取 SQL 建议并浏览数据。",
+  "chat.command.schema": "显示当前连接的架构概览",
+  "chat.command.query": "根据描述生成 SQL 查询",
+  "chat.command.describe": "描述表或视图的结构"
 }

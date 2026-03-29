@@ -10,6 +10,7 @@ import { SqlCompletionProvider } from './editors/completionProvider';
 import { IndexHintProvider } from './editors/indexHintProvider';
 import { registerMcpCommands } from './mcp/server';
 import { registerCommands } from './commands';
+import { registerChatParticipant } from './chat/participant';
 
 let connectionManager: ConnectionManager;
 
@@ -45,6 +46,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   // MCP-compatible commands for AI agent integration
   registerMcpCommands(context, connectionManager);
+
+  // Copilot Chat participant (@viewstor)
+  registerChatParticipant(context, connectionManager, queryEditorProvider);
 
   // SQL autocomplete from DB schema
   const completionProvider = new SqlCompletionProvider(connectionManager, queryEditorProvider);

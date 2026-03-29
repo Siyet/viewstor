@@ -50,5 +50,11 @@
   "Column \"{0}\" has no index": "列 \"{0}\" 没有索引",
   "Column \"{0}\" in ORDER BY has no index — may cause slow sorting": "ORDER BY 中的列 \"{0}\" 没有索引 — 排序可能较慢",
   "See EXPLAIN plan": "查看 EXPLAIN 计划",
-  "EXPLAIN failed: {0}": "EXPLAIN 失败: {0}"
+  "EXPLAIN failed: {0}": "EXPLAIN 失败: {0}",
+  "No active database connection. Connect to a database first, or open a query tab.": "没有活动的数据库连接。请先连接到数据库，或打开查询标签页。",
+  "No schema information available.": "没有可用的架构信息。",
+  "Specify a table name. Example: `@viewstor /describe users`": "请指定表名。示例: `@viewstor /describe users`",
+  "Failed to describe table: {0}": "描述表失败: {0}",
+  "No language model available. Make sure GitHub Copilot is installed and signed in.": "没有可用的语言模型。请确保已安装 GitHub Copilot 并已登录。",
+  "Language model error: {0}": "语言模型错误: {0}"
 }

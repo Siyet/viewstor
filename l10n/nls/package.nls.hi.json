@@ -31,5 +31,9 @@
   "config.safeMode.warn": "Seq Scan पर चेतावनी, स्वतः LIMIT जोड़ें (डिफ़ॉल्ट)",
   "config.safeMode.block": "Seq Scan वाली क्वेरी ब्लॉक करें",
   "config.indexHintThreshold.description": "लापता इंडेक्स चेतावनी दिखाने के लिए न्यूनतम अनुमानित पंक्ति संख्या। इससे छोटी टेबल को अनदेखा किया जाता है।",
-  "config.confirmEdits.description": "डेटाबेस में इनलाइन संपादन सहेजने से पहले SQL दिखाएँ और पुष्टि माँगें।"
+  "config.confirmEdits.description": "डेटाबेस में इनलाइन संपादन सहेजने से पहले SQL दिखाएँ और पुष्टि माँगें।",
+  "chat.description": "अपने डेटाबेस स्कीमा के बारे में प्रश्न पूछें, SQL सुझाव प्राप्त करें और डेटा एक्सप्लोर करें।",
+  "chat.command.schema": "सक्रिय कनेक्शन के लिए स्कीमा अवलोकन दिखाएँ",
+  "chat.command.query": "आपके विवरण के आधार पर SQL क्वेरी जनरेट करें",
+  "chat.command.describe": "टेबल या व्यू की संरचना का वर्णन करें"
 }

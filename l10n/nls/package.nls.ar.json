@@ -31,5 +31,9 @@
   "config.safeMode.warn": "تحذير عند Seq Scan، وإضافة LIMIT تلقائيًا (افتراضي)",
   "config.safeMode.block": "حظر الاستعلامات التي تحتوي على Seq Scan",
   "config.indexHintThreshold.description": "الحد الأدنى المقدّر لعدد الصفوف لعرض تحذيرات الفهارس المفقودة. يتم تجاهل الجداول الأصغر من هذا الحد.",
-  "config.confirmEdits.description": "عرض SQL وطلب التأكيد قبل حفظ التعديلات المباشرة في قاعدة البيانات."
+  "config.confirmEdits.description": "عرض SQL وطلب التأكيد قبل حفظ التعديلات المباشرة في قاعدة البيانات.",
+  "chat.description": "اطرح أسئلة حول مخطط قاعدة البيانات، واحصل على اقتراحات SQL، واستكشف البيانات.",
+  "chat.command.schema": "عرض نظرة عامة على المخطط للاتصال النشط",
+  "chat.command.query": "إنشاء استعلام SQL بناءً على وصفك",
+  "chat.command.describe": "وصف بنية جدول أو عرض"
 }

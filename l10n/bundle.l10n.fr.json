@@ -50,5 +50,11 @@
   "Column \"{0}\" has no index": "La colonne \"{0}\" n'a pas d'index",
   "Column \"{0}\" in ORDER BY has no index — may cause slow sorting": "La colonne \"{0}\" dans ORDER BY n'a pas d'index — peut entraîner un tri lent",
   "See EXPLAIN plan": "Voir le plan EXPLAIN",
-  "EXPLAIN failed: {0}": "EXPLAIN échoué : {0}"
+  "EXPLAIN failed: {0}": "EXPLAIN échoué : {0}",
+  "No active database connection. Connect to a database first, or open a query tab.": "Aucune connexion active à une base de données. Connectez-vous d'abord à une base de données ou ouvrez un onglet de requête.",
+  "No schema information available.": "Aucune information de schéma disponible.",
+  "Specify a table name. Example: `@viewstor /describe users`": "Spécifiez un nom de table. Exemple : `@viewstor /describe users`",
+  "Failed to describe table: {0}": "Impossible de décrire la table : {0}",
+  "No language model available. Make sure GitHub Copilot is installed and signed in.": "Aucun modèle de langage disponible. Assurez-vous que GitHub Copilot est installé et connecté.",
+  "Language model error: {0}": "Erreur du modèle de langage : {0}"
 }
