@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <mask id="m">
+      <rect width="24" height="24" fill="white"/>
+      <!-- Uniform gap around V using stroke on same path -->
+      <path d="M5.5 1.5 L12 18.5 L18.5 1.5 L15.5 1.5 L12 13 L8.5 1.5 Z" fill="black" stroke="black" stroke-width="1.8" stroke-linejoin="miter"/>
+    </mask>
+  </defs>
+  <!-- DB cylinder with gap around V -->
+  <g fill="none" stroke="currentColor" stroke-width="1.6" mask="url(#m)">
+    <ellipse cx="12" cy="5" rx="8" ry="2.5"/>
+    <path d="M4 5v14c0 1.38 3.58 2.5 8 2.5s8-1.12 8-2.5V5"/>
+    <path d="M4 12c0 1.38 3.58 2.5 8 2.5s8-1.12 8-2.5"/>
+  </g>
+  <!-- Filled V -->
+  <path d="M5.5 1.5 L12 18.5 L18.5 1.5 L15.5 1.5 L12 13 L8.5 1.5 Z" fill="currentColor" stroke="none"/>
+</svg>

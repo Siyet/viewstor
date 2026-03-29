@@ -1,0 +1,334 @@
+{
+  "name": "viewstor",
+  "displayName": "Viewstor",
+  "description": "Database management tool for VS Code — browse schemas, run queries, and inspect data across PostgreSQL, Redis, and ClickHouse.",
+  "version": "0.1.0",
+  "publisher": "viewstor",
+  "license": "AGPL-3.0",
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Siyet/viewstor"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Data Science"
+  ],
+  "keywords": [
+    "database",
+    "postgresql",
+    "redis",
+    "clickhouse",
+    "sql",
+    "query",
+    "schema"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "webpack --mode production",
+    "watch": "webpack --mode development --watch",
+    "dev": "webpack --mode development",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:single": "vitest run --reporter=verbose",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e:watch": "vitest --config vitest.e2e.config.ts",
+    "compile-tests": "tsc -p tsconfig.test.json",
+    "package": "vsce package"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "viewstor",
+          "title": "Viewstor",
+          "icon": "resources/icon-sidebar.svg"
+        }
+      ]
+    },
+    "views": {
+      "viewstor": [
+        {
+          "id": "viewstor.connections",
+          "name": "Connections"
+        },
+        {
+          "id": "viewstor.queryHistory",
+          "name": "Query History"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "viewstor.addConnection",
+        "title": "Add Connection",
+        "category": "Viewstor",
+        "icon": "$(add)"
+      },
+      {
+        "command": "viewstor.removeConnection",
+        "title": "Remove Connection",
+        "category": "Viewstor",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "viewstor.editConnection",
+        "title": "Edit Connection",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.connect",
+        "title": "Connect",
+        "category": "Viewstor",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "viewstor.disconnect",
+        "title": "Disconnect",
+        "category": "Viewstor",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "viewstor.refreshConnection",
+        "title": "Refresh",
+        "category": "Viewstor",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "viewstor.openQuery",
+        "title": "New Query",
+        "category": "Viewstor",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "viewstor.runQuery",
+        "title": "Run Query",
+        "category": "Viewstor",
+        "icon": "$(play)"
+      },
+      {
+        "command": "viewstor.exportResults",
+        "title": "Export Results",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.showTableData",
+        "title": "Show Table Data",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.showDDL",
+        "title": "Show DDL",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.createFolder",
+        "title": "Create Folder",
+        "category": "Viewstor",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "viewstor.editFolder",
+        "title": "Folder Settings",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.importConnections",
+        "title": "Import Connections",
+        "category": "Viewstor",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "viewstor.hideSchema",
+        "title": "Hide Schema",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.hideDatabase",
+        "title": "Hide Database",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.showAllSchemas",
+        "title": "Show All Hidden",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.reportIssue",
+        "title": "Report Issue",
+        "category": "Viewstor",
+        "icon": "$(github)"
+      },
+      {
+        "command": "viewstor.deleteFolder",
+        "title": "Delete Folder",
+        "category": "Viewstor"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "viewstor.addConnection",
+          "when": "view == viewstor.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "viewstor.createFolder",
+          "when": "view == viewstor.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "viewstor.importConnections",
+          "when": "view == viewstor.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "viewstor.reportIssue",
+          "when": "view == viewstor.connections",
+          "group": "z_help"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "viewstor.refreshConnection",
+          "when": "view == viewstor.connections && viewItem == connection-connected",
+          "group": "inline"
+        },
+        {
+          "command": "viewstor.openQuery",
+          "when": "view == viewstor.connections && viewItem =~ /^connection-/",
+          "group": "1_query"
+        },
+        {
+          "command": "viewstor.openQuery",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view|schema|database)$/",
+          "group": "1_query"
+        },
+        {
+          "command": "viewstor.showTableData",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view)$/",
+          "group": "2_data"
+        },
+        {
+          "command": "viewstor.showDDL",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view|index|trigger|sequence)$/",
+          "group": "2_data"
+        },
+        {
+          "command": "viewstor.hideSchema",
+          "when": "view == viewstor.connections && viewItem == schema",
+          "group": "3_manage"
+        },
+        {
+          "command": "viewstor.hideDatabase",
+          "when": "view == viewstor.connections && viewItem == database",
+          "group": "3_manage"
+        },
+        {
+          "command": "viewstor.showAllSchemas",
+          "when": "view == viewstor.connections && viewItem =~ /^connection-/",
+          "group": "3_manage"
+        },
+        {
+          "command": "viewstor.disconnect",
+          "when": "view == viewstor.connections && viewItem == connection-connected",
+          "group": "3_manage"
+        },
+        {
+          "command": "viewstor.removeConnection",
+          "when": "view == viewstor.connections && viewItem =~ /^connection-/",
+          "group": "3_manage"
+        },
+        {
+          "command": "viewstor.editConnection",
+          "when": "view == viewstor.connections && viewItem =~ /^connection-/",
+          "group": "3_manage"
+        },
+        {
+          "command": "viewstor.addConnection",
+          "when": "view == viewstor.connections && viewItem == folder",
+          "group": "1_query"
+        },
+        {
+          "command": "viewstor.createFolder",
+          "when": "view == viewstor.connections && viewItem == folder",
+          "group": "1_query"
+        },
+        {
+          "command": "viewstor.editFolder",
+          "when": "view == viewstor.connections && viewItem == folder",
+          "group": "1_query"
+        },
+        {
+          "command": "viewstor.deleteFolder",
+          "when": "view == viewstor.connections && viewItem == folder",
+          "group": "3_manage"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Viewstor",
+      "properties": {
+        "viewstor.defaultPageSize": {
+          "type": "number",
+          "default": 100,
+          "enum": [50, 100, 500, 1000],
+          "description": "Default number of rows per page when viewing table data."
+        },
+        "viewstor.indexHintThreshold": {
+          "type": "number",
+          "default": 100000,
+          "description": "Minimum estimated row count to show missing index warnings. Tables smaller than this are ignored."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "viewstor.runQuery",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "editorTextFocus && editorLangId == sql"
+      }
+    ],
+    "languages": [
+      {
+        "id": "viewstor-sql",
+        "aliases": [
+          "Viewstor SQL"
+        ],
+        "extensions": [
+          ".vsql"
+        ]
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/pg": "^8.20.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vscode/vsce": "^2.22.0",
+    "copy-webpack-plugin": "^12.0.0",
+    "css-loader": "^6.10.0",
+    "eslint": "^8.56.0",
+    "style-loader": "^3.3.4",
+    "testcontainers": "^11.13.0",
+    "ts-loader": "^9.5.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.2.0",
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.0"
+  },
+  "dependencies": {
+    "@clickhouse/client": "^0.2.0",
+    "ioredis": "^5.3.0",
+    "pg": "^8.11.0"
+  }
+}

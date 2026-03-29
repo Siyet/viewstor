@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "dev",
+      "group": "build",
+      "problemMatcher": ["$ts-webpack-watch"],
+      "isBackground": false,
+      "label": "npm: dev"
+    },
+    {
+      "type": "npm",
+      "script": "watch",
+      "group": "build",
+      "problemMatcher": ["$ts-webpack-watch"],
+      "isBackground": true,
+      "label": "npm: watch"
+    }
+  ]
+}

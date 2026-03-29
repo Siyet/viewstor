@@ -1,0 +1,290 @@
+import * as vscode from 'vscode';
+import { ConnectionManager } from '../connections/connectionManager';
+import { ConnectionState } from '../types/connection';
+import { SchemaObject, SchemaObjectType } from '../types/schema';
+
+const MIME_TYPE = 'application/vnd.code.tree.viewstor.connections';
+
+export class ConnectionTreeProvider implements vscode.TreeDataProvider<ConnectionTreeItem>, vscode.TreeDragAndDropController<ConnectionTreeItem> {
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<ConnectionTreeItem | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  readonly dropMimeTypes = [MIME_TYPE];
+  readonly dragMimeTypes = [MIME_TYPE];
+
+  constructor(private readonly connectionManager: ConnectionManager) {
+    connectionManager.onDidChange(() => this.refresh());
+  }
+
+  refresh() {
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  getTreeItem(element: ConnectionTreeItem): vscode.TreeItem {
+    return element;
+  }
+
+  async getChildren(element?: ConnectionTreeItem): Promise<ConnectionTreeItem[]> {
+    if (!element) {
+      return this.getFolderContents(undefined);
+    }
+
+    // Folder children → sub-folders + connections in folder
+    if (element.itemType === 'folder' && element.folderId) {
+      return this.getFolderContents(element.folderId);
+    }
+
+    if (element.connectionId && element.itemType === 'connection') {
+      const state = this.connectionManager.get(element.connectionId);
+      if (state && !state.connected) {
+        try {
+          await this.connectionManager.connect(element.connectionId);
+        } catch {
+          return [new ConnectionTreeItem('Connection failed', vscode.TreeItemCollapsibleState.None)];
+        }
+      }
+
+      // Multi-DB: show database nodes listed in config.databases
+      const config = state?.config;
+      // Combine main database + additional databases, deduplicated
+      const allDbs = new Set<string>();
+      if (config?.database) allDbs.add(config.database);
+      if (config?.databases) config.databases.forEach(db => allDbs.add(db));
+      const databases = [...allDbs];
+      if (databases.length > 1) {
+        const iconColor = colorToThemeColor(this.connectionManager.getConnectionColor(element.connectionId!));
+        return databases.map(db => {
+          const dbItem = new ConnectionTreeItem(db, vscode.TreeItemCollapsibleState.Collapsed);
+          dbItem.connectionId = element.connectionId;
+          dbItem.itemType = 'database';
+          dbItem.contextValue = 'database';
+          dbItem.databaseName = db;
+          dbItem.iconPath = new vscode.ThemeIcon('database', iconColor);
+          dbItem.command = { command: 'viewstor._noop', title: '' };
+          return dbItem;
+        });
+      }
+
+      // Single-DB: load schema directly
+      const driver = this.connectionManager.getDriver(element.connectionId);
+      if (!driver) return [];
+      try {
+        let schema = await driver.getSchema();
+        schema = this.filterSchema(schema, element.connectionId!);
+        // Collapse single-database level
+        if (schema.length === 1 && schema[0].type === 'database' && schema[0].children) {
+          let children = schema[0].children;
+          if (children.length === 1 && children[0].type === 'schema' && children[0].children) {
+            children = children[0].children;
+          }
+          return this.createSchemaItems(children, element.connectionId!);
+        }
+        return this.createSchemaItems(schema, element.connectionId!);
+      } catch (err) {
+        return [new ConnectionTreeItem(
+          `Error: ${err instanceof Error ? err.message : 'Unknown'}`,
+          vscode.TreeItemCollapsibleState.None,
+        )];
+      }
+    }
+
+    // Multi-DB: expanding a database node → connect to that DB and load schema
+    if (element.connectionId && element.itemType === 'database' && element.databaseName) {
+      try {
+        const schema = await this.connectionManager.getSchemaForDatabase(element.connectionId, element.databaseName);
+        const filtered = this.filterSchema(schema, element.connectionId);
+        // Collapse single-schema level
+        if (filtered.length === 1 && filtered[0].type === 'schema' && filtered[0].children) {
+          return this.createSchemaItems(filtered[0].children, element.connectionId);
+        }
+        return this.createSchemaItems(filtered, element.connectionId);
+      } catch (err) {
+        return [new ConnectionTreeItem(
+          `Error: ${err instanceof Error ? err.message : 'Unknown'}`,
+          vscode.TreeItemCollapsibleState.None,
+        )];
+      }
+    }
+
+    if (element.schemaObject?.children && element.schemaObject.children.length > 0) {
+      let children = element.schemaObject.children;
+      if (element.connectionId) {
+        children = this.filterSchema(children, element.connectionId);
+      }
+      // Collapse single-schema level when expanding a database
+      if (element.schemaObject.type === 'database' && children.length === 1 && children[0].type === 'schema' && children[0].children) {
+        children = children[0].children;
+      }
+      return this.createSchemaItems(children, element.connectionId!);
+    }
+
+    return [];
+  }
+
+  // --- Helpers ---
+
+  private getFolderContents(parentFolderId: string | undefined): ConnectionTreeItem[] {
+    const items: ConnectionTreeItem[] = [];
+
+    // Sub-folders at this level
+    for (const folder of this.connectionManager.getAllFolders()) {
+      if ((folder.parentFolderId || undefined) !== parentFolderId) continue;
+      const fi = new ConnectionTreeItem(folder.name, vscode.TreeItemCollapsibleState.Collapsed);
+      fi.itemType = 'folder';
+      fi.folderId = folder.id;
+      fi.contextValue = 'folder';
+      fi.iconPath = new vscode.ThemeIcon('folder', colorToThemeColor(folder.color));
+      fi.command = { command: 'viewstor._noop', title: '' };
+      items.push(fi);
+    }
+
+    // Connections at this level
+    for (const state of this.connectionManager.getAll()) {
+      if ((state.config.folderId || undefined) !== parentFolderId) continue;
+      items.push(this.createConnectionItem(state));
+    }
+
+    return items;
+  }
+
+  // --- Drag and Drop ---
+
+  handleDrag(source: readonly ConnectionTreeItem[], dataTransfer: vscode.DataTransfer): void {
+    const items = source.filter(i => (i.itemType === 'connection' && i.connectionId) || i.itemType === 'folder');
+    if (items.length > 0) {
+      const payload = items.map(i => ({ type: i.itemType!, id: i.connectionId || i.folderId! }));
+      dataTransfer.set(MIME_TYPE, new vscode.DataTransferItem(JSON.stringify(payload)));
+    }
+  }
+
+  async handleDrop(target: ConnectionTreeItem | undefined, dataTransfer: vscode.DataTransfer): Promise<void> {
+    const raw = dataTransfer.get(MIME_TYPE);
+    if (!raw) return;
+    const payload: Array<{ type: string; id: string }> = JSON.parse(raw.value);
+    const targetFolderId = target?.itemType === 'folder' ? target.folderId : undefined;
+    for (const item of payload) {
+      if (item.type === 'connection') {
+        await this.connectionManager.moveConnectionToFolder(item.id, targetFolderId);
+      } else if (item.type === 'folder') {
+        await this.connectionManager.moveFolderToFolder(item.id, targetFolderId);
+      }
+    }
+  }
+
+  // --- Filtering ---
+
+  private filterSchema(objects: SchemaObject[], connectionId: string): SchemaObject[] {
+    const config = this.connectionManager.get(connectionId)?.config;
+    if (!config) return objects;
+
+    return objects.filter(obj => {
+      // Filter hidden databases
+      if (obj.type === 'database' && config.hiddenDatabases?.includes(obj.name)) return false;
+      // Filter hidden schemas
+      if (obj.type === 'schema') {
+        // Find parent database name from schema field or assume default
+        const db = obj.schema || config.database || 'default';
+        if (config.hiddenSchemas?.[db]?.includes(obj.name)) return false;
+      }
+      return true;
+    }).map(obj => {
+      if (obj.children) {
+        return { ...obj, children: this.filterSchema(obj.children, connectionId) };
+      }
+      return obj;
+    });
+  }
+
+  // --- Item Builders ---
+
+  private createConnectionItem(state: ConnectionState): ConnectionTreeItem {
+    const { config, connected } = state;
+    const label = config.name;
+    const collapsible = vscode.TreeItemCollapsibleState.Collapsed;
+
+    const item = new ConnectionTreeItem(label, collapsible);
+    item.connectionId = config.id;
+    item.itemType = 'connection';
+    item.contextValue = connected ? 'connection-connected' : 'connection-disconnected';
+    const iconColor = colorToThemeColor(this.connectionManager.getConnectionColor(config.id));
+    item.iconPath = new vscode.ThemeIcon(connected ? 'plug' : 'circle-outline', iconColor);
+    item.description = connected ? `${config.host}:${config.port}` : 'disconnected';
+    item.command = { command: 'viewstor._noop', title: '' };
+    return item;
+  }
+
+  private createSchemaItems(objects: SchemaObject[], connectionId: string): ConnectionTreeItem[] {
+    return objects.map(obj => this.createSchemaItem(obj, connectionId));
+  }
+
+  private createSchemaItem(obj: SchemaObject, connectionId: string): ConnectionTreeItem {
+    const hasChildren = obj.children && obj.children.length > 0;
+    // Columns are always leaf; tables/views/groups/sequences always collapsible for twistie alignment
+    const isStructural = obj.type !== 'column' && obj.type !== 'index' && obj.type !== 'key';
+    const collapsible = (hasChildren || isStructural)
+      ? vscode.TreeItemCollapsibleState.Collapsed
+      : vscode.TreeItemCollapsibleState.None;
+
+    const item = new ConnectionTreeItem(obj.name, collapsible);
+    item.connectionId = connectionId;
+    item.schemaObject = obj;
+    item.contextValue = obj.type;
+
+    // Inaccessible items get error color
+    if (obj.inaccessible) {
+      item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type), new vscode.ThemeColor('errorForeground'));
+      item.tooltip = `${obj.name} — no access`;
+    } else {
+      item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type));
+    }
+
+    if (obj.type === 'column' && obj.detail) {
+      item.description = obj.detail;
+    }
+
+    // Collapsible items: no-op command so label click doesn't expand
+    if (collapsible === vscode.TreeItemCollapsibleState.Collapsed) {
+      item.command = { command: 'viewstor._noop', title: '' };
+    }
+
+    return item;
+  }
+}
+
+function schemaIcon(type: SchemaObjectType): string {
+  switch (type) {
+    case 'database': return 'database';
+    case 'schema': return 'symbol-namespace';
+    case 'table': return 'table';
+    case 'view': return 'eye';
+    case 'column': return 'symbol-field';
+    case 'index': return 'list-ordered';
+    case 'key': return 'key';
+    case 'keyspace': return 'folder';
+    case 'trigger': return 'zap';
+    case 'sequence': return 'symbol-number';
+    case 'group': return 'folder';
+    default: return 'symbol-misc';
+  }
+}
+
+export class ConnectionTreeItem extends vscode.TreeItem {
+  connectionId?: string;
+  schemaObject?: SchemaObject;
+  itemType?: string;
+  folderId?: string;
+  databaseName?: string;
+}
+
+/** Convert a color string (CSS var or hex) to a ThemeColor for icon tinting */
+function colorToThemeColor(color?: string): vscode.ThemeColor | undefined {
+  if (!color) return undefined;
+  // CSS variable: var(--vscode-terminal-ansiRed) → terminal.ansiRed
+  const varMatch = color.match(/var\(--vscode-([\w-]+)\)/);
+  if (varMatch) {
+    const id = varMatch[1].replace(/-([a-zA-Z])/g, (_, c: string) => '.' + c);
+    return new vscode.ThemeColor(id);
+  }
+  // For hex colors, approximate to a charts.* color
+  return new vscode.ThemeColor('charts.foreground');
+}
