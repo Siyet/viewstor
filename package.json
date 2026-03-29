@@ -28,6 +28,9 @@
   ],
   "l10n": "./l10n",
   "main": "./dist/extension.js",
+  "bin": {
+    "viewstor-mcp": "./dist/mcp-server.js"
+  },
   "scripts": {
     "vscode:prepublish": "npm run copy-nls && npm run build",
     "postinstall": "npm run copy-nls",
@@ -416,6 +419,7 @@
   },
   "dependencies": {
     "@clickhouse/client": "^0.2.0",
+    "@modelcontextprotocol/sdk": "^1.28.0",
     "ioredis": "^5.3.0",
     "pg": "^8.11.0",
     "ssh2": "^1.17.0"

@@ -101,6 +101,18 @@ Query mode → client-side data + export in-memory rows.
 
 All auto-connect. Returns structured JSON or `{ error }`.
 
+### Standalone MCP Server
+`src/mcp-server/index.ts` — stdio-based MCP server for CLI agents (Claude Code, etc.). Built as separate webpack entry → `dist/mcp-server.js`. Uses `@modelcontextprotocol/sdk`. Does NOT import `vscode`.
+
+`src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle.
+
+6 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`.
+
+Usage in Claude Code config:
+```json
+{ "mcpServers": { "viewstor": { "command": "node", "args": ["/path/to/viewstor/dist/mcp-server.js"] } } }
+```
+
 ### Services
 `src/services/exportService.ts` — ExportService static methods: toCsv (configurable delimiter/quotes/null/header/lineEnding), toTsv, toJson, toMarkdownTable, toPlainTextTable.
 
