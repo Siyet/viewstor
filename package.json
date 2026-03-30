@@ -2,7 +2,7 @@
   "name": "viewstor",
   "displayName": "Viewstor",
   "description": "%extension.description%",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "Siyet",
   "license": "AGPL-3.0",
   "icon": "resources/icon.png",
