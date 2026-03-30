@@ -2,7 +2,7 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.2.3] — 2026-03-30
 
 ### Added
 - Query History click — opens query text + cached results without re-executing ([#4](https://github.com/Siyet/viewstor/issues/4))
@@ -23,6 +23,11 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ### Fixed
 - Result panel empty due to broken regex escapes in webview script
+
+## [0.2.2] — 2026-03-30
+
+### Fixed
+- Extension activation failure due to stale NLS files ([#28](https://github.com/Siyet/viewstor/issues/28))
 
 ## [0.2.1] — 2026-03-30
 
