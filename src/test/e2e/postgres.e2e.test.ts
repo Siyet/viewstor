@@ -312,4 +312,136 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
     const ping = await driver.ping();
     expect(ping).toBe(true);
   });
+
+  // --- Bug regression tests ---
+
+  it('getSchema does not duplicate tables when same name exists in multiple schemas', async () => {
+    // Create a second schema with a table of the same name as in public
+    await driver.execute('CREATE SCHEMA IF NOT EXISTS other_schema');
+    await driver.execute('CREATE TABLE IF NOT EXISTS other_schema.users (id SERIAL PRIMARY KEY, label TEXT)');
+
+    const schema = await driver.getSchema();
+    const pub = schema.find(s => s.name === 'public')!;
+    const other = schema.find(s => s.name === 'other_schema')!;
+
+    // Each schema should have exactly one "users" table, no duplicates
+    const pubUsers = pub.children!.filter(c => c.name === 'users' && c.type === 'table');
+    const otherUsers = other.children!.filter(c => c.name === 'users' && c.type === 'table');
+    expect(pubUsers.length).toBe(1);
+    expect(otherUsers.length).toBe(1);
+
+    // public.users should have 4 columns, other_schema.users should have 2
+    const pubCols = pubUsers[0].children!.filter(c => c.type === 'column');
+    const otherCols = otherUsers[0].children!.filter(c => c.type === 'column');
+    expect(pubCols.length).toBe(4);
+    expect(otherCols.length).toBe(2);
+
+    await driver.execute('DROP TABLE other_schema.users');
+    await driver.execute('DROP SCHEMA other_schema');
+  });
+
+  it('UPDATE with numeric PK executes without error', async () => {
+    const result = await driver.execute(
+      'UPDATE users SET name = \'Alice Updated\' WHERE id = 1'
+    );
+    expect(result.error).toBeUndefined();
+
+    const check = await driver.execute('SELECT name FROM users WHERE id = 1');
+    expect(check.rows[0].name).toBe('Alice Updated');
+
+    // Restore
+    await driver.execute('UPDATE users SET name = \'Alice\' WHERE id = 1');
+  });
+
+  it('UPDATE JSONB column with cast succeeds', async () => {
+    const result = await driver.execute(
+      'UPDATE settings SET metadata = \'{"theme":"blue","fontSize":16}\'::jsonb WHERE id = 1'
+    );
+    expect(result.error).toBeUndefined();
+
+    const check = await driver.execute('SELECT metadata FROM settings WHERE id = 1');
+    expect(check.rows[0].metadata).toMatchObject({ theme: 'blue', fontSize: 16 });
+
+    // Restore
+    await driver.execute(
+      'UPDATE settings SET metadata = \'{"theme":"dark","fontSize":14}\'::jsonb WHERE id = 1'
+    );
+  });
+
+  it('UPDATE JSON column with cast succeeds', async () => {
+    const result = await driver.execute(
+      'UPDATE settings SET config = \'{"newKey":"newVal"}\'::json WHERE id = 1'
+    );
+    expect(result.error).toBeUndefined();
+
+    const check = await driver.execute('SELECT config FROM settings WHERE id = 1');
+    expect(check.rows[0].config).toMatchObject({ newKey: 'newVal' });
+
+    // Restore
+    await driver.execute(
+      'UPDATE settings SET config = \'{"key":"val"}\'::json WHERE id = 1'
+    );
+  });
+
+  it('UPDATE boolean column with TRUE/FALSE succeeds', async () => {
+    const result = await driver.execute(
+      'UPDATE settings SET active = FALSE WHERE id = 1'
+    );
+    expect(result.error).toBeUndefined();
+
+    const check = await driver.execute('SELECT active FROM settings WHERE id = 1');
+    expect(check.rows[0].active).toBe(false);
+
+    // Restore
+    await driver.execute('UPDATE settings SET active = TRUE WHERE id = 1');
+  });
+
+  it('DELETE with numeric PK executes and removes row', async () => {
+    await driver.execute('INSERT INTO users (name, email) VALUES (\'ToDelete\', \'del@test.com\')');
+    const inserted = await driver.execute('SELECT id FROM users WHERE name = \'ToDelete\'');
+    const deleteId = inserted.rows[0].id;
+
+    const result = await driver.execute(`DELETE FROM users WHERE id = ${deleteId}`);
+    expect(result.error).toBeUndefined();
+
+    const check = await driver.execute(`SELECT COUNT(*) as cnt FROM users WHERE id = ${deleteId}`);
+    expect(Number(check.rows[0].cnt)).toBe(0);
+  });
+
+  it('INSERT with DEFAULT values succeeds for table with defaults', async () => {
+    const result = await driver.execute(
+      'INSERT INTO settings ("id", "active", "optional_flag", "metadata", "config") VALUES (DEFAULT, DEFAULT, DEFAULT, DEFAULT, DEFAULT) RETURNING *'
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.rows.length).toBe(1);
+    expect(result.rows[0].active).toBe(true); // DEFAULT is true
+
+    // Cleanup
+    await driver.execute(`DELETE FROM settings WHERE id = ${result.rows[0].id}`);
+  });
+
+  it('multi-database: getTableData on second database returns correct data', async () => {
+    // Create a second database and seed data
+    await driver.execute('CREATE DATABASE testdb2');
+
+    const driver2 = new PostgresDriver();
+    const config2 = { ...config, database: 'testdb2' };
+    await driver2.connect(config2);
+    await driver2.execute('CREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT)');
+    await driver2.execute('INSERT INTO items (name) VALUES (\'ItemA\'), (\'ItemB\')');
+
+    const result = await driver2.getTableData('items', 'public');
+    expect(result.error).toBeUndefined();
+    expect(result.rowCount).toBe(2);
+    expect(result.rows[0].name).toBe('ItemA');
+
+    // items should NOT exist in testdb
+    const mainResult = await driver.execute('SELECT * FROM items');
+    expect(mainResult.error).toBeDefined();
+    expect(mainResult.error).toContain('items');
+
+    await driver2.disconnect();
+    // Cleanup: need to disconnect all before dropping DB
+    await driver.execute('DROP DATABASE testdb2');
+  });
 });

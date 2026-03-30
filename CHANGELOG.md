@@ -2,6 +2,32 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.6] — 2026-03-30
+
+### Added
+- **Native MCP server registration** — extension registers MCP server via `mcpServerDefinitionProviders`, auto-discovered by Copilot/Cursor without any config ([#43](https://github.com/Siyet/viewstor/issues/43))
+- **Resizable columns** — drag column header right edge to resize ([#44](https://github.com/Siyet/viewstor/issues/44))
+- **Add row** — insert a new row with DEFAULT values from the table data toolbar ([#45](https://github.com/Siyet/viewstor/issues/45))
+- **Delete rows** — delete selected rows by PK, from toolbar (enabled on selection) and right-click context menu ([#45](https://github.com/Siyet/viewstor/issues/45))
+- **Refresh button** (↻) in toolbar and footer — re-run current query or reload table data
+- **Inline table icon** — click eye icon next to table/view name in tree to open data
+- **JSON editing via native VS Code tab** — double-click JSON cell opens `.json` file beside with full syntax highlighting, Ctrl+S applies value back to cell
+- **SQL confirmation via native VS Code tab** — Save Changes / Insert / Delete opens `.sql` file with ▶ Play button in editor title, Ctrl+Enter or ▶ to execute, Ctrl+S pins query in history
+- **Type-aware SQL generation** — numeric PKs without quotes (`WHERE "id" = 244`), boolean as `TRUE`/`FALSE`, `::jsonb`/`::json` casts
+- Footer toolbar with all action buttons (refresh, export, add/delete row, save/discard)
+- SQL builder utilities extracted to `src/utils/queryHelpers.ts` with 96 unit tests
+- 8 new e2e tests: multi-schema dedup, numeric PK, JSONB/JSON cast, boolean update, DELETE, INSERT DEFAULT, multi-database
+
+### Changed
+- Custom SQL query and pagination update only the table grid, not the entire page — SQL input, scroll position preserved
+- JSON and SQL editing moved from webview popups to native VS Code editor tabs with full syntax highlighting, IntelliSense, and standard keybindings
+
+### Fixed
+- SQL editor queries on secondary databases in multi-DB connections now execute against the correct database, not the main one
+- Multi-DB driver caching with auto-reconnect — no more temporary drivers discarded after schema fetch
+- JSON inline edits generated `[object Object]` in UPDATE SQL — now properly serialized via `JSON.stringify`
+- `+ Row` / `− Row` buttons disappeared after changing SQL query in table data view
+
 ## [0.2.5] — 2026-03-30
 
 ### Added

@@ -27,6 +27,84 @@ export function parseTablesFromQuery(sql: string): Array<{ table: string; schema
   return tables;
 }
 
+/** Quote a table name with optional schema */
+export function quoteTable(tableName: string, schema?: string): string {
+  return schema ? `"${schema}"."${tableName}"` : `"${tableName}"`;
+}
+
+/** Escape a value for SQL: NULL → NULL, otherwise single-quoted with escaped quotes */
+const NUMERIC_TYPES = new Set([
+  'integer', 'int', 'int2', 'int4', 'int8', 'bigint', 'smallint',
+  'serial', 'bigserial', 'smallserial',
+  'numeric', 'decimal', 'real', 'float', 'float4', 'float8', 'double precision',
+  'money', 'oid',
+]);
+
+const JSON_TYPES = new Set(['json', 'jsonb']);
+
+/** Escape a value for SQL, respecting column type */
+export function sqlValue(val: unknown, dataType?: string): string {
+  if (val === null || val === undefined) return 'NULL';
+  if (typeof val === 'object') {
+    const str = JSON.stringify(val);
+    return `'${str.replace(/'/g, '\'\'')}'`;
+  }
+  // Numeric types: no quotes if the value is actually a number
+  if (dataType && NUMERIC_TYPES.has(dataType.toLowerCase())) {
+    const num = Number(val);
+    if (!isNaN(num)) return String(num);
+  }
+  // Boolean
+  if (dataType && (dataType === 'boolean' || dataType === 'bool')) {
+    return val === true || val === 'true' ? 'TRUE' : 'FALSE';
+  }
+  const str = String(val);
+  return `'${str.replace(/'/g, '\'\'')}'`;
+}
+
+/** Build UPDATE statement from edit object */
+export function buildUpdateSql(
+  tableName: string,
+  schema: string | undefined,
+  pkColumns: string[],
+  edit: { changes: Record<string, unknown>; columnTypes?: Record<string, string>; pkValues: Record<string, unknown>; pkTypes?: Record<string, string> },
+): string {
+  const setClauses = Object.entries(edit.changes)
+    .map(([col, val]) => {
+      const colType = edit.columnTypes?.[col];
+      const cast = colType && JSON_TYPES.has(colType) ? `::${colType}` : '';
+      return `"${col}" = ${sqlValue(val, colType)}${cast}`;
+    })
+    .join(', ');
+  const whereClauses = pkColumns
+    .map(pk => `"${pk}" = ${sqlValue(edit.pkValues[pk], edit.pkTypes?.[pk])}`)
+    .join(' AND ');
+  return `UPDATE ${quoteTable(tableName, schema)} SET ${setClauses} WHERE ${whereClauses}`;
+}
+
+/** Build DELETE statement from PK values */
+export function buildDeleteSql(
+  tableName: string,
+  schema: string | undefined,
+  pkColumns: string[],
+  pkValues: Record<string, unknown>,
+  pkTypes?: Record<string, string>,
+): string {
+  const whereClauses = pkColumns
+    .map(pk => `"${pk}" = ${sqlValue(pkValues[pk], pkTypes?.[pk])}`)
+    .join(' AND ');
+  return `DELETE FROM ${quoteTable(tableName, schema)} WHERE ${whereClauses}`;
+}
+
+/** Build INSERT with DEFAULT values */
+export function buildInsertDefaultSql(
+  tableName: string,
+  schema: string | undefined,
+  columnNames: string[],
+): string {
+  return `INSERT INTO ${quoteTable(tableName, schema)} (${columnNames.map(c => `"${c}"`).join(', ')}) VALUES (${columnNames.map(() => 'DEFAULT').join(', ')}) RETURNING *`;
+}
+
 /** Enhance "column X does not exist" errors with "Did you mean: Y?" */
 export async function enhanceColumnError(
   error: string,

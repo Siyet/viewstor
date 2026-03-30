@@ -15,9 +15,11 @@ import { SqlDiagnosticProvider } from './editors/sqlDiagnosticProvider';
 import { registerMcpCommands } from './mcp/server';
 import { registerCommands } from './commands';
 import { registerChatParticipant } from './chat/participant';
+import { TempFileManager } from './services/tempFileManager';
 
 let connectionManager: ConnectionManager;
 let outputChannel: vscode.OutputChannel;
+let tempFileManager: TempFileManager;
 
 export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('Viewstor');
@@ -30,6 +32,9 @@ export function activate(context: vscode.ExtensionContext) {
     const queryHistoryProvider = new QueryHistoryProvider(context);
     const queryEditorProvider = new QueryEditorProvider(connectionManager);
     const resultPanelManager = new ResultPanelManager(context);
+    tempFileManager = new TempFileManager(context);
+    tempFileManager.setPostMessage((key, msg) => resultPanelManager.postMessage(key, msg));
+    resultPanelManager.setTempFileManager(tempFileManager);
     const connectionFormPanel = new ConnectionFormPanel(context, connectionManager);
     const folderFormPanel = new FolderFormPanel(context, connectionManager);
 
@@ -52,10 +57,14 @@ export function activate(context: vscode.ExtensionContext) {
       connectionFormPanel,
       folderFormPanel,
       outputChannel,
+      tempFileManager,
     });
 
     // MCP-compatible commands for AI agent integration
     registerMcpCommands(context, connectionManager);
+
+    // Register MCP server for VS Code-internal agents (Copilot, Cursor)
+    registerMcpServerProvider(context);
 
     // Copilot Chat participant (@viewstor)
     registerChatParticipant(context, connectionManager, queryEditorProvider);
@@ -190,6 +199,22 @@ function showMcpSetup() {
   });
 }
 
+function registerMcpServerProvider(context: vscode.ExtensionContext) {
+  // vscode.lm.registerMcpServerDefinitionProvider may not exist in older VS Code versions
+  if (!vscode.lm?.registerMcpServerDefinitionProvider) return;
+
+  const version = vscode.extensions.getExtension('Siyet.viewstor')?.packageJSON.version ?? '0.0.0';
+  const mcpServerPath = path.join(context.extensionPath, 'dist', 'mcp-server.js');
+
+  const provider = vscode.lm.registerMcpServerDefinitionProvider('viewstor.mcpServer', {
+    provideMcpServerDefinitions: async () => [
+      new vscode.McpStdioServerDefinition('Viewstor', 'node', [mcpServerPath], {}, version),
+    ],
+    resolveMcpServerDefinition: async (server: vscode.McpServerDefinition) => server,
+  });
+  context.subscriptions.push(provider);
+}
+
 function showGetStartedOnFirstInstall(context: vscode.ExtensionContext) {
   const shown = context.globalState.get<boolean>('viewstor.getStartedShown');
   if (shown) return;
@@ -312,5 +337,6 @@ function escapeHtml(str: string): string {
 }
 
 export function deactivate() {
+  tempFileManager?.dispose();
   connectionManager?.dispose();
 }
