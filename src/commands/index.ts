@@ -819,28 +819,45 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       const state = connectionManager.get(entry.connectionId);
       if (!state) return;
 
-      // Open query text in editor
-      const doc = await vscode.workspace.openTextDocument({ language: 'sql', content: entry.query });
-      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preview: false });
+      // Reuse existing editor if already open for this entry
+      const existingDoc = vscode.workspace.textDocuments.find(
+        d => d.languageId === 'sql' && d.getText() === entry.query && d.uri.scheme === 'untitled',
+      );
+      if (existingDoc) {
+        await vscode.window.showTextDocument(existingDoc, { viewColumn: vscode.ViewColumn.One, preview: false });
+      } else {
+        const doc = await vscode.workspace.openTextDocument({ language: 'sql', content: entry.query });
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preview: false });
+      }
 
-      // Show cached results if available
+      // Show cached results — reuse panel by stable title
       if (entry.cachedResult && entry.cachedResult.columns.length > 0) {
         const color = connectionManager.getConnectionColor(entry.connectionId);
         const readonly = connectionManager.isConnectionReadonly(entry.connectionId);
-        queryResultCounter++;
+        const title = `History — ${state.config.name}`;
         resultPanelManager.show({
           columns: entry.cachedResult.columns,
           rows: entry.cachedResult.rows,
           rowCount: entry.cachedResult.rows.length,
           executionTimeMs: entry.executionTimeMs,
           error: entry.error,
-        }, `Results #${queryResultCounter} — ${state.config.name}`, { color, readonly });
+        }, title, { color, readonly });
       }
     }),
 
     vscode.commands.registerCommand('viewstor.removeHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
       if (!item?.entry?.id) return;
       await queryHistoryProvider.removeEntry(item.entry.id);
+    }),
+
+    vscode.commands.registerCommand('viewstor.pinHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
+      if (!item?.entry?.id) return;
+      await queryHistoryProvider.togglePin(item.entry.id, true);
+    }),
+
+    vscode.commands.registerCommand('viewstor.unpinHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
+      if (!item?.entry?.id) return;
+      await queryHistoryProvider.togglePin(item.entry.id, false);
     }),
 
     vscode.commands.registerCommand('viewstor.clearHistory', async () => {

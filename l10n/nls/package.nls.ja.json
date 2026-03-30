@@ -37,5 +37,8 @@
   "chat.command.query": "説明に基づいて SQL クエリを生成",
   "chat.command.describe": "テーブルまたはビューの構造を説明",
   "command.removeHistoryEntry": "エントリを削除",
-  "command.clearHistory": "履歴をクリア"
+  "command.clearHistory": "履歴をクリア",
+  "command.pinHistoryEntry": "クエリを固定",
+  "command.unpinHistoryEntry": "固定解除",
+  "config.queryHistoryLimit.description": "クエリ履歴の最大エントリ数。固定されたエントリは削除されません。"
 }

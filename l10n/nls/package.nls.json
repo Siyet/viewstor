@@ -37,5 +37,8 @@
   "chat.command.query": "Generate a SQL query based on your description",
   "chat.command.describe": "Describe a table or view structure",
   "command.removeHistoryEntry": "Delete Entry",
-  "command.clearHistory": "Clear History"
+  "command.clearHistory": "Clear History",
+  "command.pinHistoryEntry": "Pin Query",
+  "command.unpinHistoryEntry": "Unpin Query",
+  "config.queryHistoryLimit.description": "Maximum number of query history entries to keep. Pinned entries are never evicted."
 }

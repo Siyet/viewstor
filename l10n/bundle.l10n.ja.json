@@ -61,5 +61,6 @@
   "See Changes": "変更内容を確認",
   "Don't show again": "今後表示しない",
   "Clear all query history?": "すべてのクエリ履歴をクリアしますか？",
-  "Clear": "クリア"
+  "Clear": "クリア",
+  "Pinned": "固定済み"
 }

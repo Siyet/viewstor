@@ -61,5 +61,6 @@
   "See Changes": "변경 사항 보기",
   "Don't show again": "다시 표시하지 않기",
   "Clear all query history?": "모든 쿼리 기록을 지우시겠습니까?",
-  "Clear": "지우기"
+  "Clear": "지우기",
+  "Pinned": "고정됨"
 }

@@ -231,6 +231,18 @@
         "title": "%command.clearHistory%",
         "category": "Viewstor",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "viewstor.pinHistoryEntry",
+        "title": "%command.pinHistoryEntry%",
+        "category": "Viewstor",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "viewstor.unpinHistoryEntry",
+        "title": "%command.unpinHistoryEntry%",
+        "category": "Viewstor",
+        "icon": "$(pinned)"
       }
     ],
     "menus": {
@@ -353,8 +365,18 @@
           "group": "3_manage"
         },
         {
-          "command": "viewstor.removeHistoryEntry",
+          "command": "viewstor.pinHistoryEntry",
           "when": "view == viewstor.queryHistory && viewItem == queryHistoryEntry",
+          "group": "inline"
+        },
+        {
+          "command": "viewstor.unpinHistoryEntry",
+          "when": "view == viewstor.queryHistory && viewItem == queryHistoryPinned",
+          "group": "inline"
+        },
+        {
+          "command": "viewstor.removeHistoryEntry",
+          "when": "view == viewstor.queryHistory && viewItem =~ /^queryHistory/",
           "group": "inline"
         }
       ]
@@ -397,6 +419,13 @@
           "type": "boolean",
           "default": true,
           "description": "%config.confirmEdits.description%"
+        },
+        "viewstor.queryHistoryLimit": {
+          "type": "number",
+          "default": 200,
+          "minimum": 10,
+          "maximum": 1000,
+          "description": "%config.queryHistoryLimit.description%"
         }
       }
     },

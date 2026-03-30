@@ -37,5 +37,8 @@
   "chat.command.query": "إنشاء استعلام SQL بناءً على وصفك",
   "chat.command.describe": "وصف بنية جدول أو عرض",
   "command.removeHistoryEntry": "حذف السجل",
-  "command.clearHistory": "مسح السجل"
+  "command.clearHistory": "مسح السجل",
+  "command.pinHistoryEntry": "تثبيت الاستعلام",
+  "command.unpinHistoryEntry": "إلغاء التثبيت",
+  "config.queryHistoryLimit.description": "الحد الأقصى لعدد سجلات الاستعلامات. السجلات المثبتة لا تُحذف أبداً."
 }

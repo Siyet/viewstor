@@ -37,5 +37,8 @@
   "chat.command.query": "Generar una consulta SQL basada en su descripción",
   "chat.command.describe": "Describir la estructura de una tabla o vista",
   "command.removeHistoryEntry": "Eliminar entrada",
-  "command.clearHistory": "Borrar historial"
+  "command.clearHistory": "Borrar historial",
+  "command.pinHistoryEntry": "Fijar consulta",
+  "command.unpinHistoryEntry": "Desfijar consulta",
+  "config.queryHistoryLimit.description": "Número máximo de entradas en el historial. Las entradas fijadas nunca se eliminan."
 }

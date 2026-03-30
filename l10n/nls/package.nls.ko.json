@@ -37,5 +37,8 @@
   "chat.command.query": "설명을 기반으로 SQL 쿼리 생성",
   "chat.command.describe": "테이블 또는 뷰 구조 설명",
   "command.removeHistoryEntry": "항목 삭제",
-  "command.clearHistory": "기록 지우기"
+  "command.clearHistory": "기록 지우기",
+  "command.pinHistoryEntry": "쿼리 고정",
+  "command.unpinHistoryEntry": "고정 해제",
+  "config.queryHistoryLimit.description": "쿼리 기록의 최대 항목 수. 고정된 항목은 삭제되지 않습니다."
 }
