@@ -64,5 +64,8 @@
   "Clear": "Effacer",
   "Pinned": "Épinglées",
   "Show Logs": "Voir les journaux",
-  "Viewstor failed to activate: {0}": "Échec de l'activation de Viewstor : {0}"
+  "Viewstor failed to activate: {0}": "Échec de l'activation de Viewstor : {0}",
+  "Copy Config": "Copier la configuration",
+  "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "Ajoutez ceci à la configuration MCP de votre agent IA (Claude Code, Cline, etc.) :",
+  "MCP config copied to clipboard": "Configuration MCP copiée dans le presse-papiers"
 }

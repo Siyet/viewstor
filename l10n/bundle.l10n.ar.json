@@ -64,5 +64,8 @@
   "Clear": "مسح",
   "Pinned": "مثبتة",
   "Show Logs": "عرض السجلات",
-  "Viewstor failed to activate: {0}": "فشل تنشيط Viewstor: {0}"
+  "Viewstor failed to activate: {0}": "فشل تنشيط Viewstor: {0}",
+  "Copy Config": "نسخ الإعدادات",
+  "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "أضف هذا إلى إعدادات MCP لوكيل AI الخاص بك (Claude Code، Cline، إلخ):",
+  "MCP config copied to clipboard": "تم نسخ إعدادات MCP إلى الحافظة"
 }

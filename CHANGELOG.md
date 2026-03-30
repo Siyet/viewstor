@@ -2,6 +2,23 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.5] — 2026-03-30
+
+### Added
+- **Get Started welcome page** — shown on first install with connection setup guide, import instructions, and MCP config copy button ([#41](https://github.com/Siyet/viewstor/issues/41))
+- **MCP launcher at stable path** — `~/.viewstor/mcp-server.js` auto-updated on each activation, no manual path changes on extension update ([#41](https://github.com/Siyet/viewstor/issues/41))
+- **`Viewstor: Setup MCP`** command — modal dialog with ready-to-copy MCP config
+- **`Viewstor: Get Started`** command — re-open welcome page anytime
+- **"Did you mean?" column suggestions** — on typos in column names (Levenshtein distance ≤ 3), suggests closest match from table schema
+
+### Fixed
+- Query errors no longer replace result panel content — shown as VS Code notification instead ([#41](https://github.com/Siyet/viewstor/issues/41))
+- Duplicate tables in tree view when same table name exists in multiple schemas — fixed `pg_class` JOIN to filter by namespace
+- **Show Table Data** on second database in multi-DB connections — was querying main DB instead of the selected one
+- Result panel opens in the main editor group instead of creating a side split
+- Error notifications now show the error first, then the SQL query (up to 255 chars)
+- All errors logged to Output channel ("Viewstor") for diagnostics
+
 ## [0.2.4] — 2026-03-30
 
 ### Fixed

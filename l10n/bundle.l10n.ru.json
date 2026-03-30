@@ -64,5 +64,9 @@
   "Clear": "Очистить",
   "Pinned": "Закреплённые",
   "Show Logs": "Показать логи",
-  "Viewstor failed to activate: {0}": "Viewstor не удалось активировать: {0}"
+  "Viewstor failed to activate: {0}": "Viewstor не удалось активировать: {0}",
+  "Copy Config": "Скопировать конфиг",
+  "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "Добавьте это в конфиг MCP вашего AI-агента (Claude Code, Cline и др.):",
+  "MCP config copied to clipboard": "Конфиг MCP скопирован в буфер обмена",
+  "Query error: {0}": "Ошибка запроса: {0}"
 }

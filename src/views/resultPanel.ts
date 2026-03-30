@@ -16,6 +16,8 @@ export interface ShowOptions {
   orderBy?: Array<{ column: string; direction: 'asc' | 'desc' }>;
   /** The SQL query used to fetch this data */
   query?: string;
+  /** Database name for multi-DB connections */
+  databaseName?: string;
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 500, 1000];
@@ -32,15 +34,16 @@ export class ResultPanelManager {
     const panelKey = panelTitle;
     const isTableMode = !!(opts?.connectionId && opts?.tableName);
 
+    const targetColumn = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+
     let panel = this.panels.get(panelKey);
     if (panel) {
-      // Reveal in its current position (wherever the user moved it)
-      panel.reveal();
+      panel.reveal(targetColumn);
     } else {
       panel = vscode.window.createWebviewPanel(
         'viewstor.results',
         panelTitle,
-        vscode.ViewColumn.Beside,
+        targetColumn,
         {
           enableScripts: true,
           retainContextWhenHidden: true,
@@ -69,25 +72,25 @@ export class ResultPanelManager {
         case 'changePage':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, msg.page, msg.pageSize, msg.orderBy);
+              ctx.connectionId, ctx.tableName, ctx.schema, msg.page, msg.pageSize, msg.orderBy, ctx.databaseName);
           }
           break;
         case 'changePageSize':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy);
+              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName);
           }
           break;
         case 'reloadWithSort':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy);
+              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName);
           }
           break;
         case 'refreshCount':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._refreshCount',
-              ctx.connectionId, ctx.tableName, ctx.schema, panelKey);
+              ctx.connectionId, ctx.tableName, ctx.schema, panelKey, ctx.databaseName);
           }
           break;
         case 'cancelQuery':
@@ -98,12 +101,12 @@ export class ResultPanelManager {
         case 'runCustomQuery':
           if (ctx.connectionId) {
             vscode.commands.executeCommand('viewstor._runCustomTableQuery',
-              ctx.connectionId, ctx.tableName, ctx.schema, msg.query, msg.pageSize);
+              ctx.connectionId, ctx.tableName, ctx.schema, msg.query, msg.pageSize, ctx.databaseName);
           }
           break;
         case 'saveEdits':
           vscode.commands.executeCommand('viewstor._saveEdits',
-            ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.edits);
+            ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.edits, ctx.databaseName);
           break;
         case 'openJsonInTab':
           vscode.commands.executeCommand('viewstor._openJsonInTab', msg.json);
@@ -111,7 +114,7 @@ export class ResultPanelManager {
         case 'exportAllData':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._exportAllData',
-              ctx.connectionId, ctx.tableName, ctx.schema, msg.format, msg.orderBy, msg.customQuery);
+              ctx.connectionId, ctx.tableName, ctx.schema, msg.format, msg.orderBy, msg.customQuery, ctx.databaseName);
           } else {
             vscode.commands.executeCommand('viewstor.exportResults',
               { columns: msg.columns, rows: msg.rows, format: msg.format });
@@ -136,12 +139,6 @@ function safeJsonForScript(data: unknown): string {
 }
 
 function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
-  if (result.error) {
-    return `<!DOCTYPE html><html><body>
-      <h3 style="color:var(--vscode-errorForeground)">Query Error</h3>
-      <pre>${esc(result.error)}</pre>
-    </body></html>`;
-  }
 
   const colorBg = opts?.color ? `background: color-mix(in srgb, ${opts.color} 15%, var(--vscode-editor-background));` : '';
   const colorBorder = opts?.color ? `border-top: 2px solid ${opts.color}; ${colorBg}` : '';

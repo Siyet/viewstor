@@ -40,5 +40,7 @@
   "command.clearHistory": "Limpar histórico",
   "command.pinHistoryEntry": "Fixar consulta",
   "command.unpinHistoryEntry": "Desfixar consulta",
-  "config.queryHistoryLimit.description": "Número máximo de entradas no histórico. Entradas fixadas nunca são removidas."
+  "config.queryHistoryLimit.description": "Número máximo de entradas no histórico. Entradas fixadas nunca são removidas.",
+  "command.setupMcp": "Configurar servidor MCP",
+  "command.getStarted": "Primeiros passos"
 }

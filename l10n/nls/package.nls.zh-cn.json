@@ -40,5 +40,7 @@
   "command.clearHistory": "清除历史",
   "command.pinHistoryEntry": "固定查询",
   "command.unpinHistoryEntry": "取消固定",
-  "config.queryHistoryLimit.description": "查询历史的最大记录数。已固定的记录不会被清除。"
+  "config.queryHistoryLimit.description": "查询历史的最大记录数。已固定的记录不会被清除。",
+  "command.setupMcp": "设置 MCP 服务器",
+  "command.getStarted": "快速入门"
 }

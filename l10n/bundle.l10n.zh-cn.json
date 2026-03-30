@@ -64,5 +64,8 @@
   "Clear": "清除",
   "Pinned": "已固定",
   "Show Logs": "显示日志",
-  "Viewstor failed to activate: {0}": "Viewstor 激活失败: {0}"
+  "Viewstor failed to activate: {0}": "Viewstor 激活失败: {0}",
+  "Copy Config": "复制配置",
+  "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "将此添加到您的 AI 代理 MCP 配置中（Claude Code、Cline 等）：",
+  "MCP config copied to clipboard": "MCP 配置已复制到剪贴板"
 }

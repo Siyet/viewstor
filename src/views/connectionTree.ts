@@ -107,9 +107,9 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         const filtered = this.filterSchema(schema, element.connectionId);
         // Collapse single-schema level
         if (filtered.length === 1 && filtered[0].type === 'schema' && filtered[0].children) {
-          return this.createSchemaItems(filtered[0].children, element.connectionId);
+          return this.createSchemaItems(filtered[0].children, element.connectionId, element.databaseName);
         }
-        return this.createSchemaItems(filtered, element.connectionId);
+        return this.createSchemaItems(filtered, element.connectionId, element.databaseName);
       } catch (err) {
         return [new ConnectionTreeItem(
           vscode.l10n.t('Error: {0}', err instanceof Error ? err.message : 'Unknown'),
@@ -225,11 +225,11 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     return item;
   }
 
-  private createSchemaItems(objects: SchemaObject[], connectionId: string): ConnectionTreeItem[] {
-    return objects.map(obj => this.createSchemaItem(obj, connectionId));
+  private createSchemaItems(objects: SchemaObject[], connectionId: string, databaseName?: string): ConnectionTreeItem[] {
+    return objects.map(obj => this.createSchemaItem(obj, connectionId, databaseName));
   }
 
-  private createSchemaItem(obj: SchemaObject, connectionId: string): ConnectionTreeItem {
+  private createSchemaItem(obj: SchemaObject, connectionId: string, databaseName?: string): ConnectionTreeItem {
     const hasChildren = obj.children && obj.children.length > 0;
     // Columns are always leaf; tables/views/groups/sequences always collapsible for twistie alignment
     const isStructural = obj.type !== 'column' && obj.type !== 'index' && obj.type !== 'key';
@@ -241,6 +241,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     item.connectionId = connectionId;
     item.schemaObject = obj;
     item.contextValue = obj.type;
+    if (databaseName) item.databaseName = databaseName;
 
     // Inaccessible items get error color
     if (obj.inaccessible) {

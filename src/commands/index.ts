@@ -18,13 +18,16 @@ interface CommandContext {
   resultPanelManager: ResultPanelManager;
   connectionFormPanel: ConnectionFormPanel;
   folderFormPanel: FolderFormPanel;
+  outputChannel: vscode.OutputChannel;
 }
 
 let queryResultCounter = 0;
 const historyDocMap = new Map<string, string>(); // entry.id → doc URI
+let _outputChannel: vscode.OutputChannel;
 
 export function registerCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
-  const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel } = ctx;
+  const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel, outputChannel } = ctx;
+  _outputChannel = outputChannel;
 
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider('viewstor', new QueryDocumentProvider())
@@ -73,7 +76,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           () => connectionManager.connect(item.connectionId!)
         );
       } catch (err) {
-        vscode.window.showErrorMessage(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
@@ -93,7 +96,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         try {
           await connectionManager.connect(item.connectionId);
         } catch (err) {
-          vscode.window.showErrorMessage(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
+          logAndShowError(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
           return;
         }
       }
@@ -186,17 +189,22 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         } catch { /* EXPLAIN failed — proceed anyway */ }
       }
 
+      const shortQuery = finalQuery.length > 255 ? finalQuery.substring(0, 255) + '...' : finalQuery;
       try {
-        const shortQuery = finalQuery.length > 100 ? finalQuery.substring(0, 100) + '...' : finalQuery;
         const result = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: `Running: ${shortQuery}` },
           () => driver.execute(finalQuery)
         );
 
-        const color = connectionManager.getConnectionColor(connectionId);
-        const readonly = connectionManager.isConnectionReadonly(connectionId);
-        queryResultCounter++;
-        resultPanelManager.show(result, `Results #${queryResultCounter} — ${state?.config.name || 'Query'}`, { color, readonly });
+        if (result.error) {
+          const enhanced = await enhanceColumnError(result.error, finalQuery, driver);
+          logAndShowError(`${enhanced}\n\n---\n${shortQuery}`);
+        } else {
+          const color = connectionManager.getConnectionColor(connectionId);
+          const readonly = connectionManager.isConnectionReadonly(connectionId);
+          queryResultCounter++;
+          resultPanelManager.show(result, `Results #${queryResultCounter} — ${state?.config.name || 'Query'}`, { color, readonly });
+        }
 
         // Cache up to 500 rows to keep globalState reasonable
         const cachedRows = result.rows.slice(0, 500);
@@ -213,9 +221,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         });
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
-        resultPanelManager.show({
-          columns: [], rows: [], rowCount: 0, executionTimeMs: 0, error: errorMsg,
-        });
+        logAndShowError(`${errorMsg}\n\n---\n${shortQuery}`);
       }
     }),
 
@@ -282,7 +288,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
     vscode.commands.registerCommand('viewstor.showTableData', async (item?: ConnectionTreeItem) => {
       if (!item?.connectionId || !item.schemaObject) return;
 
-      const driver = connectionManager.getDriver(item.connectionId);
+      const driver = item.databaseName
+        ? await connectionManager.getDriverForDatabase(item.connectionId, item.databaseName)
+        : connectionManager.getDriver(item.connectionId);
       if (!driver) return;
 
       const pageSize = 100;
@@ -308,6 +316,10 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Loading {0}...', item.schemaObject.name) },
           () => driver.getTableData(item.schemaObject!.name, item.schemaObject!.schema, pageSize, 0),
         );
+        if (result.error) {
+          logAndShowError(vscode.l10n.t('Failed to load data: {0}', result.error));
+          return;
+        }
         const state = connectionManager.get(item.connectionId);
         const title = `${item.schemaObject.name} — ${state?.config.name}`;
         const color = connectionManager.getConnectionColor(item.connectionId);
@@ -317,14 +329,17 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           tableName: item.schemaObject.name,
           schema: item.schemaObject.schema,
           pkColumns, color, readonly, pageSize, currentPage: 0, totalRowCount, isEstimatedCount,
+          databaseName: item.databaseName,
         });
       } catch (err) {
-        vscode.window.showErrorMessage(vscode.l10n.t('Failed to load data: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Failed to load data: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._fetchPage', async (connectionId: string, tableName: string, schema: string | undefined, page: number, pageSize: number, orderBy?: SortColumn[]) => {
-      const driver = connectionManager.getDriver(connectionId);
+    vscode.commands.registerCommand('viewstor._fetchPage', async (connectionId: string, tableName: string, schema: string | undefined, page: number, pageSize: number, orderBy?: SortColumn[], databaseName?: string) => {
+      const driver = databaseName
+        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : connectionManager.getDriver(connectionId);
       if (!driver) return;
 
       try {
@@ -348,21 +363,27 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Loading {0}...', tableName) },
           () => driver.getTableData(tableName, schema, pageSize, offset, orderBy),
         );
+        if (result.error) {
+          logAndShowError(vscode.l10n.t('Failed to load data: {0}', result.error));
+          return;
+        }
         const state = connectionManager.get(connectionId);
         const title = `${tableName} — ${state?.config.name}`;
         const color = connectionManager.getConnectionColor(connectionId);
         const readonly = connectionManager.isConnectionReadonly(connectionId);
         resultPanelManager.show(result, title, {
           connectionId, tableName, schema, pkColumns, color, orderBy, readonly,
-          pageSize, currentPage: page, totalRowCount, isEstimatedCount,
+          pageSize, currentPage: page, totalRowCount, isEstimatedCount, databaseName,
         });
       } catch (err) {
-        vscode.window.showErrorMessage(vscode.l10n.t('Failed to load data: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Failed to load data: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._exportAllData', async (connectionId: string, tableName: string, schema: string | undefined, format: string, orderBy?: SortColumn[], customQuery?: string) => {
-      const driver = connectionManager.getDriver(connectionId);
+    vscode.commands.registerCommand('viewstor._exportAllData', async (connectionId: string, tableName: string, schema: string | undefined, format: string, orderBy?: SortColumn[], customQuery?: string, databaseName?: string) => {
+      const driver = databaseName
+        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : connectionManager.getDriver(connectionId);
       if (!driver) return;
 
       try {
@@ -417,12 +438,14 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
             break;
         }
       } catch (err) {
-        vscode.window.showErrorMessage(vscode.l10n.t('Export failed: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Export failed: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._saveEdits', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], edits: any[]) => {
-      const driver = connectionManager.getDriver(connectionId);
+    vscode.commands.registerCommand('viewstor._saveEdits', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], edits: any[], databaseName?: string) => {
+      const driver = databaseName
+        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : connectionManager.getDriver(connectionId);
       if (!driver) return;
 
       // Build all SQL statements
@@ -472,7 +495,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         }
 
         if (errors.length > 0) {
-          vscode.window.showErrorMessage(vscode.l10n.t('Save errors: {0}', errors.join('; ')));
+          logAndShowError(vscode.l10n.t('Save errors: {0}', errors.join('; ')));
         } else {
           vscode.window.showInformationMessage(vscode.l10n.t('{0} row(s) saved.', editedStatements.length));
         }
@@ -485,15 +508,17 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         }
 
         if (errors.length > 0) {
-          vscode.window.showErrorMessage(vscode.l10n.t('Save errors: {0}', errors.join('; ')));
+          logAndShowError(vscode.l10n.t('Save errors: {0}', errors.join('; ')));
         } else {
           vscode.window.showInformationMessage(vscode.l10n.t('{0} row(s) saved.', statements.length));
         }
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._runCustomTableQuery', async (connectionId: string, tableName: string, schema: string | undefined, query: string, pageSize: number) => {
-      const driver = connectionManager.getDriver(connectionId);
+    vscode.commands.registerCommand('viewstor._runCustomTableQuery', async (connectionId: string, tableName: string, schema: string | undefined, query: string, pageSize: number, databaseName?: string) => {
+      const driver = databaseName
+        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : connectionManager.getDriver(connectionId);
       if (!driver) return;
       try {
         // Add LIMIT pageSize if the query doesn't already have a LIMIT <= pageSize
@@ -510,6 +535,12 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running query...') },
           () => driver.execute(displayQuery),
         );
+        if (result.error) {
+          const shortQ = displayQuery.length > 255 ? displayQuery.substring(0, 255) + '...' : displayQuery;
+          const enhanced = await enhanceColumnError(result.error, displayQuery, driver);
+          logAndShowError(`${enhanced}\n\n---\n${shortQ}`);
+          return;
+        }
         const state = connectionManager.get(connectionId);
         const title = `${tableName} — ${state?.config.name}`;
         const color = connectionManager.getConnectionColor(connectionId);
@@ -522,7 +553,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           query,
         });
       } catch (err) {
-        vscode.window.showErrorMessage(vscode.l10n.t('Query failed: {0}', err instanceof Error ? err.message : String(err)));
+        const shortQ = query.length > 255 ? query.substring(0, 255) + '...' : query;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        logAndShowError(`${errorMsg}\n\n---\n${shortQ}`);
       }
     }),
 
@@ -538,14 +571,16 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._refreshCount', async (connectionId: string, tableName: string, schema: string | undefined, panelKey: string) => {
-      const driver = connectionManager.getDriver(connectionId);
+    vscode.commands.registerCommand('viewstor._refreshCount', async (connectionId: string, tableName: string, schema: string | undefined, panelKey: string, databaseName?: string) => {
+      const driver = databaseName
+        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : connectionManager.getDriver(connectionId);
       if (!driver || !driver.getTableRowCount) return;
       try {
         const count = await driver.getTableRowCount(tableName, schema);
         resultPanelManager.postMessage(panelKey, { type: 'updateRowCount', count });
       } catch (err) {
-        vscode.window.showErrorMessage(vscode.l10n.t('Failed to count rows: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Failed to count rows: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
@@ -569,7 +604,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const doc = await vscode.workspace.openTextDocument({ content: ddl, language: 'sql' });
         await vscode.window.showTextDocument(doc, { preview: true });
       } catch (err) {
-        vscode.window.showErrorMessage(vscode.l10n.t('Failed to get DDL: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Failed to get DDL: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
@@ -847,7 +882,6 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           rows: entry.cachedResult.rows,
           rowCount: entry.cachedResult.rows.length,
           executionTimeMs: entry.executionTimeMs,
-          error: entry.error,
         }, title, { color, readonly });
       }
     }),
@@ -878,6 +912,79 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
   );
 }
 
+function logAndShowError(message: string) {
+  _outputChannel.appendLine(`[ERROR] ${message}`);
+  vscode.window.showErrorMessage(message);
+}
+
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    let prev = i - 1;
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
+/** Parse table names from a SQL query (FROM / JOIN clauses) */
+function parseTablesFromQuery(sql: string): Array<{ table: string; schema?: string }> {
+  const tables: Array<{ table: string; schema?: string }> = [];
+  const re = /(?:FROM|JOIN)\s+"?(\w+)"?\s*\.\s*"?(\w+)"?|(?:FROM|JOIN)\s+"?(\w+)"?/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sql)) !== null) {
+    if (m[1] && m[2]) tables.push({ schema: m[1], table: m[2] });
+    else if (m[3]) tables.push({ table: m[3] });
+  }
+  return tables;
+}
+
+/** Enhance "column X does not exist" errors with "Did you mean: Y?" */
+async function enhanceColumnError(
+  error: string,
+  query: string,
+  driver: import('../types/driver').DatabaseDriver,
+): Promise<string> {
+  // PostgreSQL: column "xxx" does not exist
+  const colMatch = error.match(/column "(\w+)" does not exist/i)
+    || error.match(/Unknown column '(\w+)'/i); // ClickHouse / MySQL style
+  if (!colMatch) return error;
+
+  const badColumn = colMatch[1].toLowerCase();
+  const tables = parseTablesFromQuery(query);
+  if (tables.length === 0) return error;
+
+  const allColumns: string[] = [];
+  for (const t of tables) {
+    try {
+      const info = await driver.getTableInfo(t.table, t.schema);
+      allColumns.push(...info.columns.map(c => c.name));
+    } catch { /* skip */ }
+  }
+  if (allColumns.length === 0) return error;
+
+  let bestMatch = '';
+  let bestDist = Infinity;
+  for (const col of allColumns) {
+    const dist = levenshtein(badColumn, col.toLowerCase());
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestMatch = col;
+    }
+  }
+
+  // Suggest only if edit distance ≤ 3
+  if (bestDist > 0 && bestDist <= 3) {
+    return `${error}\n\nDid you mean: "${bestMatch}"?`;
+  }
+  return error;
 }

@@ -64,5 +64,8 @@
   "Clear": "Löschen",
   "Pinned": "Angeheftet",
   "Show Logs": "Protokolle anzeigen",
-  "Viewstor failed to activate: {0}": "Viewstor konnte nicht aktiviert werden: {0}"
+  "Viewstor failed to activate: {0}": "Viewstor konnte nicht aktiviert werden: {0}",
+  "Copy Config": "Konfiguration kopieren",
+  "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "Fügen Sie dies zu Ihrer AI-Agent MCP-Konfiguration hinzu (Claude Code, Cline usw.):",
+  "MCP config copied to clipboard": "MCP-Konfiguration in Zwischenablage kopiert"
 }

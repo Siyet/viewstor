@@ -21,6 +21,7 @@ interface ProjectData {
 export class ConnectionManager {
   private connections: Map<string, ConnectionState> = new Map();
   private drivers: Map<string, DatabaseDriver> = new Map();
+  private dbDrivers: Map<string, DatabaseDriver> = new Map(); // connectionId:database → driver
   private folders: Map<string, ConnectionFolder> = new Map();
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChange = this._onDidChange.event;
@@ -176,6 +177,30 @@ export class ConnectionManager {
     return this.drivers.get(id);
   }
 
+  /** Get or create a cached driver for a specific database within a multi-DB connection */
+  async getDriverForDatabase(connectionId: string, database: string): Promise<DatabaseDriver> {
+    const state = this.connections.get(connectionId);
+    if (!state) throw new Error('Connection not found');
+
+    // If it's the main database, return the primary driver
+    if (state.config.database === database) {
+      const d = this.drivers.get(connectionId);
+      if (d) return d;
+    }
+
+    const cacheKey = `${connectionId}:${database}`;
+    let driver = this.dbDrivers.get(cacheKey);
+    if (driver) {
+      try { await driver.ping(); return driver; } catch { /* reconnect below */ }
+    }
+
+    const tempConfig = { ...state.config, database };
+    driver = createDriver(tempConfig.type);
+    await driver.connect(tempConfig);
+    this.dbDrivers.set(cacheKey, driver);
+    return driver;
+  }
+
   async add(config: ConnectionConfig): Promise<void> {
     this.connections.set(config.id, { config, connected: false });
     await this.saveConnections();
@@ -221,6 +246,13 @@ export class ConnectionManager {
     if (driver) {
       await driver.disconnect();
       this.drivers.delete(id);
+    }
+    // Disconnect cached multi-DB drivers
+    for (const [key, dbDriver] of this.dbDrivers) {
+      if (key.startsWith(`${id}:`)) {
+        await dbDriver.disconnect().catch(() => {});
+        this.dbDrivers.delete(key);
+      }
     }
     const state = this.connections.get(id);
     if (state) {

@@ -64,5 +64,8 @@
   "Clear": "지우기",
   "Pinned": "고정됨",
   "Show Logs": "로그 보기",
-  "Viewstor failed to activate: {0}": "Viewstor 활성화 실패: {0}"
+  "Viewstor failed to activate: {0}": "Viewstor 활성화 실패: {0}",
+  "Copy Config": "설정 복사",
+  "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "AI 에이전트 MCP 설정에 추가하세요 (Claude Code, Cline 등):",
+  "MCP config copied to clipboard": "MCP 설정이 클립보드에 복사되었습니다"
 }

@@ -64,5 +64,8 @@
   "Clear": "साफ़ करें",
   "Pinned": "पिन किए गए",
   "Show Logs": "लॉग दिखाएँ",
-  "Viewstor failed to activate: {0}": "Viewstor सक्रिय करने में विफल: {0}"
+  "Viewstor failed to activate: {0}": "Viewstor सक्रिय करने में विफल: {0}",
+  "Copy Config": "कॉन्फ़िग कॉपी करें",
+  "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "इसे अपने AI एजेंट MCP कॉन्फ़िग में जोड़ें (Claude Code, Cline, आदि):",
+  "MCP config copied to clipboard": "MCP कॉन्फ़िग क्लिपबोर्ड पर कॉपी किया गया"
 }

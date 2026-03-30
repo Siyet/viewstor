@@ -64,5 +64,8 @@
   "Clear": "クリア",
   "Pinned": "固定済み",
   "Show Logs": "ログを表示",
-  "Viewstor failed to activate: {0}": "Viewstor のアクティベーションに失敗しました: {0}"
+  "Viewstor failed to activate: {0}": "Viewstor のアクティベーションに失敗しました: {0}",
+  "Copy Config": "設定をコピー",
+  "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "AIエージェントのMCP設定に追加してください（Claude Code、Clineなど）：",
+  "MCP config copied to clipboard": "MCP設定をクリップボードにコピーしました"
 }
