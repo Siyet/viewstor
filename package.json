@@ -2,7 +2,7 @@
   "name": "viewstor",
   "displayName": "Viewstor",
   "description": "%extension.description%",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "publisher": "Siyet",
   "license": "AGPL-3.0",
   "icon": "resources/icon.png",
@@ -49,6 +49,12 @@
     "package": "vsce package"
   },
   "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "viewstor.mcpServer",
+        "label": "Viewstor MCP"
+      }
+    ],
     "chatParticipants": [
       {
         "id": "viewstor.chat",
@@ -149,12 +155,19 @@
       {
         "command": "viewstor.showTableData",
         "title": "%command.showTableData%",
-        "category": "Viewstor"
+        "category": "Viewstor",
+        "icon": "$(open-preview)"
       },
       {
         "command": "viewstor.showDDL",
         "title": "%command.showDDL%",
         "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.executeTempSql",
+        "title": "Execute SQL",
+        "category": "Viewstor",
+        "icon": "$(play)"
       },
       {
         "command": "viewstor.createFolder",
@@ -256,6 +269,13 @@
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "viewstor.executeTempSql",
+          "when": "viewstor.isTempSqlFile",
+          "group": "navigation"
+        }
+      ],
       "view/title": [
         {
           "command": "viewstor.addConnection",
@@ -279,6 +299,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "viewstor.showTableData",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view)$/",
+          "group": "inline"
+        },
         {
           "command": "viewstor.refreshConnection",
           "when": "view == viewstor.connections && viewItem == connection-connected",

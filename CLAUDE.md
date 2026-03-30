@@ -121,8 +121,11 @@ Usage in Claude Code config:
 
 `src/services/importService.ts` — parseDBeaver (data-sources.json), parseDataGrip (dataSources.xml, regex XML), parsePgAdmin (servers.json). Maps providers to DatabaseType, skips unsupported with warnings. No password import.
 
+### Utilities
+`src/utils/queryHelpers.ts` — pure functions for SQL generation and error enhancement: `levenshtein`, `parseTablesFromQuery`, `enhanceColumnError`, `buildUpdateSql`, `buildDeleteSql`, `buildInsertDefaultSql`, `quoteTable`, `sqlValue`. All vscode-independent, fully unit-tested.
+
 ### Commands
-`src/commands/index.ts` — all `viewstor.*` commands. Notable: `_fetchPage` (server-side pagination), `_exportAllData` (fetches up to 100k rows), `_cancelQuery`, `_refreshCount` (exact COUNT), `reportIssue` (GitHub issue with env info).
+`src/commands/index.ts` — all `viewstor.*` commands. Notable: `_fetchPage` (server-side pagination), `_exportAllData` (fetches up to 100k rows), `_cancelQuery`, `_refreshCount` (exact COUNT), `_insertRow` (INSERT with DEFAULT), `_deleteRows` (DELETE by PK with confirmation), `reportIssue` (GitHub issue with env info). All commands support `databaseName` parameter for multi-DB connections.
 
 ## Key Conventions
 

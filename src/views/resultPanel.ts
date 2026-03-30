@@ -26,8 +26,11 @@ const DEFAULT_PAGE_SIZE = 100;
 export class ResultPanelManager {
   private panels = new Map<string, vscode.WebviewPanel>();
   private messageDisposables = new Map<string, vscode.Disposable>();
+  private _tempFileManager: any = null;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
+
+  setTempFileManager(t: any) { this._tempFileManager = t; }
 
   show(result: QueryResult, title?: string, opts?: ShowOptions) {
     const panelTitle = title || 'Query Results';
@@ -54,6 +57,7 @@ export class ResultPanelManager {
         this.panels.delete(panelKey);
         this.messageDisposables.get(panelKey)?.dispose();
         this.messageDisposables.delete(panelKey);
+        if (this._tempFileManager) this._tempFileManager.cleanupForPanel(panelKey);
       });
       this.panels.set(panelKey, panel);
       // Move results panel below the editor, then return focus to editor
@@ -67,6 +71,7 @@ export class ResultPanelManager {
     this.messageDisposables.get(panelKey)?.dispose();
 
     const ctx = opts || {};
+    const tfm = this._tempFileManager;
     const disposable = panel.webview.onDidReceiveMessage((msg) => {
       switch (msg.type) {
         case 'changePage':
@@ -108,8 +113,15 @@ export class ResultPanelManager {
           vscode.commands.executeCommand('viewstor._saveEdits',
             ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.edits, ctx.databaseName);
           break;
-        case 'openJsonInTab':
-          vscode.commands.executeCommand('viewstor._openJsonInTab', msg.json);
+        case 'editJsonInTab':
+          if (tfm) {
+            tfm.openJsonEditor(msg.json, {
+              panelKey,
+              rowIdx: msg.rowIdx,
+              colName: msg.colName,
+              colDataType: msg.colDataType,
+            });
+          }
           break;
         case 'exportAllData':
           if (isTableMode) {
@@ -119,6 +131,21 @@ export class ResultPanelManager {
             vscode.commands.executeCommand('viewstor.exportResults',
               { columns: msg.columns, rows: msg.rows, format: msg.format });
           }
+          break;
+        case 'insertRow':
+          if (isTableMode) {
+            vscode.commands.executeCommand('viewstor._insertRow',
+              ctx.connectionId, ctx.tableName, ctx.schema, msg.row, ctx.databaseName);
+          }
+          break;
+        case 'deleteRows':
+          if (isTableMode) {
+            vscode.commands.executeCommand('viewstor._deleteRows',
+              ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.rows, ctx.databaseName, msg.pkTypes);
+          }
+          break;
+        case 'rerunLastQuery':
+          vscode.commands.executeCommand('viewstor.runQuery');
           break;
       }
     });
@@ -167,9 +194,11 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   .btn-primary { background:var(--vscode-button-background) !important; color:var(--vscode-button-foreground) !important; }
   .btn-primary:hover { background:var(--vscode-button-hoverBackground) !important; }
   .container { overflow:auto; flex:1; position:relative; }
-  table { border-collapse:collapse; }
+  table { border-collapse:collapse; table-layout:auto; }
   th, td { padding:4px 8px; border:1px solid var(--vscode-panel-border); text-align:left; white-space:nowrap; max-width:400px; overflow:hidden; text-overflow:ellipsis; user-select:none; }
-  th { position:sticky; top:0; background:var(--vscode-editor-background); font-weight:600; z-index:1; cursor:pointer; }
+  th { position:sticky; top:0; background:var(--vscode-editor-background); font-weight:600; z-index:1; cursor:pointer; position:relative; }
+  th .col-resize-handle { position:absolute; top:0; right:-2px; width:5px; height:100%; cursor:col-resize; z-index:4; }
+  th .col-resize-handle:hover { background:var(--vscode-focusBorder); }
   .row-num, .row-num-header { position:sticky; left:0; z-index:2; background:var(--vscode-editor-background); color:var(--vscode-descriptionForeground); text-align:right; padding:4px 8px; border-right:2px solid var(--vscode-panel-border); min-width:40px; max-width:none; font-size:11px; cursor:default; user-select:none; }
   .row-num-header { z-index:3; top:0; font-weight:600; cursor:default; }
   th:hover { background:var(--vscode-list-hoverBackground); }
@@ -228,14 +257,17 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     <span id="searchCount" class="search-count"></span>
     <span style="flex:1"></span>
     <button id="exportBtn">Export</button>
+    <button id="addRowBtn" class="hidden">+ Row</button>
+    <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
     <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
+    <button id="refreshBtn" title="Refresh">↻</button>
     <button id="discardBtn" class="hidden">Discard</button>
-    <label>Rows/page: <select id="pageSize">
-      ${PAGE_SIZE_OPTIONS.map(n => `<option value="${n}"${n === activePageSize ? ' selected' : ''}>${n}</option>`).join('')}
-    </select></label>
     <button id="prevPage" disabled>&lt;</button>
     <span id="pageInfo"></span>
     <button id="nextPage">&gt;</button>
+    <label>Rows per page: <select id="pageSize">
+      ${PAGE_SIZE_OPTIONS.map(n => `<option value="${n}"${n === activePageSize ? ' selected' : ''}>${n}</option>`).join('')}
+    </select></label>
   </div>
   ${isTableMode ? `<div class="query-bar">
     <input type="text" id="queryInput" value="${esc(defaultQuery)}" />
@@ -257,24 +289,17 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     <span id="footerRowCount"></span>
     <button id="refreshCount" title="Get exact row count" style="font-size:11px;padding:1px 5px;">⟳</button>
     <span style="flex:1"></span>
+    <button id="footerRefreshBtn" title="Refresh">↻</button>
+    <button id="footerExportBtn">Export</button>
+    <button id="footerAddRowBtn" class="hidden">+ Row</button>
+    <button id="footerDeleteRowBtn" class="hidden" disabled>− Row</button>
+    <button id="footerSaveBtn" class="btn-primary hidden">Save Changes</button>
+    <button id="footerDiscardBtn" class="hidden">Discard</button>
     <button id="footerPrev" disabled>&lt;</button>
     <span id="footerPageInfo"></span>
     <button id="footerNext">&gt;</button>
   </div>
   <div id="overlay" class="overlay hidden"></div>
-  <div id="jsonPopup" class="popup hidden">
-    <div class="popup-header">
-      <span>JSON Viewer</span>
-      <div style="display:flex;gap:6px;">
-        <button id="jsonOpenTab" class="btn-primary">Open in Tab</button>
-        <button id="jsonClose">Close</button>
-      </div>
-    </div>
-    <div class="popup-body">
-      <textarea id="jsonEditor" class="json-editor"></textarea>
-      <div id="jsonPreview" class="code-preview" style="margin-top:8px;border:1px solid var(--vscode-panel-border);border-radius:2px;max-height:40vh;overflow:auto;"></div>
-    </div>
-  </div>
   <div id="exportPopup" class="popup hidden" style="width:360px;">
     <div class="popup-header">
       <span>Export Data</span>
@@ -296,13 +321,13 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
 <script>
 (function() {
   const vscode = acquireVsCodeApi();
-  const columns = ${safeJsonForScript(result.columns)};
-  const pageRows = ${safeJsonForScript(result.rows)};
+  let columns = ${safeJsonForScript(result.columns)};
+  let pageRows = ${safeJsonForScript(result.rows)};
   const pkColumns = ${safeJsonForScript(opts?.pkColumns || [])};
   const IS_READONLY = ${!!opts?.readonly};
   const IS_TABLE_MODE = ${isTableMode};
-  const TOTAL_ROW_COUNT = ${totalRowCount};
-  const IS_ESTIMATED_COUNT = ${isEstimatedCount};
+  let TOTAL_ROW_COUNT = ${totalRowCount};
+  let IS_ESTIMATED_COUNT = ${isEstimatedCount};
   let currentPage = ${currentPage};
   let pageSize = ${activePageSize};
   let totalPages = Math.max(1, Math.ceil(TOTAL_ROW_COUNT / pageSize));
@@ -324,7 +349,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   }
 
   let pendingEdits = new Map();
-  const originalRows = JSON.parse(JSON.stringify(pageRows));
+  let originalRows = JSON.parse(JSON.stringify(pageRows));
 
   const jsonTypes = new Set(['json','jsonb','Object']);
   const boolTypes = new Set(['boolean','Bool']);
@@ -373,10 +398,10 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
         if (sortColumns.length > 1) icon += '<sup>' + (sortIdx+1) + '</sup>';
         icon += '</span>';
       }
-      return '<th data-col="' + i + '">' + escHtml(c.name) + icon + '<br><small>' + escHtml(c.dataType) + '</small></th>';
+      return '<th data-col="' + i + '">' + escHtml(c.name) + icon + '<br><small>' + escHtml(c.dataType) + '</small><div class="col-resize-handle"></div></th>';
     }).join('');
     headerRow.querySelectorAll('th[data-col]').forEach(th => {
-      th.addEventListener('click', (e) => handleSortClick(Number(th.dataset.col), e.shiftKey));
+      th.addEventListener('click', (e) => { if (e.target.classList && e.target.classList.contains('col-resize-handle')) return; handleSortClick(Number(th.dataset.col), e.shiftKey); });
       th.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         closeContextMenu();
@@ -397,6 +422,34 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
         ctxMenuEl.appendChild(selectBtn);
         document.body.appendChild(ctxMenuEl);
       });
+      // Column resize handle
+      var handle = th.querySelector('.col-resize-handle');
+      if (handle) {
+        handle.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var startX = e.clientX;
+          var startWidth = th.offsetWidth;
+          var colIdx = Number(th.dataset.col);
+          function onMove(ev) {
+            var newWidth = Math.max(40, startWidth + ev.clientX - startX);
+            th.style.width = newWidth + 'px';
+            th.style.minWidth = newWidth + 'px';
+            th.style.maxWidth = newWidth + 'px';
+            // Apply to all td in same column
+            document.querySelectorAll('#dataBody tr').forEach(function(row) {
+              var td = row.children[colIdx + 1]; // +1 for row-num column
+              if (td) { td.style.width = newWidth + 'px'; td.style.minWidth = newWidth + 'px'; td.style.maxWidth = newWidth + 'px'; }
+            });
+          }
+          function onUp() {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+          }
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        });
+      }
     });
   }
 
@@ -440,7 +493,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
         const val = pageRows[ri][col.name];
         if (val !== null && val !== undefined && (jsonTypes.has(col.dataType) || isComplexValue(val))) {
           const str = typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val);
-          showJsonPopup(str, ri, col);
+          openJsonInTab(str, ri, col);
           return;
         }
         if (!IS_READONLY) startEdit(td, ci, ri);
@@ -579,6 +632,12 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
         brTd.appendChild(handle);
       }
     }
+    // Toggle delete row buttons
+    var noSel = selectedCells.size === 0;
+    var delBtn = document.getElementById('deleteRowBtn');
+    if (delBtn) delBtn.disabled = noSel;
+    var fDelBtn = document.getElementById('footerDeleteRowBtn');
+    if (fDelBtn) fDelBtn.disabled = noSel;
   }
 
   // --- Context menu ---
@@ -604,6 +663,20 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       btn.addEventListener('click', () => { copySelection(f.fmt); closeContextMenu(); });
       ctxMenuEl.appendChild(btn);
     });
+    // Delete row option (only in table mode, not readonly, with PKs)
+    if (!IS_READONLY && IS_TABLE_MODE && pkColumns.length > 0) {
+      var sep = document.createElement('div');
+      sep.style.cssText = 'height:1px;background:var(--vscode-menu-separatorBackground, var(--vscode-panel-border));margin:4px 0;';
+      ctxMenuEl.appendChild(sep);
+      var delBtn = document.createElement('button');
+      delBtn.textContent = 'Delete Row(s)';
+      delBtn.style.color = 'var(--vscode-errorForeground)';
+      delBtn.addEventListener('click', function() {
+        closeContextMenu();
+        sendDeleteRows();
+      });
+      ctxMenuEl.appendChild(delBtn);
+    }
     document.body.appendChild(ctxMenuEl);
   }
   function closeContextMenu() { if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; } }
@@ -738,9 +811,15 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     const oldStr = typeof oldVal === 'object' && oldVal !== null ? JSON.stringify(oldVal) : String(oldVal);
     if (newStr !== oldStr) {
       const pkValues = {};
-      pkColumns.forEach(pk => { pkValues[pk] = originalRows[rowIdx][pk]; });
-      if (!pendingEdits.has(rowIdx.toString())) pendingEdits.set(rowIdx.toString(), { rowIdx, changes: {}, pkValues });
+      const pkTypes = {};
+      pkColumns.forEach(pk => {
+        pkValues[pk] = originalRows[rowIdx][pk];
+        var pkCol = columns.find(function(c) { return c.name === pk; });
+        if (pkCol) pkTypes[pk] = pkCol.dataType;
+      });
+      if (!pendingEdits.has(rowIdx.toString())) pendingEdits.set(rowIdx.toString(), { rowIdx, changes: {}, columnTypes: {}, pkValues, pkTypes });
       pendingEdits.get(rowIdx.toString()).changes[col.name] = newVal;
+      pendingEdits.get(rowIdx.toString()).columnTypes[col.name] = col.dataType;
       td.classList.add('modified');
     } else {
       const edit = pendingEdits.get(rowIdx.toString());
@@ -764,7 +843,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       const col = columns[colIdx];
       const val = pageRows[rowIdx][col.name];
       if (val !== null && val !== undefined && (jsonTypes.has(col.dataType) || isComplexValue(val))) {
-        showJsonPopup(typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val), rowIdx, col);
+        openJsonInTab(typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val), rowIdx, col);
         return;
       }
       if (!IS_READONLY) startEdit(td, colIdx, rowIdx);
@@ -775,6 +854,8 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     const hasEdits = pendingEdits.size > 0;
     document.getElementById('saveBtn').classList.toggle('hidden', !hasEdits);
     document.getElementById('discardBtn').classList.toggle('hidden', !hasEdits);
+    document.getElementById('footerSaveBtn').classList.toggle('hidden', !hasEdits);
+    document.getElementById('footerDiscardBtn').classList.toggle('hidden', !hasEdits);
   }
 
   document.getElementById('saveBtn').addEventListener('click', () => {
@@ -792,41 +873,44 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     updateSaveButtons();
   });
 
-  // --- JSON Popup (editable) ---
-  let jsonEditContext = null;
-  function updateJsonPreview() {
-    const editor = document.getElementById('jsonEditor');
-    const preview = document.getElementById('jsonPreview');
-    if (preview) preview.innerHTML = highlightJson(editor.value);
+  // --- Add / Delete Rows ---
+  if (!IS_READONLY && IS_TABLE_MODE && pkColumns.length > 0) {
+    document.getElementById('addRowBtn').classList.remove('hidden');
+    document.getElementById('deleteRowBtn').classList.remove('hidden');
+    document.getElementById('footerAddRowBtn').classList.remove('hidden');
+    document.getElementById('footerDeleteRowBtn').classList.remove('hidden');
   }
-  function showJsonPopup(jsonStr, rowIdx, col) {
-    jsonEditContext = { rowIdx, col };
-    const editor = document.getElementById('jsonEditor');
-    try { editor.value = JSON.stringify(JSON.parse(jsonStr), null, 2); } catch { editor.value = jsonStr; }
-    document.getElementById('jsonPopup').classList.remove('hidden');
-    document.getElementById('overlay').classList.remove('hidden');
-    updateJsonPreview();
-    editor.focus();
-    editor.addEventListener('input', updateJsonPreview);
-  }
-  function closeJsonPopup(save) {
-    if (save && jsonEditContext && !IS_READONLY) {
-      const editor = document.getElementById('jsonEditor');
-      const { rowIdx, col } = jsonEditContext;
-      const td = document.querySelector('td[data-row="' + rowIdx + '"][data-col="' + columns.indexOf(col) + '"]');
-      if (td) finishEdit(td, col, rowIdx, editor.value);
-    }
-    jsonEditContext = null;
-    document.getElementById('jsonPopup').classList.add('hidden');
-    document.getElementById('overlay').classList.add('hidden');
-  }
-  document.getElementById('jsonClose').addEventListener('click', () => closeJsonPopup(false));
-  document.getElementById('jsonOpenTab').addEventListener('click', () => {
-    const editor = document.getElementById('jsonEditor');
-    try { const pretty = JSON.stringify(JSON.parse(editor.value), null, 2); vscode.postMessage({ type: 'openJsonInTab', json: pretty }); }
-    catch { vscode.postMessage({ type: 'openJsonInTab', json: editor.value }); }
-    closeJsonPopup(false);
+
+  document.getElementById('addRowBtn').addEventListener('click', () => {
+    var newRow = {};
+    columns.forEach(function(c) { newRow[c.name] = null; });
+    vscode.postMessage({ type: 'insertRow', row: newRow });
   });
+
+  function sendDeleteRows() {
+    var rowSet = new Set();
+    selectedCells.forEach(function(key) { rowSet.add(parseInt(key.split(':')[0])); });
+    if (rowSet.size === 0) return;
+    var rowsToDelete = [];
+    var pTypes = {};
+    pkColumns.forEach(function(pk) {
+      var c = columns.find(function(col) { return col.name === pk; });
+      if (c) pTypes[pk] = c.dataType;
+    });
+    rowSet.forEach(function(ri) {
+      var pkVals = {};
+      pkColumns.forEach(function(pk) { pkVals[pk] = pageRows[ri][pk]; });
+      rowsToDelete.push(pkVals);
+    });
+    vscode.postMessage({ type: 'deleteRows', rows: rowsToDelete, pkTypes: pTypes });
+  }
+
+  document.getElementById('deleteRowBtn').addEventListener('click', sendDeleteRows);
+
+  // --- JSON: open in native VS Code tab ---
+  function openJsonInTab(jsonStr, rowIdx, col) {
+    vscode.postMessage({ type: 'editJsonInTab', json: jsonStr, rowIdx: rowIdx, colName: col.name, colDataType: col.dataType });
+  }
 
   // --- Export Popup ---
   function showExportPopup() {
@@ -840,6 +924,17 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     document.getElementById('exportPopup').classList.add('hidden');
     document.getElementById('overlay').classList.add('hidden');
   }
+  document.getElementById('refreshBtn').addEventListener('click', () => {
+    if (IS_TABLE_MODE) {
+      if (queryInput && queryInput.value.trim()) {
+        runCustomQuery();
+      } else {
+        vscode.postMessage({ type: 'changePage', page: currentPage, pageSize: pageSize, orderBy: sortColumns });
+      }
+    } else {
+      vscode.postMessage({ type: 'rerunLastQuery' });
+    }
+  });
   document.getElementById('exportBtn').addEventListener('click', showExportPopup);
   document.getElementById('exportClose').addEventListener('click', closeExportPopup);
   document.getElementById('exportConfirm').addEventListener('click', () => {
@@ -883,6 +978,14 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       vscode.postMessage({ type: 'changePageSize', pageSize, orderBy: sortColumns });
     }
   });
+
+  // Footer button delegates
+  document.getElementById('footerRefreshBtn').addEventListener('click', () => document.getElementById('refreshBtn').click());
+  document.getElementById('footerExportBtn').addEventListener('click', () => document.getElementById('exportBtn').click());
+  document.getElementById('footerAddRowBtn').addEventListener('click', () => document.getElementById('addRowBtn').click());
+  document.getElementById('footerDeleteRowBtn').addEventListener('click', () => document.getElementById('deleteRowBtn').click());
+  document.getElementById('footerSaveBtn').addEventListener('click', () => document.getElementById('saveBtn').click());
+  document.getElementById('footerDiscardBtn').addEventListener('click', () => document.getElementById('discardBtn').click());
 
   function showLoading() { document.getElementById('loadingOverlay').classList.remove('hidden'); }
   function hideLoading() { document.getElementById('loadingOverlay').classList.add('hidden'); }
@@ -930,6 +1033,36 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       const btn = document.getElementById('refreshCount');
       btn.disabled = false;
       document.getElementById('footerRowCount').textContent = msg.count + ' row' + (msg.count !== 1 ? 's' : '');
+    }
+    if (msg.type === 'rerunQuery') {
+      if (queryInput && queryInput.value.trim()) {
+        runCustomQuery();
+      } else {
+        vscode.postMessage({ type: 'changePage', page: currentPage, pageSize: pageSize, orderBy: sortColumns });
+      }
+    }
+    if (msg.type === 'applyJsonEdit') {
+      var colIdx = columns.findIndex(function(c) { return c.name === msg.colName; });
+      if (colIdx >= 0) {
+        var col = columns[colIdx];
+        var td = document.querySelector('td[data-row="' + msg.rowIdx + '"][data-col="' + colIdx + '"]');
+        if (td) finishEdit(td, col, msg.rowIdx, msg.newValue);
+      }
+    }
+    if (msg.type === 'updateData') {
+      columns = msg.columns;
+      pageRows = msg.rows;
+      TOTAL_ROW_COUNT = msg.rowCount;
+      if (msg.currentPage !== undefined) currentPage = msg.currentPage;
+      if (msg.totalPages !== undefined) totalPages = msg.totalPages;
+      if (msg.isEstimatedCount !== undefined) IS_ESTIMATED_COUNT = msg.isEstimatedCount;
+      pendingEdits.clear();
+      originalRows = JSON.parse(JSON.stringify(pageRows));
+      document.getElementById('statsInfo').textContent = msg.executionTimeMs + 'ms';
+      renderHeader();
+      renderPage();
+      updateSaveButtons();
+      hideLoading();
     }
   });
 

@@ -3,15 +3,20 @@ import { ConnectionManager } from '../connections/connectionManager';
 
 const SCHEME = 'viewstor';
 
-// Map to track connectionId for untitled documents
-const connectionMap = new Map<string, string>();
+interface QueryEditorContext {
+  connectionId: string;
+  databaseName?: string;
+}
+
+// Map to track connectionId + databaseName for untitled documents
+const connectionMap = new Map<string, QueryEditorContext>();
 
 export class QueryEditorProvider {
   private queryCounter = 0;
 
   constructor(private readonly connectionManager: ConnectionManager) {}
 
-  async openNewQuery(connectionId: string) {
+  async openNewQuery(connectionId: string, databaseName?: string) {
     const state = this.connectionManager.get(connectionId);
     if (!state) {
       throw new Error('Connection not found');
@@ -26,7 +31,7 @@ export class QueryEditorProvider {
     });
 
     // Track connection by document URI
-    connectionMap.set(doc.uri.toString(), connectionId);
+    connectionMap.set(doc.uri.toString(), { connectionId, databaseName });
 
     await vscode.window.showTextDocument(doc, {
       viewColumn: vscode.ViewColumn.One,
@@ -35,9 +40,8 @@ export class QueryEditorProvider {
   }
 
   getConnectionIdFromUri(uri: vscode.Uri): string | undefined {
-    // Check untitled document map first
     const mapped = connectionMap.get(uri.toString());
-    if (mapped) return mapped;
+    if (mapped) return mapped.connectionId;
 
     // Legacy: check viewstor: scheme query params
     if (uri.scheme === SCHEME) {
@@ -45,6 +49,10 @@ export class QueryEditorProvider {
       return params.get('connectionId') || undefined;
     }
     return undefined;
+  }
+
+  getDatabaseNameFromUri(uri: vscode.Uri): string | undefined {
+    return connectionMap.get(uri.toString())?.databaseName;
   }
 }
 

@@ -103,7 +103,10 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 
 - Server-side pagination (50 / 100 / 500 / 1000 rows)
 - Estimated row count from statistics, exact count via refresh
-- Inline editing with PK-based `UPDATE` (disabled in read-only)
+- Inline editing with PK-based `UPDATE`, type-aware SQL (numeric PKs without quotes, `::jsonb` cast)
+- **Add / delete rows** — insert with DEFAULT values, delete from toolbar or right-click context menu
+- **Resizable columns** — drag column header edge to adjust width
+- **Refresh button** — re-run current query without page reload
 - Column sorting (shift-click for multi-column)
 - Cell selection with drag, Shift+Click range, resize handle
 - Search with `Ctrl+F`, Enter to cycle matches
