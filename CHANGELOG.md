@@ -9,6 +9,10 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 - Enum value autocomplete — suggests enum values after `=`, `!=`, `<>`, `IN` operators (#32)
 - SQL diagnostics — error underline for non-existent tables, warning for unknown columns (#33)
 - Syntax highlighting — JSON preview in cell editor popup, SQL token highlighting (#34)
+- Show actual executed query (with auto-LIMIT) in progress notification (#36)
+
+### Changed
+- Auto-LIMIT uses max page size (1000) instead of default (100) for less restrictive safety
 
 ## [0.2.1] — 2026-03-30
 

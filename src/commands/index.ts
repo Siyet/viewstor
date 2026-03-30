@@ -132,8 +132,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const trimmed = query.trim().replace(/;+\s*$/, '');
         const upper = trimmed.toUpperCase();
         if (upper.startsWith('SELECT') && !upper.includes('LIMIT')) {
-          const defaultLimit = vscode.workspace.getConfiguration('viewstor').get<number>('defaultPageSize', 100);
-          finalQuery = trimmed + ` LIMIT ${defaultLimit}`;
+          finalQuery = trimmed + ' LIMIT 1000';
+        } else {
+          finalQuery = trimmed;
         }
       }
 
@@ -181,8 +182,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
 
       try {
+        const shortQuery = finalQuery.length > 100 ? finalQuery.substring(0, 100) + '...' : finalQuery;
         const result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running query...') },
+          { location: vscode.ProgressLocation.Notification, title: `Running: ${shortQuery}` },
           () => driver.execute(finalQuery)
         );
 
