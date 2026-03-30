@@ -37,12 +37,10 @@ export class ResultPanelManager {
       // Reveal in its current position (wherever the user moved it)
       panel.reveal();
     } else {
-      // Table data → same column; query results → beside (user can drag to bottom)
-      const viewColumn = isTableMode ? vscode.ViewColumn.One : vscode.ViewColumn.Beside;
       panel = vscode.window.createWebviewPanel(
         'viewstor.results',
         panelTitle,
-        viewColumn,
+        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
         {
           enableScripts: true,
           retainContextWhenHidden: true,
@@ -55,6 +53,8 @@ export class ResultPanelManager {
         this.messageDisposables.delete(panelKey);
       });
       this.panels.set(panelKey, panel);
+      // Move results panel below the editor
+      vscode.commands.executeCommand('workbench.action.moveEditorToBelowGroup');
     }
 
     panel.webview.html = buildResultHtml(result, opts);
