@@ -82,7 +82,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
     }),
 
     vscode.commands.registerCommand('viewstor.refreshConnection', () => {
-      connectionTreeProvider.refresh();
+      connectionTreeProvider.refresh(true);
     }),
 
     vscode.commands.registerCommand('viewstor.openQuery', async (item?: ConnectionTreeItem) => {
