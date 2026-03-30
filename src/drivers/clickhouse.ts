@@ -99,11 +99,11 @@ export class ClickHouseDriver implements DatabaseDriver {
     const dbNames = userDbs.map(db => db.name);
 
     const tablesResult = await this.client!.query({
-      query: 'SELECT database, name, engine FROM system.tables WHERE database IN ({dbs:Array(String)})',
+      query: 'SELECT database, name, engine, total_rows, total_bytes FROM system.tables WHERE database IN ({dbs:Array(String)})',
       format: 'JSONEachRow',
       query_params: { dbs: dbNames },
     });
-    const allTables = await tablesResult.json<{ database: string; name: string; engine: string }[]>();
+    const allTables = await tablesResult.json<{ database: string; name: string; engine: string; total_rows: number; total_bytes: number }[]>();
 
     const colsResult = await this.client!.query({
       query: 'SELECT database, table, name, type FROM system.columns WHERE database IN ({dbs:Array(String)})',
@@ -140,6 +140,7 @@ export class ClickHouseDriver implements DatabaseDriver {
         type: 'table' as const,
         schema: db.name,
         children: colsMap.get(`${db.name}.${t.name}`) || [],
+        detail: formatChRowCount(t.total_rows, t.total_bytes),
       }));
 
       schema.push({
@@ -247,4 +248,22 @@ export class ClickHouseDriver implements DatabaseDriver {
 /** Escape a ClickHouse identifier by doubling embedded double-quotes */
 function chEscapeId(id: string): string {
   return id.replace(/"/g, '""');
+}
+
+function formatChRowCount(rows: number, bytes: number): string | undefined {
+  if (!rows && !bytes) return undefined;
+  const parts: string[] = [];
+  if (rows > 0) {
+    if (rows >= 1_000_000_000) parts.push(`~${(rows / 1_000_000_000).toFixed(1)}b rows`);
+    else if (rows >= 1_000_000) parts.push(`~${(rows / 1_000_000).toFixed(1)}m rows`);
+    else if (rows >= 1_000) parts.push(`~${(rows / 1_000).toFixed(0)}k rows`);
+    else parts.push(`${rows} rows`);
+  }
+  if (bytes > 0) {
+    if (bytes >= 1_073_741_824) parts.push(`${(bytes / 1_073_741_824).toFixed(1)} GB`);
+    else if (bytes >= 1_048_576) parts.push(`${(bytes / 1_048_576).toFixed(1)} MB`);
+    else if (bytes >= 1024) parts.push(`${(bytes / 1024).toFixed(0)} KB`);
+    else parts.push(`${bytes} B`);
+  }
+  return parts.join(' · ') || undefined;
 }
