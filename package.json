@@ -170,6 +170,12 @@
         "icon": "$(play)"
       },
       {
+        "command": "viewstor.renameHistoryEntry",
+        "title": "%command.renameHistoryEntry%",
+        "category": "Viewstor",
+        "icon": "$(edit)"
+      },
+      {
         "command": "viewstor.createFolder",
         "title": "%command.createFolder%",
         "category": "Viewstor",
@@ -271,8 +277,8 @@
     "menus": {
       "editor/title": [
         {
-          "command": "viewstor.executeTempSql",
-          "when": "viewstor.isTempSqlFile",
+          "command": "viewstor.runQuery",
+          "when": "editorLangId == sql && viewstor.isViewstorSqlFile",
           "group": "navigation"
         }
       ],
@@ -406,6 +412,11 @@
         },
         {
           "command": "viewstor.unpinHistoryEntry",
+          "when": "view == viewstor.queryHistory && viewItem == queryHistoryPinned",
+          "group": "inline"
+        },
+        {
+          "command": "viewstor.renameHistoryEntry",
           "when": "view == viewstor.queryHistory && viewItem == queryHistoryPinned",
           "group": "inline"
         },

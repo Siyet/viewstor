@@ -16,10 +16,12 @@ import { registerMcpCommands } from './mcp/server';
 import { registerCommands } from './commands';
 import { registerChatParticipant } from './chat/participant';
 import { TempFileManager } from './services/tempFileManager';
+import { QueryFileManager } from './services/queryFileManager';
 
 let connectionManager: ConnectionManager;
 let outputChannel: vscode.OutputChannel;
 let tempFileManager: TempFileManager;
+let queryFileManager: QueryFileManager;
 
 export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('Viewstor');
@@ -30,11 +32,17 @@ export function activate(context: vscode.ExtensionContext) {
 
     const connectionTreeProvider = new ConnectionTreeProvider(connectionManager);
     const queryHistoryProvider = new QueryHistoryProvider(context);
-    const queryEditorProvider = new QueryEditorProvider(connectionManager);
+    queryFileManager = new QueryFileManager();
+    const queryEditorProvider = new QueryEditorProvider(connectionManager, queryFileManager);
     const resultPanelManager = new ResultPanelManager(context);
-    tempFileManager = new TempFileManager(context);
+    tempFileManager = new TempFileManager(context, queryFileManager);
     tempFileManager.setPostMessage((key, msg) => resultPanelManager.postMessage(key, msg));
     resultPanelManager.setTempFileManager(tempFileManager);
+
+    // Wire up file rename handling (pin on save)
+    queryFileManager.setOnQueryPinned((oldUri, newUri) => {
+      queryEditorProvider.handleFileRenamed(oldUri, newUri);
+    });
     const connectionFormPanel = new ConnectionFormPanel(context, connectionManager);
     const folderFormPanel = new FolderFormPanel(context, connectionManager);
 
@@ -58,6 +66,7 @@ export function activate(context: vscode.ExtensionContext) {
       folderFormPanel,
       outputChannel,
       tempFileManager,
+      queryFileManager,
     });
 
     // MCP-compatible commands for AI agent integration
@@ -337,6 +346,7 @@ function escapeHtml(str: string): string {
 }
 
 export function deactivate() {
+  queryFileManager?.dispose();
   tempFileManager?.dispose();
   connectionManager?.dispose();
 }

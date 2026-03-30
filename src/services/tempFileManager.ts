@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { QueryFileManager } from './queryFileManager';
 
 export interface JsonFileContext {
   panelKey: string;
@@ -26,13 +27,15 @@ export class TempFileManager {
   private onSqlExecuted: (ctx: SqlFileContext, sql: string) => Promise<void> = async () => {};
   private onSqlSaved: (ctx: SqlFileContext, sql: string) => Promise<void> = async () => {};
 
-  constructor(context: vscode.ExtensionContext) {
+  constructor(
+    context: vscode.ExtensionContext,
+    private readonly queryFileManager: QueryFileManager,
+  ) {
     this.tmpDir = path.join(context.globalStorageUri.fsPath, 'tmp');
     fs.mkdirSync(this.tmpDir, { recursive: true });
 
     this.disposables.push(
       vscode.workspace.onDidSaveTextDocument(doc => this.handleSave(doc)),
-      vscode.window.onDidChangeActiveTextEditor(e => this.updateContextKey(e)),
     );
   }
 
@@ -61,14 +64,10 @@ export class TempFileManager {
   }
 
   async openSqlEditor(sql: string, ctx: SqlFileContext): Promise<void> {
-    const fileName = `viewstor-sql-${Date.now()}.sql`;
-    const filePath = path.join(this.tmpDir, fileName);
-    fs.writeFileSync(filePath, sql, 'utf-8');
-
-    const uri = vscode.Uri.file(filePath);
+    const uri = await this.queryFileManager.createConfirmationQuery(
+      sql, ctx.connectionId, ctx.databaseName,
+    );
     this.sqlFiles.set(uri.toString(), ctx);
-    await vscode.window.showTextDocument(uri, { viewColumn: vscode.ViewColumn.Beside, preview: false });
-    vscode.commands.executeCommand('setContext', 'viewstor.isTempSqlFile', true);
   }
 
   async executeSqlFromActiveEditor(): Promise<void> {
@@ -78,18 +77,22 @@ export class TempFileManager {
     const ctx = this.sqlFiles.get(key);
     if (!ctx) return;
 
-    const sql = editor.document.getText();
+    const sql = this.queryFileManager.getQueryText(editor.document);
     await this.onSqlExecuted(ctx, sql);
 
     // Close the editor and clean up
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
     this.sqlFiles.delete(key);
-    try { fs.unlinkSync(editor.document.uri.fsPath); } catch { /* ok */ }
-    vscode.commands.executeCommand('setContext', 'viewstor.isTempSqlFile', false);
+    this.queryFileManager.deleteTmpFile(editor.document.uri);
   }
 
   isTempSqlFile(uri: vscode.Uri): boolean {
     return this.sqlFiles.has(uri.toString());
+  }
+
+  /** Get the SQL context for a confirmation file */
+  getSqlContext(uri: vscode.Uri): SqlFileContext | undefined {
+    return this.sqlFiles.get(uri.toString());
   }
 
   private handleSave(doc: vscode.TextDocument) {
@@ -113,16 +116,12 @@ export class TempFileManager {
       });
     }
 
-    // SQL file saved → pin in history
+    // SQL confirmation file saved → pin in history
     const sqlCtx = this.sqlFiles.get(key);
     if (sqlCtx) {
-      this.onSqlSaved(sqlCtx, doc.getText()).catch(() => {});
+      const sql = this.queryFileManager.getQueryText(doc);
+      this.onSqlSaved(sqlCtx, sql).catch(() => {});
     }
-  }
-
-  private updateContextKey(editor: vscode.TextEditor | undefined) {
-    const isSql = editor ? this.sqlFiles.has(editor.document.uri.toString()) : false;
-    vscode.commands.executeCommand('setContext', 'viewstor.isTempSqlFile', isSql);
   }
 
   cleanupForPanel(panelKey: string) {
@@ -135,7 +134,7 @@ export class TempFileManager {
     for (const [key, ctx] of this.sqlFiles) {
       if (ctx.panelKey === panelKey) {
         this.sqlFiles.delete(key);
-        try { fs.unlinkSync(vscode.Uri.parse(key).fsPath); } catch { /* ok */ }
+        this.queryFileManager.deleteTmpFile(vscode.Uri.parse(key));
       }
     }
   }

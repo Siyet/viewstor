@@ -42,5 +42,6 @@
   "command.clearHistory": "Clear History",
   "command.pinHistoryEntry": "Pin Query",
   "command.unpinHistoryEntry": "Unpin Query",
+  "command.renameHistoryEntry": "Rename Query",
   "config.queryHistoryLimit.description": "Maximum number of query history entries to keep. Pinned entries are never evicted."
 }

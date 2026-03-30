@@ -40,6 +40,7 @@
   "command.clearHistory": "Очистить историю",
   "command.pinHistoryEntry": "Закрепить запрос",
   "command.unpinHistoryEntry": "Открепить запрос",
+  "command.renameHistoryEntry": "Переименовать запрос",
   "config.queryHistoryLimit.description": "Максимальное количество записей в истории запросов. Закреплённые записи не удаляются.",
   "command.setupMcp": "Настроить MCP-сервер",
   "command.getStarted": "Начало работы"

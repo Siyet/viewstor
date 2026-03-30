@@ -54,6 +54,16 @@ export class QueryHistoryProvider implements vscode.TreeDataProvider<QueryHistor
     }
   }
 
+  async updateFilePath(id: string, filePath: string): Promise<void> {
+    const entries = this.getEntries();
+    const entry = entries.find(e => e.id === id);
+    if (entry) {
+      entry.filePath = filePath;
+      await this.context.globalState.update(STORAGE_KEY, entries);
+      this.refresh();
+    }
+  }
+
   async clear(): Promise<void> {
     // Keep pinned entries
     const pinned = this.getEntries().filter(e => e.pinned);

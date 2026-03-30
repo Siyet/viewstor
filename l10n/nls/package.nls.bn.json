@@ -40,6 +40,7 @@
   "command.clearHistory": "ইতিহাস মুছুন",
   "command.pinHistoryEntry": "কোয়েরি পিন করুন",
   "command.unpinHistoryEntry": "আনপিন করুন",
+  "command.renameHistoryEntry": "কুয়েরি পুনরায় নামকরণ",
   "config.queryHistoryLimit.description": "কোয়েরি ইতিহাসের সর্বোচ্চ এন্ট্রি সংখ্যা। পিন করা এন্ট্রি কখনো মুছে যায় না।",
   "command.setupMcp": "MCP সার্ভার সেটআপ",
   "command.getStarted": "শুরু করুন"

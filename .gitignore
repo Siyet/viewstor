@@ -6,6 +6,7 @@ dist/
 *.log
 .env
 .claude
+.vscode/settings.json
 
 # NLS files copied from l10n/nls/ at install time
 /package.nls*.json

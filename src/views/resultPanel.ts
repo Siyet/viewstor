@@ -235,9 +235,13 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   .export-form select { width:100%; margin-bottom:12px; }
   .export-form p { font-size:12px; color:var(--vscode-descriptionForeground); margin:0 0 12px; }
   .query-bar { padding:4px 12px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; display:flex; gap:6px; align-items:center; }
-  .query-bar input { flex:1; font-family:var(--vscode-editor-font-family); font-size:12px; padding:4px 8px; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:2px; outline:none; }
-  .query-bar input:focus { border-color:var(--vscode-focusBorder); }
   .query-bar button { font-size:11px; }
+  .query-editor-wrap { flex:1; position:relative; font-family:var(--vscode-editor-font-family); font-size:12px; line-height:1.4; }
+  .query-editor-highlight { position:absolute; top:0; left:0; right:0; bottom:0; padding:4px 8px; white-space:pre; overflow:hidden; pointer-events:none; color:transparent; border:1px solid transparent; border-radius:2px; }
+  .query-editor-textarea { display:block; width:100%; padding:4px 8px; font:inherit; line-height:inherit; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:2px; outline:none; resize:none; overflow:hidden; caret-color:var(--vscode-input-foreground); }
+  .query-editor-textarea:focus { border-color:var(--vscode-focusBorder); }
+  .query-editor-textarea.has-highlight { color:transparent; background:var(--vscode-input-background); }
+  .tk-op { color:var(--vscode-descriptionForeground); }
   .code-preview { padding:8px; font-family:var(--vscode-editor-font-family); font-size:var(--vscode-editor-font-size); white-space:pre-wrap; word-break:break-word; line-height:1.5; }
   .tk-kw { color:var(--vscode-debugTokenExpression-name, #569cd6); font-weight:600; }
   .tk-str { color:var(--vscode-debugTokenExpression-string, #ce9178); }
@@ -270,7 +274,10 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     </select></label>
   </div>
   ${isTableMode ? `<div class="query-bar">
-    <input type="text" id="queryInput" value="${esc(defaultQuery)}" />
+    <div class="query-editor-wrap">
+      <div class="query-editor-highlight" id="queryHighlight" aria-hidden="true"></div>
+      <textarea class="query-editor-textarea has-highlight" id="queryInput" rows="1" spellcheck="false">${esc(defaultQuery)}</textarea>
+    </div>
     <button id="queryRun" class="btn-primary" title="Run query (Enter)">▶</button>
   </div>` : ''}
   <div class="container">
@@ -346,6 +353,68 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     h = h.replace(/(:[ ]*)(null)/g, '$1<span class="tk-null">$2</span>');
     h = h.replace(/(:[ ]*)(-?[0-9.]+)/g, '$1<span class="tk-num">$2</span>');
     return h;
+  }
+
+  // --- Lightweight SQL syntax highlighting ---
+  var SQL_KEYWORDS = /\\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|IS|NULL|AS|ON|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|INDEX|VIEW|DISTINCT|BETWEEN|LIKE|ILIKE|EXISTS|CASE|WHEN|THEN|ELSE|END|UNION|ALL|ASC|DESC|WITH|DEFAULT|CASCADE|PRIMARY|KEY|REFERENCES|FOREIGN|CONSTRAINT|RETURNING|EXPLAIN|ANALYZE|COUNT|SUM|AVG|MIN|MAX|COALESCE|NULLIF|CAST|TRUE|FALSE|BOOLEAN|INTEGER|TEXT|VARCHAR|NUMERIC|SERIAL|BIGSERIAL|TIMESTAMP|TIMESTAMPTZ|DATE|TIME|INTERVAL|JSONB?|UUID|ARRAY|BIGINT|SMALLINT|REAL|DOUBLE|PRECISION|CHAR|DECIMAL|FLOAT)\\b/gi;
+  function highlightSql(text) {
+    var tokens = [];
+    var remaining = text;
+    var pos = 0;
+    while (remaining.length > 0) {
+      // String literal
+      var strMatch = remaining.match(/^'(?:[^'\\\\]|\\\\.)*'|^'[^']*'/);
+      if (strMatch) {
+        tokens.push('<span class="tk-str">' + escHtml(strMatch[0]) + '</span>');
+        remaining = remaining.substring(strMatch[0].length);
+        continue;
+      }
+      // Comment
+      var cmtMatch = remaining.match(/^--[^\\n]*/);
+      if (cmtMatch) {
+        tokens.push('<span class="tk-cmt">' + escHtml(cmtMatch[0]) + '</span>');
+        remaining = remaining.substring(cmtMatch[0].length);
+        continue;
+      }
+      // Number
+      var numMatch = remaining.match(/^-?\\d+(?:\\.\\d+)?(?![a-zA-Z_])/);
+      if (numMatch) {
+        tokens.push('<span class="tk-num">' + escHtml(numMatch[0]) + '</span>');
+        remaining = remaining.substring(numMatch[0].length);
+        continue;
+      }
+      // Word (keyword or identifier)
+      var wordMatch = remaining.match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
+      if (wordMatch) {
+        var w = wordMatch[0];
+        if (SQL_KEYWORDS.test(w)) {
+          SQL_KEYWORDS.lastIndex = 0;
+          tokens.push('<span class="tk-kw">' + escHtml(w) + '</span>');
+        } else {
+          tokens.push(escHtml(w));
+        }
+        remaining = remaining.substring(w.length);
+        continue;
+      }
+      // Operators
+      var opMatch = remaining.match(/^[<>=!]+|^[;,()*.]/);
+      if (opMatch) {
+        tokens.push('<span class="tk-op">' + escHtml(opMatch[0]) + '</span>');
+        remaining = remaining.substring(opMatch[0].length);
+        continue;
+      }
+      // Other (whitespace, etc.)
+      tokens.push(escHtml(remaining[0]));
+      remaining = remaining.substring(1);
+    }
+    return tokens.join('');
+  }
+
+  function updateQueryHighlight() {
+    var textarea = document.getElementById('queryInput');
+    var highlight = document.getElementById('queryHighlight');
+    if (!textarea || !highlight) return;
+    highlight.innerHTML = highlightSql(textarea.value) + '\\n';
   }
 
   let pendingEdits = new Map();
@@ -652,6 +721,8 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     ctxMenuEl.style.top = e.clientY + 'px';
     const formats = [
       { label: 'Copy', fmt: 'tsv' },
+      { label: "Copy as One-row (')", fmt: 'onerow-sq' },
+      { label: 'Copy as One-row (")', fmt: 'onerow-dq' },
       { label: 'Copy as CSV', fmt: 'csv' },
       { label: 'Copy as TSV', fmt: 'tsv-explicit' },
       { label: 'Copy as Markdown', fmt: 'md' },
@@ -699,6 +770,25 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     }));
   }
 
+  var numericTypeRe = /^(int|integer|bigint|smallint|serial|bigserial|numeric|decimal|real|float|double|money|oid|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float32|Float64)/i;
+
+  function isNumericCol(colIdx) {
+    var dt = columns[colIdx].dataType;
+    return numericTypeRe.test(dt) || boolTypes.has(dt);
+  }
+
+  function formatOneRow(rows, colIdxs, quote) {
+    var vals = [];
+    rows.forEach(function(r) {
+      r.forEach(function(v, i) {
+        if (v === '' || v === 'null' || v === 'NULL') { vals.push('NULL'); }
+        else if (isNumericCol(colIdxs[i])) { vals.push(v); }
+        else { vals.push(quote + v.replace(new RegExp(quote === "'" ? "'" : '"', 'g'), quote + quote) + quote); }
+      });
+    });
+    return vals.join(', ');
+  }
+
   function copySelection(fmt) {
     const { colIdxs } = getSelectionData();
     const headers = colIdxs.map(c => columns[c].name);
@@ -708,6 +798,8 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       case 'tsv': text = rows.map(r => r.join('\\t')).join('\\n'); break;
       case 'tsv-explicit': text = headers.join('\\t') + '\\n' + rows.map(r => r.join('\\t')).join('\\n'); break;
       case 'csv': text = headers.join(',') + '\\n' + rows.map(r => r.map(v => v.includes(',') || v.includes('"') ? '"' + v.replace(/"/g, '""') + '"' : v).join(',')).join('\\n'); break;
+      case 'onerow-sq': text = formatOneRow(rows, colIdxs, "'"); break;
+      case 'onerow-dq': text = formatOneRow(rows, colIdxs, '"'); break;
       case 'md': {
         text = '| ' + headers.join(' | ') + ' |\\n';
         text += '|' + headers.map(() => '---').join('|') + '|\\n';
@@ -754,7 +846,36 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       } else { sortColumns = [{ column: colName, direction: 'asc' }]; }
     }
     showLoading();
-    vscode.postMessage({ type: 'reloadWithSort', orderBy: sortColumns, pageSize });
+
+    // If custom query is active, apply sort to it instead of the default table query
+    var customQ = queryInput ? queryInput.value.trim() : '';
+    if (customQ) {
+      var sorted = applySortToQuery(customQ, sortColumns);
+      queryInput.value = sorted;
+      updateQueryHighlight();
+      vscode.postMessage({ type: 'runCustomQuery', query: sorted, pageSize: pageSize });
+    } else {
+      vscode.postMessage({ type: 'reloadWithSort', orderBy: sortColumns, pageSize });
+    }
+  }
+
+  function applySortToQuery(query, sorts) {
+    var q = query.replace(/;+\\s*$/, '');
+    // Remove existing ORDER BY (greedy up to LIMIT/OFFSET/end)
+    q = q.replace(/\\s+ORDER\\s+BY\\s+[^]*?(?=\\s+LIMIT\\b|\\s+OFFSET\\b|$)/i, '');
+    if (sorts.length > 0) {
+      var orderClause = ' ORDER BY ' + sorts.map(function(s) {
+        return '"' + s.column + '" ' + s.direction.toUpperCase();
+      }).join(', ');
+      // Insert before LIMIT/OFFSET if present
+      var limitMatch = q.match(/(\\s+LIMIT\\b[^]*)/i);
+      if (limitMatch) {
+        q = q.substring(0, q.length - limitMatch[1].length) + orderClause + limitMatch[1];
+      } else {
+        q += orderClause;
+      }
+    }
+    return q;
   }
 
   // --- Editing ---
@@ -998,7 +1119,13 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     queryInput.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') { e.preventDefault(); runCustomQuery(); }
     });
+    queryInput.addEventListener('input', updateQueryHighlight);
+    queryInput.addEventListener('scroll', function() {
+      var highlight = document.getElementById('queryHighlight');
+      if (highlight) { highlight.scrollLeft = queryInput.scrollLeft; }
+    });
     queryRunBtn.addEventListener('click', runCustomQuery);
+    updateQueryHighlight();
   }
   function runCustomQuery() {
     if (!queryInput) return;

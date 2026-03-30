@@ -40,6 +40,7 @@
   "command.clearHistory": "履歴をクリア",
   "command.pinHistoryEntry": "クエリを固定",
   "command.unpinHistoryEntry": "固定解除",
+  "command.renameHistoryEntry": "クエリの名前変更",
   "config.queryHistoryLimit.description": "クエリ履歴の最大エントリ数。固定されたエントリは削除されません。",
   "command.setupMcp": "MCPサーバーをセットアップ",
   "command.getStarted": "はじめに"

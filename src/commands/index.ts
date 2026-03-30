@@ -11,6 +11,7 @@ import { ExportService } from '../services/exportService';
 import { ImportSource, parseImportFile } from '../services/importService';
 import { enhanceColumnError, buildUpdateSql, buildDeleteSql, buildInsertDefaultSql } from '../utils/queryHelpers';
 import { TempFileManager } from '../services/tempFileManager';
+import { QueryFileManager } from '../services/queryFileManager';
 
 interface CommandContext {
   connectionManager: ConnectionManager;
@@ -22,6 +23,7 @@ interface CommandContext {
   folderFormPanel: FolderFormPanel;
   outputChannel: vscode.OutputChannel;
   tempFileManager: TempFileManager;
+  queryFileManager: QueryFileManager;
 }
 
 let queryResultCounter = 0;
@@ -29,7 +31,7 @@ const historyDocMap = new Map<string, string>(); // entry.id → doc URI
 let _outputChannel: vscode.OutputChannel;
 
 export function registerCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
-  const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel, outputChannel, tempFileManager } = ctx;
+  const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel, outputChannel, tempFileManager, queryFileManager } = ctx;
   _outputChannel = outputChannel;
 
   // Wire up TempFileManager callbacks
@@ -179,8 +181,11 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
 
       const selection = editor.selection;
+      const fullText = queryFileManager.isViewstorFile(editor.document.uri)
+        ? queryFileManager.getQueryText(editor.document)
+        : editor.document.getText();
       const query = selection.isEmpty
-        ? editor.document.getText()
+        ? fullText
         : editor.document.getText(selection);
 
       if (!query.trim()) return;
@@ -956,17 +961,31 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       const state = connectionManager.get(entry.connectionId);
       if (!state) return;
 
+      // If entry has a pinned file, open it directly
+      if (entry.filePath) {
+        try {
+          const uri = vscode.Uri.file(entry.filePath);
+          const doc = await vscode.workspace.openTextDocument(uri);
+          await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preview: false });
+          queryEditorProvider.setConnectionForUri(uri, entry.connectionId, entry.databaseName);
+        } catch {
+          // File was deleted — fall through to create temp
+        }
+      }
+
       // Reuse existing editor if already open for this entry (tracked by URI)
-      const trackedUri = historyDocMap.get(entry.id);
-      const existingDoc = trackedUri
-        ? vscode.workspace.textDocuments.find(d => d.uri.toString() === trackedUri)
-        : undefined;
-      if (existingDoc) {
-        await vscode.window.showTextDocument(existingDoc, { viewColumn: vscode.ViewColumn.One, preview: false });
-      } else {
-        const doc = await vscode.workspace.openTextDocument({ language: 'sql', content: entry.query });
-        historyDocMap.set(entry.id, doc.uri.toString());
-        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preview: false });
+      if (!entry.filePath) {
+        const trackedUri = historyDocMap.get(entry.id);
+        const existingDoc = trackedUri
+          ? vscode.workspace.textDocuments.find(d => d.uri.toString() === trackedUri)
+          : undefined;
+        if (existingDoc) {
+          await vscode.window.showTextDocument(existingDoc, { viewColumn: vscode.ViewColumn.One, preview: false });
+        } else {
+          const uri = await queryFileManager.createTempQuery(entry.connectionId, entry.databaseName, entry.query);
+          historyDocMap.set(entry.id, uri.toString());
+          queryEditorProvider.setConnectionForUri(uri, entry.connectionId, entry.databaseName);
+        }
       }
 
       // Show cached results — reuse panel by stable title
@@ -980,6 +999,24 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           rowCount: entry.cachedResult.rows.length,
           executionTimeMs: entry.executionTimeMs,
         }, title, { color, readonly });
+      }
+    }),
+
+    vscode.commands.registerCommand('viewstor.renameHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
+      if (!item?.entry?.id || !item.entry.filePath) return;
+      const currentName = item.entry.filePath.replace(/\\/g, '/').split('/').pop() || '';
+      const newName = await vscode.window.showInputBox({
+        prompt: vscode.l10n.t('Rename pinned query'),
+        value: currentName.replace(/\.sql$/, ''),
+        validateInput: (v) => v.trim() ? undefined : vscode.l10n.t('Name cannot be empty'),
+      });
+      if (!newName) return;
+
+      const uri = vscode.Uri.file(item.entry.filePath);
+      const newUri = await queryFileManager.renamePinnedQuery(uri, newName);
+      if (newUri) {
+        queryEditorProvider.handleFileRenamed(uri, newUri);
+        await queryHistoryProvider.updateFilePath(item.entry.id, newUri.fsPath);
       }
     }),
 
