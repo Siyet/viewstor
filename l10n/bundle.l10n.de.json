@@ -62,5 +62,7 @@
   "Don't show again": "Nicht mehr anzeigen",
   "Clear all query history?": "Gesamten Abfrageverlauf löschen?",
   "Clear": "Löschen",
-  "Pinned": "Angeheftet"
+  "Pinned": "Angeheftet",
+  "Show Logs": "Protokolle anzeigen",
+  "Viewstor failed to activate: {0}": "Viewstor konnte nicht aktiviert werden: {0}"
 }

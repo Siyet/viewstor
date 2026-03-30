@@ -62,5 +62,7 @@
   "Don't show again": "다시 표시하지 않기",
   "Clear all query history?": "모든 쿼리 기록을 지우시겠습니까?",
   "Clear": "지우기",
-  "Pinned": "고정됨"
+  "Pinned": "고정됨",
+  "Show Logs": "로그 보기",
+  "Viewstor failed to activate: {0}": "Viewstor 활성화 실패: {0}"
 }

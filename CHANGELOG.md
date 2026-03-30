@@ -2,6 +2,16 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.4] — 2026-03-30
+
+### Fixed
+- Extension crash on startup: `ssh2` native module not included in `.vsix` package ([#38](https://github.com/Siyet/viewstor/issues/38))
+- E2E tests for `getCompletions` updated to match structured `CompletionItem[]` return type
+
+### Added
+- Output channel "Viewstor" with activation error notification and "Show Logs" button ([#39](https://github.com/Siyet/viewstor/issues/39))
+- E2E tests job in CI pipeline
+
 ## [0.2.3] — 2026-03-30
 
 ### Added

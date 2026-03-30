@@ -2,7 +2,7 @@
   "name": "viewstor",
   "displayName": "Viewstor",
   "description": "%extension.description%",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "Siyet",
   "license": "AGPL-3.0",
   "icon": "resources/icon.png",
@@ -450,6 +450,8 @@
     ]
   },
   "devDependencies": {
+    "@clickhouse/client": "^0.2.0",
+    "@modelcontextprotocol/sdk": "^1.28.0",
     "@types/node": "^20.11.0",
     "@types/pg": "^8.20.0",
     "@types/ssh2": "^1.15.5",
@@ -460,6 +462,8 @@
     "copy-webpack-plugin": "^12.0.0",
     "css-loader": "^6.10.0",
     "eslint": "^8.56.0",
+    "ioredis": "^5.3.0",
+    "pg": "^8.11.0",
     "style-loader": "^3.3.4",
     "testcontainers": "^11.13.0",
     "ts-loader": "^9.5.0",
@@ -469,10 +473,6 @@
     "webpack-cli": "^5.1.0"
   },
   "dependencies": {
-    "@clickhouse/client": "^0.2.0",
-    "@modelcontextprotocol/sdk": "^1.28.0",
-    "ioredis": "^5.3.0",
-    "pg": "^8.11.0",
     "ssh2": "^1.17.0"
   }
 }

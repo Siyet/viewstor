@@ -3,7 +3,6 @@
 .claude/**
 src/**
 l10n/nls/**
-node_modules/**
 *.vsix
 .gitignore
 .eslintrc.json

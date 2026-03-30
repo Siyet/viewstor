@@ -14,77 +14,98 @@ import { registerCommands } from './commands';
 import { registerChatParticipant } from './chat/participant';
 
 let connectionManager: ConnectionManager;
+let outputChannel: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext) {
-  connectionManager = new ConnectionManager(context);
+  outputChannel = vscode.window.createOutputChannel('Viewstor');
+  context.subscriptions.push(outputChannel);
 
-  const connectionTreeProvider = new ConnectionTreeProvider(connectionManager);
-  const queryHistoryProvider = new QueryHistoryProvider(context);
-  const queryEditorProvider = new QueryEditorProvider(connectionManager);
-  const resultPanelManager = new ResultPanelManager(context);
-  const connectionFormPanel = new ConnectionFormPanel(context, connectionManager);
-  const folderFormPanel = new FolderFormPanel(context, connectionManager);
+  try {
+    connectionManager = new ConnectionManager(context);
 
-  const connectionTreeView = vscode.window.createTreeView('viewstor.connections', {
-    treeDataProvider: connectionTreeProvider,
-    showCollapseAll: true,
-    dragAndDropController: connectionTreeProvider,
-  });
+    const connectionTreeProvider = new ConnectionTreeProvider(connectionManager);
+    const queryHistoryProvider = new QueryHistoryProvider(context);
+    const queryEditorProvider = new QueryEditorProvider(connectionManager);
+    const resultPanelManager = new ResultPanelManager(context);
+    const connectionFormPanel = new ConnectionFormPanel(context, connectionManager);
+    const folderFormPanel = new FolderFormPanel(context, connectionManager);
 
-  vscode.window.createTreeView('viewstor.queryHistory', {
-    treeDataProvider: queryHistoryProvider,
-  });
+    const connectionTreeView = vscode.window.createTreeView('viewstor.connections', {
+      treeDataProvider: connectionTreeProvider,
+      showCollapseAll: true,
+      dragAndDropController: connectionTreeProvider,
+    });
 
-  registerCommands(context, {
-    connectionManager,
-    connectionTreeProvider,
-    queryHistoryProvider,
-    queryEditorProvider,
-    resultPanelManager,
-    connectionFormPanel,
-    folderFormPanel,
-  });
+    vscode.window.createTreeView('viewstor.queryHistory', {
+      treeDataProvider: queryHistoryProvider,
+    });
 
-  // MCP-compatible commands for AI agent integration
-  registerMcpCommands(context, connectionManager);
+    registerCommands(context, {
+      connectionManager,
+      connectionTreeProvider,
+      queryHistoryProvider,
+      queryEditorProvider,
+      resultPanelManager,
+      connectionFormPanel,
+      folderFormPanel,
+    });
 
-  // Copilot Chat participant (@viewstor)
-  registerChatParticipant(context, connectionManager, queryEditorProvider);
+    // MCP-compatible commands for AI agent integration
+    registerMcpCommands(context, connectionManager);
 
-  // SQL autocomplete from DB schema
-  const completionProvider = new SqlCompletionProvider(connectionManager, queryEditorProvider);
-  // Index hints (missing index warnings)
-  const indexHintProvider = new IndexHintProvider(connectionManager, queryEditorProvider);
-  indexHintProvider.register(context);
-  // SQL diagnostics (non-existent tables/columns)
-  const sqlDiagnosticProvider = new SqlDiagnosticProvider(connectionManager, queryEditorProvider);
-  sqlDiagnosticProvider.register(context);
-  // Status bar: Report Issue button (visible only when Viewstor is active)
-  const reportBtn = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
-  reportBtn.text = '$(github) Viewstor: bug report';
-  reportBtn.tooltip = 'Report an issue on GitHub';
-  reportBtn.command = 'viewstor.reportIssue';
+    // Copilot Chat participant (@viewstor)
+    registerChatParticipant(context, connectionManager, queryEditorProvider);
 
-  function updateReportBtnVisibility() {
-    const editor = vscode.window.activeTextEditor;
-    const isSqlEditor = editor?.document.languageId === 'sql' || editor?.document.uri.scheme === 'viewstor';
-    // Show when: tree visible, SQL editor active, OR no text editor active (webview panel like data table/results)
-    const isViewstorContext = connectionTreeView.visible || isSqlEditor || !editor;
-    if (isViewstorContext) reportBtn.show();
-    else reportBtn.hide();
+    // SQL autocomplete from DB schema
+    const completionProvider = new SqlCompletionProvider(connectionManager, queryEditorProvider);
+    // Index hints (missing index warnings)
+    const indexHintProvider = new IndexHintProvider(connectionManager, queryEditorProvider);
+    indexHintProvider.register(context);
+    // SQL diagnostics (non-existent tables/columns)
+    const sqlDiagnosticProvider = new SqlDiagnosticProvider(connectionManager, queryEditorProvider);
+    sqlDiagnosticProvider.register(context);
+    // Status bar: Report Issue button (visible only when Viewstor is active)
+    const reportBtn = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
+    reportBtn.text = '$(github) Viewstor: bug report';
+    reportBtn.tooltip = 'Report an issue on GitHub';
+    reportBtn.command = 'viewstor.reportIssue';
+
+    const updateReportBtnVisibility = () => {
+      const editor = vscode.window.activeTextEditor;
+      const isSqlEditor = editor?.document.languageId === 'sql' || editor?.document.uri.scheme === 'viewstor';
+      // Show when: tree visible, SQL editor active, OR no text editor active (webview panel like data table/results)
+      const isViewstorContext = connectionTreeView.visible || isSqlEditor || !editor;
+      if (isViewstorContext) reportBtn.show();
+      else reportBtn.hide();
+    };
+    updateReportBtnVisibility();
+    connectionTreeView.onDidChangeVisibility(() => updateReportBtnVisibility());
+    vscode.window.onDidChangeActiveTextEditor(() => updateReportBtnVisibility());
+
+    context.subscriptions.push(
+      vscode.languages.registerCompletionItemProvider('sql', completionProvider, '.'),
+      connectionTreeView,
+      reportBtn,
+    );
+
+    // "What's New" notification after update
+    showWhatsNew(context);
+
+    outputChannel.appendLine(`Viewstor activated (v${vscode.extensions.getExtension('Siyet.viewstor')?.packageJSON.version ?? '?'})`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    outputChannel.appendLine(`[ERROR] Activation failed: ${message}`);
+    if (stack) outputChannel.appendLine(stack);
+    const showLogs = vscode.l10n.t('Show Logs');
+    vscode.window.showErrorMessage(
+      vscode.l10n.t('Viewstor failed to activate: {0}', message),
+      showLogs,
+    ).then(action => {
+      if (action === showLogs) outputChannel.show();
+    });
+    throw err;
   }
-  updateReportBtnVisibility();
-  connectionTreeView.onDidChangeVisibility(() => updateReportBtnVisibility());
-  vscode.window.onDidChangeActiveTextEditor(() => updateReportBtnVisibility());
-
-  context.subscriptions.push(
-    vscode.languages.registerCompletionItemProvider('sql', completionProvider, '.'),
-    connectionTreeView,
-    reportBtn,
-  );
-
-  // "What's New" notification after update
-  showWhatsNew(context);
 }
 
 function showWhatsNew(context: vscode.ExtensionContext) {

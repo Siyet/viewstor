@@ -62,5 +62,7 @@
   "Don't show again": "Ne plus afficher",
   "Clear all query history?": "Effacer tout l'historique des requêtes ?",
   "Clear": "Effacer",
-  "Pinned": "Épinglées"
+  "Pinned": "Épinglées",
+  "Show Logs": "Voir les journaux",
+  "Viewstor failed to activate: {0}": "Échec de l'activation de Viewstor : {0}"
 }

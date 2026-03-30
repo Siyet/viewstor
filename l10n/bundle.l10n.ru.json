@@ -62,5 +62,7 @@
   "Don't show again": "Больше не показывать",
   "Clear all query history?": "Очистить всю историю запросов?",
   "Clear": "Очистить",
-  "Pinned": "Закреплённые"
+  "Pinned": "Закреплённые",
+  "Show Logs": "Показать логи",
+  "Viewstor failed to activate: {0}": "Viewstor не удалось активировать: {0}"
 }

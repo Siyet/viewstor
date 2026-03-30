@@ -62,5 +62,7 @@
   "Don't show again": "No volver a mostrar",
   "Clear all query history?": "¿Borrar todo el historial de consultas?",
   "Clear": "Borrar",
-  "Pinned": "Fijadas"
+  "Pinned": "Fijadas",
+  "Show Logs": "Ver registros",
+  "Viewstor failed to activate: {0}": "Viewstor no pudo activarse: {0}"
 }
