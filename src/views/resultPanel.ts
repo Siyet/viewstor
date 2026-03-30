@@ -313,25 +313,15 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   let selectedCells = new Set();
   let anchorCell = null;
 
-  // --- Lightweight syntax highlighting ---
-  const SQL_KW_SET = new Set(['SELECT','FROM','WHERE','AND','OR','NOT','IN','EXISTS','INSERT','INTO','VALUES','UPDATE','SET','DELETE','CREATE','ALTER','DROP','TABLE','VIEW','INDEX','SCHEMA','JOIN','LEFT','RIGHT','INNER','OUTER','CROSS','FULL','ON','GROUP','BY','ORDER','ASC','DESC','HAVING','LIMIT','OFFSET','DISTINCT','AS','CASE','WHEN','THEN','ELSE','END','IS','NULL','LIKE','ILIKE','BETWEEN','UNION','ALL','EXCEPT','INTERSECT','COUNT','SUM','AVG','MIN','MAX','COALESCE','CAST','TRUE','FALSE','WITH','RETURNING','EXPLAIN','ANALYZE']);
-
-  // eslint-disable-next-line no-useless-escape
-  function highlightSql(text) {
-    return escHtml(text).replace(/--[^\n]*/g, function(m) { return '<span class="tk-cmt">' + m + '</span>'; })
-      .replace(/'[^']*'/g, function(m) { return '<span class="tk-str">' + m + '</span>'; })
-      .replace(/\\b(\\d+(?:\\.\\d+)?)\\b/g, '<span class="tk-num">$1</span>')
-      .replace(/\\b([A-Z_]{2,})\\b/g, function(m) { return SQL_KW_SET.has(m) ? '<span class="tk-kw">' + m + '</span>' : m; });
-  }
-
-  // eslint-disable-next-line no-useless-escape
+  // --- Lightweight JSON syntax highlighting ---
   function highlightJson(text) {
-    return escHtml(text)
-      .replace(/"([^"\\\\]|\\\\.)*"\\s*:/g, function(m) { return '<span class="tk-key">' + m.slice(0, -1) + '</span>:'; })
-      .replace(/"([^"\\\\]|\\\\.)*"/g, '<span class="tk-str">$&</span>')
-      .replace(/\\b(true|false)\\b/g, '<span class="tk-bool">$&</span>')
-      .replace(/\\bnull\\b/g, '<span class="tk-null">$&</span>')
-      .replace(/\\b(\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)\\b/g, '<span class="tk-num">$1</span>');
+    var h = escHtml(text);
+    h = h.replace(/"[^"]*"(?=[ ]*:)/g, function(m) { return '<span class="tk-key">' + m + '</span>'; });
+    h = h.replace(/:[ ]*"[^"]*"/g, function(m) { var i = m.indexOf('"'); return m.slice(0,i) + '<span class="tk-str">' + m.slice(i) + '</span>'; });
+    h = h.replace(/(:[ ]*)(true|false)/g, '$1<span class="tk-bool">$2</span>');
+    h = h.replace(/(:[ ]*)(null)/g, '$1<span class="tk-null">$2</span>');
+    h = h.replace(/(:[ ]*)(-?[0-9.]+)/g, '$1<span class="tk-num">$2</span>');
+    return h;
   }
 
   let pendingEdits = new Map();
