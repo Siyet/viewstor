@@ -25,6 +25,11 @@ export class SqlDiagnosticProvider {
       this.diagnosticCollection,
       vscode.workspace.onDidChangeTextDocument(e => this.scheduleCheck(e.document)),
       vscode.window.onDidChangeActiveTextEditor(e => { if (e) this.scheduleCheck(e.document); }),
+      this.connectionManager.onDidChange(() => {
+        this.schemaCache.clear();
+        for (const t of this.cacheTimers.values()) clearTimeout(t);
+        this.cacheTimers.clear();
+      }),
     );
   }
 
@@ -66,7 +71,7 @@ export class SqlDiagnosticProvider {
     }
 
     // Check table references after FROM/JOIN/INTO/UPDATE/DELETE FROM
-    const tableRegex = /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:"?(\w+)"?\s*\.\s*)?"?(\w+)"?/gi;
+    const tableRegex = /\b(?:FROM|JOIN|INTO|UPDATE|DELETE)\s+(?:"?(\w+)"?\s*\.\s*)?"?(\w+)"?/gi;
     let match: RegExpExecArray | null;
     const referencedTables = new Map<string, string>(); // alias/name → real table name
 
@@ -75,14 +80,12 @@ export class SqlDiagnosticProvider {
       const tableNameLower = tableName.toLowerCase();
 
       if (!tables.has(tableNameLower) && !isKeyword(tableNameLower)) {
-        const idx = text.indexOf(tableName, match.index + match[0].indexOf(tableName));
-        if (idx >= 0) {
-          const pos = document.positionAt(idx);
-          const range = new vscode.Range(pos, pos.translate(0, tableName.length));
-          const d = new vscode.Diagnostic(range, vscode.l10n.t('Table "{0}" not found in schema', tableName), vscode.DiagnosticSeverity.Error);
-          d.source = 'viewstor';
-          diagnostics.push(d);
-        }
+        const offset = match.index + match[0].lastIndexOf(tableName);
+        const pos = document.positionAt(offset);
+        const range = new vscode.Range(pos, pos.translate(0, tableName.length));
+        const d = new vscode.Diagnostic(range, vscode.l10n.t('Table "{0}" not found in schema', tableName), vscode.DiagnosticSeverity.Error);
+        d.source = 'viewstor';
+        diagnostics.push(d);
       } else {
         referencedTables.set(tableNameLower, tableNameLower);
       }
@@ -98,17 +101,19 @@ export class SqlDiagnosticProvider {
       }
     }
 
-    // Check column references in SELECT, WHERE, ORDER BY, GROUP BY
-    // Only flag columns when they have a table. prefix and that table exists
-    const colRefRegex = /\b"?(\w+)"?\."?(\w+)"?/g;
+    // Check column references — only table.column patterns where table is a known reference
+    const colRefRegex = /\b(\w+)\.(\w+)\b/g;
     while ((match = colRefRegex.exec(text)) !== null) {
       const tableRef = match[1].toLowerCase();
       const colName = match[2].toLowerCase();
       const realTable = referencedTables.get(tableRef);
 
-      if (realTable && columnsByTable.has(realTable) && !columnsByTable.get(realTable)!.has(colName)) {
-        const idx = match.index + match[0].indexOf(match[2]);
-        const pos = document.positionAt(idx);
+      // Skip if left side is not a known table/alias (avoids false positives on numbers, URLs)
+      if (!realTable) continue;
+
+      if (columnsByTable.has(realTable) && !columnsByTable.get(realTable)!.has(colName)) {
+        const offset = match.index + match[1].length + 1; // skip "table."
+        const pos = document.positionAt(offset);
         const range = new vscode.Range(pos, pos.translate(0, match[2].length));
         const d = new vscode.Diagnostic(range, vscode.l10n.t('Column "{0}" not found in table "{1}"', match[2], realTable), vscode.DiagnosticSeverity.Warning);
         d.source = 'viewstor';

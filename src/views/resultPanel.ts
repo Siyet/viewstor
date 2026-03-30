@@ -54,9 +54,9 @@ export class ResultPanelManager {
       });
       this.panels.set(panelKey, panel);
       // Move results panel below the editor, then return focus to editor
-      vscode.commands.executeCommand('workbench.action.moveEditorToBelowGroup').then(() => {
-        vscode.commands.executeCommand('workbench.action.focusPreviousGroup');
-      });
+      vscode.commands.executeCommand('workbench.action.moveEditorToBelowGroup')
+        .then(() => vscode.commands.executeCommand('workbench.action.focusPreviousGroup'))
+        .then(undefined, () => { /* command may not exist in all configurations */ });
     }
 
     panel.webview.html = buildResultHtml(result, opts);

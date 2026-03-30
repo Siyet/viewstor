@@ -574,9 +574,9 @@ export class PostgresDriver implements DatabaseDriver {
       'SELECT table_name, column_name, data_type, udt_name FROM information_schema.columns WHERE table_schema NOT IN (\'pg_catalog\',\'information_schema\') ORDER BY table_name, ordinal_position'
     );
 
-    // Enum values per type
+    // Enum values per type (exclude system schemas)
     const enumRes = await this.client!.query(
-      'SELECT t.typname, e.enumlabel FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid ORDER BY t.typname, e.enumsortorder'
+      'SELECT t.typname, e.enumlabel FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid JOIN pg_namespace n ON t.typnamespace = n.oid WHERE n.nspname NOT IN (\'pg_catalog\',\'information_schema\') ORDER BY t.typname, e.enumsortorder'
     );
     const enumMap = new Map<string, string[]>();
     for (const r of enumRes.rows) {

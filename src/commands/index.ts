@@ -21,6 +21,7 @@ interface CommandContext {
 }
 
 let queryResultCounter = 0;
+const historyDocMap = new Map<string, string>(); // entry.id → doc URI
 
 export function registerCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
   const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel } = ctx;
@@ -132,7 +133,11 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const trimmed = query.trim().replace(/;+\s*$/, '');
         const upper = trimmed.toUpperCase();
         if (upper.startsWith('SELECT') && !upper.includes('LIMIT')) {
-          finalQuery = trimmed + ' LIMIT 1000';
+          const autoLimit = Math.max(
+            vscode.workspace.getConfiguration('viewstor').get<number>('defaultPageSize', 100),
+            1000,
+          );
+          finalQuery = trimmed + ` LIMIT ${autoLimit}`;
         } else {
           finalQuery = trimmed;
         }
@@ -819,14 +824,16 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       const state = connectionManager.get(entry.connectionId);
       if (!state) return;
 
-      // Reuse existing editor if already open for this entry
-      const existingDoc = vscode.workspace.textDocuments.find(
-        d => d.languageId === 'sql' && d.getText() === entry.query && d.uri.scheme === 'untitled',
-      );
+      // Reuse existing editor if already open for this entry (tracked by URI)
+      const trackedUri = historyDocMap.get(entry.id);
+      const existingDoc = trackedUri
+        ? vscode.workspace.textDocuments.find(d => d.uri.toString() === trackedUri)
+        : undefined;
       if (existingDoc) {
         await vscode.window.showTextDocument(existingDoc, { viewColumn: vscode.ViewColumn.One, preview: false });
       } else {
         const doc = await vscode.workspace.openTextDocument({ language: 'sql', content: entry.query });
+        historyDocMap.set(entry.id, doc.uri.toString());
         await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preview: false });
       }
 
