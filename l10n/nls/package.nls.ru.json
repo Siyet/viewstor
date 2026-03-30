@@ -35,5 +35,10 @@
   "chat.description": "Задавайте вопросы о схеме базы данных, получайте рекомендации по SQL и исследуйте данные.",
   "chat.command.schema": "Показать обзор схемы для активного подключения",
   "chat.command.query": "Сгенерировать SQL-запрос по описанию",
-  "chat.command.describe": "Описать структуру таблицы или представления"
+  "chat.command.describe": "Описать структуру таблицы или представления",
+  "command.removeHistoryEntry": "Удалить запись",
+  "command.clearHistory": "Очистить историю",
+  "command.pinHistoryEntry": "Закрепить запрос",
+  "command.unpinHistoryEntry": "Открепить запрос",
+  "config.queryHistoryLimit.description": "Максимальное количество записей в истории запросов. Закреплённые записи не удаляются."
 }

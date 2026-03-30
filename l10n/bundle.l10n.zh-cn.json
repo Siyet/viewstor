@@ -59,5 +59,8 @@
   "Language model error: {0}": "语言模型错误: {0}",
   "Viewstor updated to v{0}": "Viewstor 已更新至 v{0}",
   "See Changes": "查看更新内容",
-  "Don't show again": "不再显示"
+  "Don't show again": "不再显示",
+  "Clear all query history?": "清除所有查询历史？",
+  "Clear": "清除",
+  "Pinned": "已固定"
 }

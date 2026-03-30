@@ -29,4 +29,6 @@ export interface CompletionItem {
   detail?: string;
   /** Parent table/view name for columns */
   parent?: string;
+  /** Enum values for enum-type columns */
+  enumValues?: string[];
 }

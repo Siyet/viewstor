@@ -8,6 +8,7 @@ import { ConnectionFormPanel } from './views/connectionForm';
 import { FolderFormPanel } from './views/folderForm';
 import { SqlCompletionProvider } from './editors/completionProvider';
 import { IndexHintProvider } from './editors/indexHintProvider';
+import { SqlDiagnosticProvider } from './editors/sqlDiagnosticProvider';
 import { registerMcpCommands } from './mcp/server';
 import { registerCommands } from './commands';
 import { registerChatParticipant } from './chat/participant';
@@ -55,6 +56,9 @@ export function activate(context: vscode.ExtensionContext) {
   // Index hints (missing index warnings)
   const indexHintProvider = new IndexHintProvider(connectionManager, queryEditorProvider);
   indexHintProvider.register(context);
+  // SQL diagnostics (non-existent tables/columns)
+  const sqlDiagnosticProvider = new SqlDiagnosticProvider(connectionManager, queryEditorProvider);
+  sqlDiagnosticProvider.register(context);
   // Status bar: Report Issue button (visible only when Viewstor is active)
   const reportBtn = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
   reportBtn.text = '$(github) Viewstor: bug report';

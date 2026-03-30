@@ -6,7 +6,7 @@ import { QueryEditorProvider, QueryDocumentProvider } from '../editors/queryEdit
 import { ResultPanelManager } from '../views/resultPanel';
 import { ConnectionFormPanel } from '../views/connectionForm';
 import { FolderFormPanel } from '../views/folderForm';
-import { SortColumn, QueryResult, QueryColumn } from '../types/query';
+import { SortColumn, QueryResult, QueryColumn, QueryHistoryEntry } from '../types/query';
 import { ExportService } from '../services/exportService';
 import { ImportSource, parseImportFile } from '../services/importService';
 
@@ -21,6 +21,7 @@ interface CommandContext {
 }
 
 let queryResultCounter = 0;
+const historyDocMap = new Map<string, string>(); // entry.id → doc URI
 
 export function registerCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
   const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel } = ctx;
@@ -82,7 +83,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
     }),
 
     vscode.commands.registerCommand('viewstor.refreshConnection', () => {
-      connectionTreeProvider.refresh();
+      connectionTreeProvider.refresh(true);
     }),
 
     vscode.commands.registerCommand('viewstor.openQuery', async (item?: ConnectionTreeItem) => {
@@ -132,8 +133,13 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const trimmed = query.trim().replace(/;+\s*$/, '');
         const upper = trimmed.toUpperCase();
         if (upper.startsWith('SELECT') && !upper.includes('LIMIT')) {
-          const defaultLimit = vscode.workspace.getConfiguration('viewstor').get<number>('defaultPageSize', 100);
-          finalQuery = trimmed + ` LIMIT ${defaultLimit}`;
+          const autoLimit = Math.max(
+            vscode.workspace.getConfiguration('viewstor').get<number>('defaultPageSize', 100),
+            1000,
+          );
+          finalQuery = trimmed + ` LIMIT ${autoLimit}`;
+        } else {
+          finalQuery = trimmed;
         }
       }
 
@@ -181,8 +187,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
 
       try {
+        const shortQuery = finalQuery.length > 100 ? finalQuery.substring(0, 100) + '...' : finalQuery;
         const result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running query...') },
+          { location: vscode.ProgressLocation.Notification, title: `Running: ${shortQuery}` },
           () => driver.execute(finalQuery)
         );
 
@@ -191,6 +198,8 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         queryResultCounter++;
         resultPanelManager.show(result, `Results #${queryResultCounter} — ${state?.config.name || 'Query'}`, { color, readonly });
 
+        // Cache up to 500 rows to keep globalState reasonable
+        const cachedRows = result.rows.slice(0, 500);
         await queryHistoryProvider.addEntry({
           id: generateId(),
           connectionId,
@@ -200,6 +209,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           executionTimeMs: result.executionTimeMs,
           rowCount: result.rowCount,
           error: result.error,
+          cachedResult: !result.error ? { columns: result.columns, rows: cachedRows } : undefined,
         });
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -807,6 +817,63 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       } else {
         cp.exec(`xdg-open "${url}"`);
       }
+    }),
+
+    vscode.commands.registerCommand('viewstor.openQueryFromHistory', async (entry: QueryHistoryEntry) => {
+      if (!entry?.connectionId || !entry?.query) return;
+      const state = connectionManager.get(entry.connectionId);
+      if (!state) return;
+
+      // Reuse existing editor if already open for this entry (tracked by URI)
+      const trackedUri = historyDocMap.get(entry.id);
+      const existingDoc = trackedUri
+        ? vscode.workspace.textDocuments.find(d => d.uri.toString() === trackedUri)
+        : undefined;
+      if (existingDoc) {
+        await vscode.window.showTextDocument(existingDoc, { viewColumn: vscode.ViewColumn.One, preview: false });
+      } else {
+        const doc = await vscode.workspace.openTextDocument({ language: 'sql', content: entry.query });
+        historyDocMap.set(entry.id, doc.uri.toString());
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preview: false });
+      }
+
+      // Show cached results — reuse panel by stable title
+      if (entry.cachedResult && entry.cachedResult.columns.length > 0) {
+        const color = connectionManager.getConnectionColor(entry.connectionId);
+        const readonly = connectionManager.isConnectionReadonly(entry.connectionId);
+        const title = `History — ${state.config.name}`;
+        resultPanelManager.show({
+          columns: entry.cachedResult.columns,
+          rows: entry.cachedResult.rows,
+          rowCount: entry.cachedResult.rows.length,
+          executionTimeMs: entry.executionTimeMs,
+          error: entry.error,
+        }, title, { color, readonly });
+      }
+    }),
+
+    vscode.commands.registerCommand('viewstor.removeHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
+      if (!item?.entry?.id) return;
+      await queryHistoryProvider.removeEntry(item.entry.id);
+    }),
+
+    vscode.commands.registerCommand('viewstor.pinHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
+      if (!item?.entry?.id) return;
+      await queryHistoryProvider.togglePin(item.entry.id, true);
+    }),
+
+    vscode.commands.registerCommand('viewstor.unpinHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
+      if (!item?.entry?.id) return;
+      await queryHistoryProvider.togglePin(item.entry.id, false);
+    }),
+
+    vscode.commands.registerCommand('viewstor.clearHistory', async () => {
+      const confirmBtn = vscode.l10n.t('Clear');
+      const confirm = await vscode.window.showWarningMessage(
+        vscode.l10n.t('Clear all query history?'), { modal: true }, confirmBtn,
+      );
+      if (confirm !== confirmBtn) return;
+      await queryHistoryProvider.clear();
     }),
   );
 }

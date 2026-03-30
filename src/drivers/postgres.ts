@@ -108,9 +108,11 @@ export class PostgresDriver implements DatabaseDriver {
   }
 
   async getSchema(): Promise<SchemaObject[]> {
-    // Tables with estimated row counts from pg_class
+    // Tables with estimated row counts and sizes from pg_class
     const tablesRes = await this.client!.query(`
-      SELECT t.schemaname, t.tablename, GREATEST(c.reltuples::bigint, 0) AS row_estimate
+      SELECT t.schemaname, t.tablename,
+             GREATEST(c.reltuples::bigint, 0) AS row_estimate,
+             pg_total_relation_size(c.oid) AS total_bytes
       FROM pg_tables t
       LEFT JOIN pg_class c ON c.relname = t.tablename
       LEFT JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
@@ -234,13 +236,14 @@ export class PostgresDriver implements DatabaseDriver {
 
       const hasColumns = cols && cols.length > 0;
       const rowEstimate = parseInt(row.row_estimate, 10) || 0;
-      const rowCountStr = formatRowCount(rowEstimate);
+      const totalBytes = parseInt(row.total_bytes, 10) || 0;
+      const detailStr = formatTableDetail(rowEstimate, totalBytes);
       schemas.get(schemaName)!.children!.push({
         name: row.tablename,
         type: 'table',
         schema: schemaName,
         children,
-        detail: rowCountStr,
+        detail: detailStr,
         inaccessible: !hasColumns ? true : undefined,
       });
     }
@@ -568,22 +571,48 @@ export class PostgresDriver implements DatabaseDriver {
 
     // Columns
     const colsRes = await this.client!.query(
-      'SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema NOT IN (\'pg_catalog\',\'information_schema\') ORDER BY table_name, ordinal_position'
+      'SELECT table_name, column_name, data_type, udt_name FROM information_schema.columns WHERE table_schema NOT IN (\'pg_catalog\',\'information_schema\') ORDER BY table_name, ordinal_position'
     );
+
+    // Enum values per type (exclude system schemas)
+    const enumRes = await this.client!.query(
+      'SELECT t.typname, e.enumlabel FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid JOIN pg_namespace n ON t.typnamespace = n.oid WHERE n.nspname NOT IN (\'pg_catalog\',\'information_schema\') ORDER BY t.typname, e.enumsortorder'
+    );
+    const enumMap = new Map<string, string[]>();
+    for (const r of enumRes.rows) {
+      if (!enumMap.has(r.typname)) enumMap.set(r.typname, []);
+      enumMap.get(r.typname)!.push(r.enumlabel);
+    }
+
     for (const r of colsRes.rows) {
-      items.push({ label: r.column_name, kind: 'column', detail: r.data_type, parent: r.table_name });
+      items.push({
+        label: r.column_name,
+        kind: 'column',
+        detail: r.data_type,
+        parent: r.table_name,
+        enumValues: enumMap.get(r.udt_name),
+      });
     }
 
     return items;
   }
 }
 
-function formatRowCount(n: number): string | undefined {
-  if (n <= 0) return undefined;
-  if (n >= 1_000_000_000) return `~${(n / 1_000_000_000).toFixed(1)}b rows`;
-  if (n >= 1_000_000) return `~${(n / 1_000_000).toFixed(1)}m rows`;
-  if (n >= 1_000) return `~${(n / 1_000).toFixed(0)}k rows`;
-  return `${n} rows`;
+function formatTableDetail(rows: number, bytes: number): string | undefined {
+  const parts: string[] = [];
+  if (rows > 0) {
+    if (rows >= 1_000_000_000) parts.push(`~${(rows / 1_000_000_000).toFixed(1)}b rows`);
+    else if (rows >= 1_000_000) parts.push(`~${(rows / 1_000_000).toFixed(1)}m rows`);
+    else if (rows >= 1_000) parts.push(`~${(rows / 1_000).toFixed(0)}k rows`);
+    else parts.push(`${rows} rows`);
+  }
+  if (bytes > 0) {
+    if (bytes >= 1_073_741_824) parts.push(`${(bytes / 1_073_741_824).toFixed(1)} GB`);
+    else if (bytes >= 1_048_576) parts.push(`${(bytes / 1_048_576).toFixed(1)} MB`);
+    else if (bytes >= 1024) parts.push(`${(bytes / 1024).toFixed(0)} KB`);
+    else parts.push(`${bytes} B`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 function pgTypeToString(oid: number): string {

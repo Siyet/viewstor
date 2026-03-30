@@ -35,5 +35,10 @@
   "chat.description": "데이터베이스 스키마에 대해 질문하고, SQL 제안을 받고, 데이터를 탐색하세요.",
   "chat.command.schema": "활성 연결의 스키마 개요 표시",
   "chat.command.query": "설명을 기반으로 SQL 쿼리 생성",
-  "chat.command.describe": "테이블 또는 뷰 구조 설명"
+  "chat.command.describe": "테이블 또는 뷰 구조 설명",
+  "command.removeHistoryEntry": "항목 삭제",
+  "command.clearHistory": "기록 지우기",
+  "command.pinHistoryEntry": "쿼리 고정",
+  "command.unpinHistoryEntry": "고정 해제",
+  "config.queryHistoryLimit.description": "쿼리 기록의 최대 항목 수. 고정된 항목은 삭제되지 않습니다."
 }

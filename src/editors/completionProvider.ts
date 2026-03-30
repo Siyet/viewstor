@@ -40,6 +40,40 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     const fullText = document.getText();
     const lineText = document.lineAt(position).text.substring(0, position.character);
 
+    // After "column = ", "column != ", "column <> ", "column IN (" — suggest enum values
+    const enumMatch = lineText.match(/\b(\w+)\s*(?:=|!=|<>)\s*'?[\w]*$/i)
+      || lineText.match(/\b(\w+)\s+IN\s*\(\s*(?:'[^']*'\s*,\s*)*'?[\w]*$/i);
+    if (enumMatch) {
+      const colName = enumMatch[1].toLowerCase();
+      const aliases = extractAliases(fullText);
+      const referencedTables = extractTableNames(fullText);
+
+      for (const c of dbItems) {
+        if (c.kind === 'column' && c.enumValues && c.label.toLowerCase() === colName) {
+          // Check column belongs to a referenced table
+          if (c.parent && referencedTables.has(c.parent.toLowerCase())) {
+            // Find already-used values in IN clause to exclude them
+            const alreadyUsed = new Set<string>();
+            const inMatch = lineText.match(/IN\s*\(\s*((?:'[^']*'\s*,\s*)*)/i);
+            if (inMatch) {
+              const used = inMatch[1].matchAll(/'([^']*)'/g);
+              for (const u of used) alreadyUsed.add(u[1]);
+            }
+
+            return c.enumValues
+              .filter(v => !alreadyUsed.has(v))
+              .map(v => {
+                const item = new vscode.CompletionItem(`'${v}'`, vscode.CompletionItemKind.EnumMember);
+                item.detail = `${c.parent}.${c.label}`;
+                item.sortText = '0_' + v;
+                item.insertText = `'${v}'`;
+                return item;
+              });
+          }
+        }
+      }
+    }
+
     // After "tablename." or "alias." — show only that table's columns
     const dotMatch = lineText.match(/(\w+)\.\w*$/);
     if (dotMatch) {

@@ -35,5 +35,10 @@
   "chat.description": "আপনার ডেটাবেস স্কীমা সম্পর্কে প্রশ্ন করুন, SQL পরামর্শ পান এবং ডেটা অন্বেষণ করুন।",
   "chat.command.schema": "সক্রিয় সংযোগের জন্য স্কীমা সারসংক্ষেপ দেখান",
   "chat.command.query": "আপনার বিবরণের উপর ভিত্তি করে SQL কুয়েরি তৈরি করুন",
-  "chat.command.describe": "একটি টেবিল বা ভিউ-এর গঠন বর্ণনা করুন"
+  "chat.command.describe": "একটি টেবিল বা ভিউ-এর গঠন বর্ণনা করুন",
+  "command.removeHistoryEntry": "এন্ট্রি মুছুন",
+  "command.clearHistory": "ইতিহাস মুছুন",
+  "command.pinHistoryEntry": "কোয়েরি পিন করুন",
+  "command.unpinHistoryEntry": "আনপিন করুন",
+  "config.queryHistoryLimit.description": "কোয়েরি ইতিহাসের সর্বোচ্চ এন্ট্রি সংখ্যা। পিন করা এন্ট্রি কখনো মুছে যায় না।"
 }

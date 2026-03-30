@@ -8,6 +8,8 @@ const MIME_TYPE = 'application/vnd.code.tree.viewstor.connections';
 export class ConnectionTreeProvider implements vscode.TreeDataProvider<ConnectionTreeItem>, vscode.TreeDragAndDropController<ConnectionTreeItem> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<ConnectionTreeItem | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+  /** Cache schema per connection to avoid re-fetching on filter/visibility changes */
+  private schemaCache = new Map<string, SchemaObject[]>();
 
   readonly dropMimeTypes = [MIME_TYPE];
   readonly dragMimeTypes = [MIME_TYPE];
@@ -16,7 +18,8 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     connectionManager.onDidChange(() => this.refresh());
   }
 
-  refresh() {
+  refresh(clearCache = false) {
+    if (clearCache) this.schemaCache.clear();
     this._onDidChangeTreeData.fire(undefined);
   }
 
@@ -65,12 +68,16 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
         });
       }
 
-      // Single-DB: load schema directly
+      // Single-DB: load schema (cached)
       const driver = this.connectionManager.getDriver(element.connectionId);
       if (!driver) return [];
       try {
-        let schema = await driver.getSchema();
-        schema = this.filterSchema(schema, element.connectionId!);
+        let rawSchema = this.schemaCache.get(element.connectionId!);
+        if (!rawSchema) {
+          rawSchema = await driver.getSchema();
+          this.schemaCache.set(element.connectionId!, rawSchema);
+        }
+        const schema = this.filterSchema(rawSchema, element.connectionId!);
         // Collapse single-database level
         if (schema.length === 1 && schema[0].type === 'database' && schema[0].children) {
           let children = schema[0].children;
@@ -88,10 +95,15 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
       }
     }
 
-    // Multi-DB: expanding a database node → connect to that DB and load schema
+    // Multi-DB: expanding a database node → connect to that DB and load schema (cached)
     if (element.connectionId && element.itemType === 'database' && element.databaseName) {
       try {
-        const schema = await this.connectionManager.getSchemaForDatabase(element.connectionId, element.databaseName);
+        const cacheKey = `${element.connectionId}:${element.databaseName}`;
+        let schema = this.schemaCache.get(cacheKey);
+        if (!schema) {
+          schema = await this.connectionManager.getSchemaForDatabase(element.connectionId, element.databaseName);
+          this.schemaCache.set(cacheKey, schema);
+        }
         const filtered = this.filterSchema(schema, element.connectionId);
         // Collapse single-schema level
         if (filtered.length === 1 && filtered[0].type === 'schema' && filtered[0].children) {

@@ -37,12 +37,10 @@ export class ResultPanelManager {
       // Reveal in its current position (wherever the user moved it)
       panel.reveal();
     } else {
-      // Table data → same column; query results → beside (user can drag to bottom)
-      const viewColumn = isTableMode ? vscode.ViewColumn.One : vscode.ViewColumn.Beside;
       panel = vscode.window.createWebviewPanel(
         'viewstor.results',
         panelTitle,
-        viewColumn,
+        vscode.ViewColumn.Beside,
         {
           enableScripts: true,
           retainContextWhenHidden: true,
@@ -55,6 +53,10 @@ export class ResultPanelManager {
         this.messageDisposables.delete(panelKey);
       });
       this.panels.set(panelKey, panel);
+      // Move results panel below the editor, then return focus to editor
+      vscode.commands.executeCommand('workbench.action.moveEditorToBelowGroup')
+        .then(() => vscode.commands.executeCommand('workbench.action.focusPreviousGroup'))
+        .then(undefined, () => { /* command may not exist in all configurations */ });
     }
 
     panel.webview.html = buildResultHtml(result, opts);
@@ -210,6 +212,14 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   .query-bar input { flex:1; font-family:var(--vscode-editor-font-family); font-size:12px; padding:4px 8px; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:2px; outline:none; }
   .query-bar input:focus { border-color:var(--vscode-focusBorder); }
   .query-bar button { font-size:11px; }
+  .code-preview { padding:8px; font-family:var(--vscode-editor-font-family); font-size:var(--vscode-editor-font-size); white-space:pre-wrap; word-break:break-word; line-height:1.5; }
+  .tk-kw { color:var(--vscode-debugTokenExpression-name, #569cd6); font-weight:600; }
+  .tk-str { color:var(--vscode-debugTokenExpression-string, #ce9178); }
+  .tk-num { color:var(--vscode-debugTokenExpression-number, #b5cea8); }
+  .tk-cmt { color:var(--vscode-descriptionForeground); font-style:italic; }
+  .tk-bool { color:var(--vscode-debugTokenExpression-boolean, #569cd6); }
+  .tk-null { color:var(--vscode-descriptionForeground); }
+  .tk-key { color:var(--vscode-debugTokenExpression-name, #9cdcfe); }
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:99; }
   .hidden { display:none; }
 </style>
@@ -265,6 +275,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     </div>
     <div class="popup-body">
       <textarea id="jsonEditor" class="json-editor"></textarea>
+      <div id="jsonPreview" class="code-preview" style="margin-top:8px;border:1px solid var(--vscode-panel-border);border-radius:2px;max-height:40vh;overflow:auto;"></div>
     </div>
   </div>
   <div id="exportPopup" class="popup hidden" style="width:360px;">
@@ -303,6 +314,17 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
 
   let selectedCells = new Set();
   let anchorCell = null;
+
+  // --- Lightweight JSON syntax highlighting ---
+  function highlightJson(text) {
+    var h = escHtml(text);
+    h = h.replace(/"[^"]*"(?=[ ]*:)/g, function(m) { return '<span class="tk-key">' + m + '</span>'; });
+    h = h.replace(/:[ ]*"[^"]*"/g, function(m) { var i = m.indexOf('"'); return m.slice(0,i) + '<span class="tk-str">' + m.slice(i) + '</span>'; });
+    h = h.replace(/(:[ ]*)(true|false)/g, '$1<span class="tk-bool">$2</span>');
+    h = h.replace(/(:[ ]*)(null)/g, '$1<span class="tk-null">$2</span>');
+    h = h.replace(/(:[ ]*)(-?[0-9.]+)/g, '$1<span class="tk-num">$2</span>');
+    return h;
+  }
 
   let pendingEdits = new Map();
   const originalRows = JSON.parse(JSON.stringify(pageRows));
@@ -775,13 +797,20 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
 
   // --- JSON Popup (editable) ---
   let jsonEditContext = null;
+  function updateJsonPreview() {
+    const editor = document.getElementById('jsonEditor');
+    const preview = document.getElementById('jsonPreview');
+    if (preview) preview.innerHTML = highlightJson(editor.value);
+  }
   function showJsonPopup(jsonStr, rowIdx, col) {
     jsonEditContext = { rowIdx, col };
     const editor = document.getElementById('jsonEditor');
     try { editor.value = JSON.stringify(JSON.parse(jsonStr), null, 2); } catch { editor.value = jsonStr; }
     document.getElementById('jsonPopup').classList.remove('hidden');
     document.getElementById('overlay').classList.remove('hidden');
+    updateJsonPreview();
     editor.focus();
+    editor.addEventListener('input', updateJsonPreview);
   }
   function closeJsonPopup(save) {
     if (save && jsonEditContext && !IS_READONLY) {

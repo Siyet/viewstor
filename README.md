@@ -94,7 +94,8 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 ### Query Editor
 
 - Per-connection SQL tabs (`Ctrl+Enter` to execute)
-- **SQL autocomplete** — context-aware: tables after `FROM`/`JOIN`, columns from referenced tables, `table.column` dot trigger, alias resolution
+- **SQL autocomplete** — context-aware: tables after `FROM`/`JOIN`, columns from referenced tables, `table.column` dot trigger, alias resolution, **enum value suggestions** after `=`/`IN`
+- **SQL diagnostics** — error underline for non-existent tables, warning for unknown columns
 - **Index hints** — warning diagnostics on `WHERE`/`ORDER BY` columns without an index
 - Cancel running queries (PG: `pg_cancel_backend`, CH: `AbortController`)
 
@@ -156,9 +157,9 @@ All MCP interfaces auto-connect and respect read-only mode.
 
 ### Other
 
-- Query history with execution time and row count
+- Query history with execution time and row count — **click to re-execute**
 - DDL viewer for tables, views, indexes, triggers, sequences
-- JSON/JSONB cell editor (double-click to open)
+- JSON/JSONB cell editor with **syntax highlighting** (double-click to open)
 - PostgreSQL arrays displayed with `{curly braces}`
 - Redis — inspect strings, lists, sets, sorted sets, hashes
 

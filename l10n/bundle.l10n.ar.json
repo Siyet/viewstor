@@ -59,5 +59,8 @@
   "Language model error: {0}": "خطأ في النموذج اللغوي: {0}",
   "Viewstor updated to v{0}": "تم تحديث Viewstor إلى الإصدار v{0}",
   "See Changes": "عرض التغييرات",
-  "Don't show again": "عدم الإظهار مجددًا"
+  "Don't show again": "عدم الإظهار مجددًا",
+  "Clear all query history?": "مسح كل سجل الاستعلامات؟",
+  "Clear": "مسح",
+  "Pinned": "مثبتة"
 }

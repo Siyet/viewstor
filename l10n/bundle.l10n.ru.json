@@ -59,5 +59,8 @@
   "Language model error: {0}": "Ошибка языковой модели: {0}",
   "Viewstor updated to v{0}": "Viewstor обновлён до v{0}",
   "See Changes": "Что нового",
-  "Don't show again": "Больше не показывать"
+  "Don't show again": "Больше не показывать",
+  "Clear all query history?": "Очистить всю историю запросов?",
+  "Clear": "Очистить",
+  "Pinned": "Закреплённые"
 }

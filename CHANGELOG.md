@@ -2,6 +2,33 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.3] — 2026-03-30
+
+### Added
+- Query History click — opens query text + cached results without re-executing ([#4](https://github.com/Siyet/viewstor/issues/4))
+- Pin/unpin queries in history — pinned entries never auto-evicted ([#4](https://github.com/Siyet/viewstor/issues/4))
+- Configurable history retention: `viewstor.queryHistoryLimit` setting (default 200)
+- Clear all / delete single history entries
+- Enum value autocomplete after `=`, `!=`, `<>`, `IN` operators ([#32](https://github.com/Siyet/viewstor/issues/32))
+- SQL diagnostics — error underline for non-existent tables, warning for unknown columns ([#33](https://github.com/Siyet/viewstor/issues/33))
+- JSON preview with syntax highlighting in cell editor popup
+- Show actual executed query (with auto-LIMIT) in progress notification ([#36](https://github.com/Siyet/viewstor/issues/36))
+- ClickHouse table sizes in tree view (`~15k rows · 2.3 MB`)
+- PostgreSQL table sizes in tree view (`~15k rows · 2.3 MB`)
+
+### Changed
+- Auto-LIMIT uses max(defaultPageSize, 1000) instead of hard-coded 100
+- Results panel opens below editor instead of beside
+- Schema cached in tree provider — Hide Schema is instant (no network request)
+
+### Fixed
+- Result panel empty due to broken regex escapes in webview script
+
+## [0.2.2] — 2026-03-30
+
+### Fixed
+- Extension activation failure due to stale NLS files ([#28](https://github.com/Siyet/viewstor/issues/28))
+
 ## [0.2.1] — 2026-03-30
 
 ### Added
