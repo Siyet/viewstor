@@ -30,6 +30,11 @@ export interface QueryHistoryEntry {
   executionTimeMs: number;
   rowCount?: number;
   error?: string;
+  /** Cached result (columns + rows) for instant replay without re-executing */
+  cachedResult?: {
+    columns: QueryColumn[];
+    rows: Record<string, unknown>[];
+  };
 }
 
 export const MAX_RESULT_ROWS = 1000;

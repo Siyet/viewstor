@@ -35,5 +35,7 @@
   "chat.description": "اطرح أسئلة حول مخطط قاعدة البيانات، واحصل على اقتراحات SQL، واستكشف البيانات.",
   "chat.command.schema": "عرض نظرة عامة على المخطط للاتصال النشط",
   "chat.command.query": "إنشاء استعلام SQL بناءً على وصفك",
-  "chat.command.describe": "وصف بنية جدول أو عرض"
+  "chat.command.describe": "وصف بنية جدول أو عرض",
+  "command.removeHistoryEntry": "حذف السجل",
+  "command.clearHistory": "مسح السجل"
 }

@@ -59,5 +59,7 @@
   "Language model error: {0}": "言語モデルエラー: {0}",
   "Viewstor updated to v{0}": "Viewstor が v{0} に更新されました",
   "See Changes": "変更内容を確認",
-  "Don't show again": "今後表示しない"
+  "Don't show again": "今後表示しない",
+  "Clear all query history?": "すべてのクエリ履歴をクリアしますか？",
+  "Clear": "クリア"
 }

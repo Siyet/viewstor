@@ -219,6 +219,18 @@
         "command": "viewstor.deleteFolder",
         "title": "%command.deleteFolder%",
         "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.removeHistoryEntry",
+        "title": "%command.removeHistoryEntry%",
+        "category": "Viewstor",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "viewstor.clearHistory",
+        "title": "%command.clearHistory%",
+        "category": "Viewstor",
+        "icon": "$(clear-all)"
       }
     ],
     "menus": {
@@ -236,6 +248,11 @@
         {
           "command": "viewstor.importConnections",
           "when": "view == viewstor.connections",
+          "group": "navigation"
+        },
+        {
+          "command": "viewstor.clearHistory",
+          "when": "view == viewstor.queryHistory",
           "group": "navigation"
         }
       ],
@@ -334,6 +351,11 @@
           "command": "viewstor.deleteFolder",
           "when": "view == viewstor.connections && viewItem == folder",
           "group": "3_manage"
+        },
+        {
+          "command": "viewstor.removeHistoryEntry",
+          "when": "view == viewstor.queryHistory && viewItem == queryHistoryEntry",
+          "group": "inline"
         }
       ]
     },

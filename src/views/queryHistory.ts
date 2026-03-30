@@ -28,6 +28,12 @@ export class QueryHistoryProvider implements vscode.TreeDataProvider<QueryHistor
     this.refresh();
   }
 
+  async removeEntry(id: string): Promise<void> {
+    const entries = this.getEntries().filter(e => e.id !== id);
+    await this.context.globalState.update(STORAGE_KEY, entries);
+    this.refresh();
+  }
+
   async clear(): Promise<void> {
     await this.context.globalState.update(STORAGE_KEY, []);
     this.refresh();
@@ -44,13 +50,15 @@ export class QueryHistoryProvider implements vscode.TreeDataProvider<QueryHistor
         shortQuery,
         vscode.TreeItemCollapsibleState.None,
       );
-      item.description = `${entry.connectionName} · ${entry.executionTimeMs}ms`;
+      const time = new Date(entry.executedAt).toLocaleTimeString();
+      item.description = `${entry.connectionName} · ${entry.executionTimeMs}ms · ${time}`;
       item.tooltip = entry.query;
       item.iconPath = new vscode.ThemeIcon(entry.error ? 'error' : 'history');
+      item.contextValue = 'queryHistoryEntry';
       item.entry = entry;
       item.command = {
-        command: 'viewstor.runQueryFromHistory',
-        title: 'Run Query',
+        command: 'viewstor.openQueryFromHistory',
+        title: 'Open Query',
         arguments: [entry],
       };
       return item;

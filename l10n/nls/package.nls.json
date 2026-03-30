@@ -35,5 +35,7 @@
   "chat.description": "Ask questions about your database schema, get SQL suggestions, and explore data.",
   "chat.command.schema": "Show schema overview for the active connection",
   "chat.command.query": "Generate a SQL query based on your description",
-  "chat.command.describe": "Describe a table or view structure"
+  "chat.command.describe": "Describe a table or view structure",
+  "command.removeHistoryEntry": "Delete Entry",
+  "command.clearHistory": "Clear History"
 }

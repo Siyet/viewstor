@@ -35,5 +35,7 @@
   "chat.description": "Haga preguntas sobre el esquema de su base de datos, obtenga sugerencias de SQL y explore los datos.",
   "chat.command.schema": "Mostrar resumen del esquema para la conexión activa",
   "chat.command.query": "Generar una consulta SQL basada en su descripción",
-  "chat.command.describe": "Describir la estructura de una tabla o vista"
+  "chat.command.describe": "Describir la estructura de una tabla o vista",
+  "command.removeHistoryEntry": "Eliminar entrada",
+  "command.clearHistory": "Borrar historial"
 }

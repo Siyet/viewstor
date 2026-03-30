@@ -35,5 +35,7 @@
   "chat.description": "अपने डेटाबेस स्कीमा के बारे में प्रश्न पूछें, SQL सुझाव प्राप्त करें और डेटा एक्सप्लोर करें।",
   "chat.command.schema": "सक्रिय कनेक्शन के लिए स्कीमा अवलोकन दिखाएँ",
   "chat.command.query": "आपके विवरण के आधार पर SQL क्वेरी जनरेट करें",
-  "chat.command.describe": "टेबल या व्यू की संरचना का वर्णन करें"
+  "chat.command.describe": "टेबल या व्यू की संरचना का वर्णन करें",
+  "command.removeHistoryEntry": "प्रविष्टि हटाएँ",
+  "command.clearHistory": "इतिहास साफ़ करें"
 }

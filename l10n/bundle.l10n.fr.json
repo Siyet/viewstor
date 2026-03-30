@@ -59,5 +59,7 @@
   "Language model error: {0}": "Erreur du modèle de langage : {0}",
   "Viewstor updated to v{0}": "Viewstor a été mis à jour en v{0}",
   "See Changes": "Voir les nouveautés",
-  "Don't show again": "Ne plus afficher"
+  "Don't show again": "Ne plus afficher",
+  "Clear all query history?": "Effacer tout l'historique des requêtes ?",
+  "Clear": "Effacer"
 }

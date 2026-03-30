@@ -193,6 +193,8 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         queryResultCounter++;
         resultPanelManager.show(result, `Results #${queryResultCounter} — ${state?.config.name || 'Query'}`, { color, readonly });
 
+        // Cache up to 500 rows to keep globalState reasonable
+        const cachedRows = result.rows.slice(0, 500);
         await queryHistoryProvider.addEntry({
           id: generateId(),
           connectionId,
@@ -202,6 +204,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           executionTimeMs: result.executionTimeMs,
           rowCount: result.rowCount,
           error: result.error,
+          cachedResult: !result.error ? { columns: result.columns, rows: cachedRows } : undefined,
         });
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -811,37 +814,42 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
     }),
 
-    vscode.commands.registerCommand('viewstor.runQueryFromHistory', async (entry: QueryHistoryEntry) => {
+    vscode.commands.registerCommand('viewstor.openQueryFromHistory', async (entry: QueryHistoryEntry) => {
       if (!entry?.connectionId || !entry?.query) return;
       const state = connectionManager.get(entry.connectionId);
       if (!state) return;
 
-      // Auto-connect if needed
-      let driver = connectionManager.getDriver(entry.connectionId);
-      if (!driver) {
-        try {
-          await connectionManager.connect(entry.connectionId);
-          driver = connectionManager.getDriver(entry.connectionId);
-        } catch (err) {
-          vscode.window.showErrorMessage(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
-          return;
-        }
-      }
-      if (!driver) return;
+      // Open query text in editor
+      const doc = await vscode.workspace.openTextDocument({ language: 'sql', content: entry.query });
+      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preview: false });
 
-      try {
-        const result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running query...') },
-          () => driver!.execute(entry.query),
-        );
+      // Show cached results if available
+      if (entry.cachedResult && entry.cachedResult.columns.length > 0) {
         const color = connectionManager.getConnectionColor(entry.connectionId);
         const readonly = connectionManager.isConnectionReadonly(entry.connectionId);
         queryResultCounter++;
-        resultPanelManager.show(result, `Results #${queryResultCounter} — ${state.config.name}`, { color, readonly });
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        resultPanelManager.show({ columns: [], rows: [], rowCount: 0, executionTimeMs: 0, error: errorMsg });
+        resultPanelManager.show({
+          columns: entry.cachedResult.columns,
+          rows: entry.cachedResult.rows,
+          rowCount: entry.cachedResult.rows.length,
+          executionTimeMs: entry.executionTimeMs,
+          error: entry.error,
+        }, `Results #${queryResultCounter} — ${state.config.name}`, { color, readonly });
       }
+    }),
+
+    vscode.commands.registerCommand('viewstor.removeHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
+      if (!item?.entry?.id) return;
+      await queryHistoryProvider.removeEntry(item.entry.id);
+    }),
+
+    vscode.commands.registerCommand('viewstor.clearHistory', async () => {
+      const confirmBtn = vscode.l10n.t('Clear');
+      const confirm = await vscode.window.showWarningMessage(
+        vscode.l10n.t('Clear all query history?'), { modal: true }, confirmBtn,
+      );
+      if (confirm !== confirmBtn) return;
+      await queryHistoryProvider.clear();
     }),
   );
 }

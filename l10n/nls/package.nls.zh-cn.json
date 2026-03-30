@@ -35,5 +35,7 @@
   "chat.description": "询问有关数据库架构的问题、获取 SQL 建议并浏览数据。",
   "chat.command.schema": "显示当前连接的架构概览",
   "chat.command.query": "根据描述生成 SQL 查询",
-  "chat.command.describe": "描述表或视图的结构"
+  "chat.command.describe": "描述表或视图的结构",
+  "command.removeHistoryEntry": "删除记录",
+  "command.clearHistory": "清除历史"
 }

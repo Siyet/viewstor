@@ -59,5 +59,7 @@
   "Language model error: {0}": "ভাষা মডেল ত্রুটি: {0}",
   "Viewstor updated to v{0}": "Viewstor v{0}-এ আপডেট হয়েছে",
   "See Changes": "পরিবর্তনগুলি দেখুন",
-  "Don't show again": "আর দেখাবেন না"
+  "Don't show again": "আর দেখাবেন না",
+  "Clear all query history?": "সমস্ত কোয়েরি ইতিহাস মুছবেন?",
+  "Clear": "মুছুন"
 }
