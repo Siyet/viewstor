@@ -40,7 +40,7 @@ export class ResultPanelManager {
       panel = vscode.window.createWebviewPanel(
         'viewstor.results',
         panelTitle,
-        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+        vscode.ViewColumn.Beside,
         {
           enableScripts: true,
           retainContextWhenHidden: true,
@@ -53,8 +53,10 @@ export class ResultPanelManager {
         this.messageDisposables.delete(panelKey);
       });
       this.panels.set(panelKey, panel);
-      // Move results panel below the editor
-      vscode.commands.executeCommand('workbench.action.moveEditorToBelowGroup');
+      // Move results panel below the editor, then return focus to editor
+      vscode.commands.executeCommand('workbench.action.moveEditorToBelowGroup').then(() => {
+        vscode.commands.executeCommand('workbench.action.focusPreviousGroup');
+      });
     }
 
     panel.webview.html = buildResultHtml(result, opts);
