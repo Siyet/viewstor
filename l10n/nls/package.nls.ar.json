@@ -40,5 +40,7 @@
   "command.clearHistory": "مسح السجل",
   "command.pinHistoryEntry": "تثبيت الاستعلام",
   "command.unpinHistoryEntry": "إلغاء التثبيت",
-  "config.queryHistoryLimit.description": "الحد الأقصى لعدد سجلات الاستعلامات. السجلات المثبتة لا تُحذف أبداً."
+  "config.queryHistoryLimit.description": "الحد الأقصى لعدد سجلات الاستعلامات. السجلات المثبتة لا تُحذف أبداً.",
+  "command.setupMcp": "إعداد خادم MCP",
+  "command.getStarted": "البدء"
 }

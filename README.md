@@ -140,12 +140,18 @@ Two MCP interfaces — pick the one that fits your workflow:
 
 **Standalone MCP server** (for Claude Code, Cline — CLI agents running outside VS Code):
 
+The extension installs a launcher at `~/.viewstor/mcp-server.js` that auto-updates on each activation — no manual path changes needed when the extension updates.
+
+**Quick setup:** `Ctrl+Shift+P` → **Viewstor: Setup MCP** → **Copy Config** → paste into your agent's MCP config.
+
+Or add manually:
+
 ```json
 {
   "mcpServers": {
     "viewstor": {
       "command": "node",
-      "args": ["/path/to/viewstor/dist/mcp-server.js"]
+      "args": ["~/.viewstor/mcp-server.js"]
     }
   }
 }

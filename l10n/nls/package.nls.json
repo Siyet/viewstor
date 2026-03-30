@@ -20,6 +20,8 @@
   "command.hideDatabase": "Hide Database",
   "command.showAllSchemas": "Show All Hidden",
   "command.reportIssue": "Report Issue",
+  "command.setupMcp": "Setup MCP Server",
+  "command.getStarted": "Get Started",
   "command.copyName": "Copy Name",
   "command.renameObject": "Rename...",
   "command.createObject": "Create...",

@@ -2,7 +2,7 @@
   "name": "viewstor",
   "displayName": "Viewstor",
   "description": "%extension.description%",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "publisher": "Siyet",
   "license": "AGPL-3.0",
   "icon": "resources/icon.png",
@@ -194,6 +194,16 @@
         "title": "%command.reportIssue%",
         "category": "Viewstor",
         "icon": "$(github)"
+      },
+      {
+        "command": "viewstor.setupMcp",
+        "title": "%command.setupMcp%",
+        "category": "Viewstor"
+      },
+      {
+        "command": "viewstor.getStarted",
+        "title": "%command.getStarted%",
+        "category": "Viewstor"
       },
       {
         "command": "viewstor.copyName",

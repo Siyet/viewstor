@@ -40,5 +40,7 @@
   "command.clearHistory": "기록 지우기",
   "command.pinHistoryEntry": "쿼리 고정",
   "command.unpinHistoryEntry": "고정 해제",
-  "config.queryHistoryLimit.description": "쿼리 기록의 최대 항목 수. 고정된 항목은 삭제되지 않습니다."
+  "config.queryHistoryLimit.description": "쿼리 기록의 최대 항목 수. 고정된 항목은 삭제되지 않습니다.",
+  "command.setupMcp": "MCP 서버 설정",
+  "command.getStarted": "시작하기"
 }

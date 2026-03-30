@@ -114,8 +114,8 @@ export class PostgresDriver implements DatabaseDriver {
              GREATEST(c.reltuples::bigint, 0) AS row_estimate,
              pg_total_relation_size(c.oid) AS total_bytes
       FROM pg_tables t
-      LEFT JOIN pg_class c ON c.relname = t.tablename
-      LEFT JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
+      LEFT JOIN pg_namespace n ON n.nspname = t.schemaname
+      LEFT JOIN pg_class c ON c.relname = t.tablename AND c.relnamespace = n.oid
       WHERE t.schemaname NOT IN ('pg_catalog', 'information_schema')
       ORDER BY t.schemaname, t.tablename
     `);

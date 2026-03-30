@@ -40,5 +40,7 @@
   "command.clearHistory": "इतिहास साफ़ करें",
   "command.pinHistoryEntry": "क्वेरी पिन करें",
   "command.unpinHistoryEntry": "अनपिन करें",
-  "config.queryHistoryLimit.description": "क्वेरी इतिहास की अधिकतम प्रविष्टियाँ। पिन की गई प्रविष्टियाँ कभी नहीं हटाई जातीं।"
+  "config.queryHistoryLimit.description": "क्वेरी इतिहास की अधिकतम प्रविष्टियाँ। पिन की गई प्रविष्टियाँ कभी नहीं हटाई जातीं।",
+  "command.setupMcp": "MCP सर्वर सेटअप",
+  "command.getStarted": "शुरू करें"
 }
