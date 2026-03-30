@@ -62,5 +62,7 @@
   "Don't show again": "今後表示しない",
   "Clear all query history?": "すべてのクエリ履歴をクリアしますか？",
   "Clear": "クリア",
-  "Pinned": "固定済み"
+  "Pinned": "固定済み",
+  "Show Logs": "ログを表示",
+  "Viewstor failed to activate: {0}": "Viewstor のアクティベーションに失敗しました: {0}"
 }

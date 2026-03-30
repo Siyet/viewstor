@@ -62,5 +62,7 @@
   "Don't show again": "আর দেখাবেন না",
   "Clear all query history?": "সমস্ত কোয়েরি ইতিহাস মুছবেন?",
   "Clear": "মুছুন",
-  "Pinned": "পিন করা"
+  "Pinned": "পিন করা",
+  "Show Logs": "লগ দেখুন",
+  "Viewstor failed to activate: {0}": "Viewstor সক্রিয় করতে ব্যর্থ: {0}"
 }

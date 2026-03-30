@@ -240,8 +240,9 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
 
   it('getCompletions returns table and column names', async () => {
     const completions = await driver.getCompletions!();
-    expect(completions).toContain('users');
-    expect(completions).toContain('orders');
+    const labels = completions.map(c => c.label);
+    expect(labels).toContain('users');
+    expect(labels).toContain('orders');
   });
 
   it('getTableData for enum columns includes enumValues', async () => {

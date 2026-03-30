@@ -152,8 +152,9 @@ describeIf(isDockerAvailable)('ClickHouse Driver E2E', () => {
 
   it('getCompletions returns table names', async () => {
     const completions = await driver.getCompletions!();
-    expect(completions).toContain('events');
-    expect(completions).toContain('metrics');
+    const labels = completions.map(c => c.label);
+    expect(labels).toContain('events');
+    expect(labels).toContain('metrics');
   });
 
   it('getTableData with orderBy sorts results', async () => {

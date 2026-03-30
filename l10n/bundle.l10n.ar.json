@@ -62,5 +62,7 @@
   "Don't show again": "عدم الإظهار مجددًا",
   "Clear all query history?": "مسح كل سجل الاستعلامات؟",
   "Clear": "مسح",
-  "Pinned": "مثبتة"
+  "Pinned": "مثبتة",
+  "Show Logs": "عرض السجلات",
+  "Viewstor failed to activate: {0}": "فشل تنشيط Viewstor: {0}"
 }
