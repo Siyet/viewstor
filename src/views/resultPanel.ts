@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { QueryResult } from '../types/query';
+import { quoteIdentifier } from '../utils/queryHelpers';
 import path from 'path';
 
 export interface ShowOptions {
@@ -18,6 +19,10 @@ export interface ShowOptions {
   query?: string;
   /** Database name for multi-DB connections */
   databaseName?: string;
+  /** Column metadata from getTableInfo — used for inline row insertion (nullable, defaultValue) */
+  columnInfo?: Array<{ name: string; nullable: boolean; defaultValue?: string }>;
+  /** True when opened from SQL editor (not from tree) — export uses in-memory rows */
+  queryMode?: boolean;
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 500, 1000];
@@ -77,19 +82,19 @@ export class ResultPanelManager {
         case 'changePage':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, msg.page, msg.pageSize, msg.orderBy, ctx.databaseName);
+              ctx.connectionId, ctx.tableName, ctx.schema, msg.page, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
           }
           break;
         case 'changePageSize':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName);
+              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
           }
           break;
         case 'reloadWithSort':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName);
+              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
           }
           break;
         case 'refreshCount':
@@ -106,12 +111,12 @@ export class ResultPanelManager {
         case 'runCustomQuery':
           if (ctx.connectionId) {
             vscode.commands.executeCommand('viewstor._runCustomTableQuery',
-              ctx.connectionId, ctx.tableName, ctx.schema, msg.query, msg.pageSize, ctx.databaseName);
+              ctx.connectionId, ctx.tableName, ctx.schema, msg.query, msg.pageSize, ctx.databaseName, panelKey);
           }
           break;
         case 'saveEdits':
           vscode.commands.executeCommand('viewstor._saveEdits',
-            ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.edits, ctx.databaseName);
+            ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.edits, ctx.databaseName, panelKey);
           break;
         case 'editJsonInTab':
           if (tfm) {
@@ -135,13 +140,19 @@ export class ResultPanelManager {
         case 'insertRow':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._insertRow',
-              ctx.connectionId, ctx.tableName, ctx.schema, msg.row, ctx.databaseName);
+              ctx.connectionId, ctx.tableName, ctx.schema, msg.row, ctx.databaseName, panelKey);
+          }
+          break;
+        case 'insertRows':
+          if (isTableMode) {
+            vscode.commands.executeCommand('viewstor._insertRows',
+              ctx.connectionId, ctx.tableName, ctx.schema, msg.rows, ctx.databaseName, panelKey);
           }
           break;
         case 'deleteRows':
           if (isTableMode) {
             vscode.commands.executeCommand('viewstor._deleteRows',
-              ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.rows, ctx.databaseName, msg.pkTypes);
+              ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.rows, ctx.databaseName, msg.pkTypes, panelKey);
           }
           break;
         case 'rerunLastQuery':
@@ -176,7 +187,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   const isEstimatedCount = !!opts?.isEstimatedCount;
   const isTableMode = !!(opts?.connectionId && opts?.tableName);
   const defaultQuery = opts?.query || (isTableMode
-    ? `SELECT * FROM ${opts?.schema ? '"' + opts.schema + '".' : ''}"${opts?.tableName}"`
+    ? `SELECT * FROM ${opts?.schema ? quoteIdentifier(opts.schema) + '.' : ''}${quoteIdentifier(opts?.tableName || '')}`
     : '');
 
   return `<!DOCTYPE html>
@@ -226,6 +237,10 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   .loading-overlay { position:absolute; inset:0; background:var(--vscode-editor-background); opacity:0.7; z-index:10; display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--vscode-descriptionForeground); }
   td.editing input, td.editing select { width:100%; padding:4px 8px; border:2px solid var(--vscode-focusBorder); background:var(--vscode-input-background); color:var(--vscode-input-foreground); font-family:inherit; font-size:inherit; outline:none; }
   td.modified { border-left:3px solid var(--vscode-inputValidation-warningBorder); }
+  tr.new-row { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
+  tr.out-of-query-row { opacity:0.4; }
+  td.invalid-cell { border-left:3px solid var(--vscode-inputValidation-errorBorder, #f44); background:var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); }
+  .default-val { color:var(--vscode-descriptionForeground); font-style:italic; }
   .popup { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:60vw; max-height:70vh; background:var(--vscode-editor-background); border:1px solid var(--vscode-panel-border); border-radius:4px; box-shadow:0 4px 20px rgba(0,0,0,0.4); z-index:100; display:flex; flex-direction:column; }
   .popup-header { padding:8px 12px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--vscode-panel-border); }
   .popup-body { flex:1; overflow:auto; padding:12px; }
@@ -246,6 +261,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   .tk-kw { color:var(--vscode-debugTokenExpression-name, #569cd6); font-weight:600; }
   .tk-str { color:var(--vscode-debugTokenExpression-string, #ce9178); }
   .tk-num { color:var(--vscode-debugTokenExpression-number, #b5cea8); }
+  .tk-id { color:var(--vscode-debugTokenExpression-value, #9cdcfe); }
   .tk-cmt { color:var(--vscode-descriptionForeground); font-style:italic; }
   .tk-bool { color:var(--vscode-debugTokenExpression-boolean, #569cd6); }
   .tk-null { color:var(--vscode-descriptionForeground); }
@@ -331,8 +347,10 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   let columns = ${safeJsonForScript(result.columns)};
   let pageRows = ${safeJsonForScript(result.rows)};
   const pkColumns = ${safeJsonForScript(opts?.pkColumns || [])};
+  const columnInfo = ${safeJsonForScript(opts?.columnInfo || [])};
   const IS_READONLY = ${!!opts?.readonly};
   const IS_TABLE_MODE = ${isTableMode};
+  const IS_QUERY_MODE = ${!!opts?.queryMode};
   let TOTAL_ROW_COUNT = ${totalRowCount};
   let IS_ESTIMATED_COUNT = ${isEstimatedCount};
   let currentPage = ${currentPage};
@@ -369,6 +387,13 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
         remaining = remaining.substring(strMatch[0].length);
         continue;
       }
+      // Quoted identifier ("table_name")
+      var qidMatch = remaining.match(/^"[^"]*"/);
+      if (qidMatch) {
+        tokens.push('<span class="tk-id">' + escHtml(qidMatch[0]) + '</span>');
+        remaining = remaining.substring(qidMatch[0].length);
+        continue;
+      }
       // Comment
       var cmtMatch = remaining.match(/^--[^\\n]*/);
       if (cmtMatch) {
@@ -391,7 +416,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
           SQL_KEYWORDS.lastIndex = 0;
           tokens.push('<span class="tk-kw">' + escHtml(w) + '</span>');
         } else {
-          tokens.push(escHtml(w));
+          tokens.push('<span class="tk-id">' + escHtml(w) + '</span>');
         }
         remaining = remaining.substring(w.length);
         continue;
@@ -418,7 +443,14 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   }
 
   let pendingEdits = new Map();
+  let pendingNewRows = new Map(); // rowIdx → { values: {col: val}, editedCols: Set }
+  var _lastInsertedRows = [];   // rows from RETURNING * — set before rerunQuery
+  var _outOfQueryRows = [];     // inserted rows not found in requeried data
   let originalRows = JSON.parse(JSON.stringify(pageRows));
+
+  // Build columnInfo lookup: { colName → { nullable, defaultValue } }
+  var colInfoMap = {};
+  columnInfo.forEach(function(ci) { colInfoMap[ci.name] = ci; });
 
   const jsonTypes = new Set(['json','jsonb','Object']);
   const boolTypes = new Set(['boolean','Bool']);
@@ -430,6 +462,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   }
 
   function formatCell(value, col) {
+    if (value === '__DEFAULT__') return '<span class="default-val">DEFAULT</span>';
     if (value === null || value === undefined) return '<span class="null-val">NULL</span>';
     // Complex types (arrays, objects, JSON) — show truncated string
     if (isComplexValue(value)) {
@@ -527,15 +560,20 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     const body = document.getElementById('dataBody');
     body.innerHTML = pageRows.map((row, ri) => {
       const globalRi = offset + ri;
-      const rowNum = '<td class="row-num" data-rownum="' + ri + '">' + (globalRi + 1) + '</td>';
+      const isNewRow = pendingNewRows.has(ri.toString());
+      const isOutOfQuery = !isNewRow && _outOfQueryRows.some(function(oRow) {
+        return pkColumns.length > 0 && pkColumns.every(function(pk) { return String(row[pk]) === String(oRow[pk]); });
+      });
+      const rowNum = '<td class="row-num" data-rownum="' + ri + '">' + (isNewRow ? '+' : (globalRi + 1)) + '</td>';
       const cells = columns.map((c, ci) => {
         const key = ri + ':' + c.name;
         const modClass = pendingEdits.has(key) ? ' modified' : '';
-        const isComplex = row[c.name] !== null && row[c.name] !== undefined && (jsonTypes.has(c.dataType) || isComplexValue(row[c.name]));
+        const isComplex = row[c.name] !== null && row[c.name] !== undefined && row[c.name] !== '__DEFAULT__' && (jsonTypes.has(c.dataType) || isComplexValue(row[c.name]));
         const jsonClass = isComplex ? ' json-cell' : '';
         return '<td data-row="' + ri + '" data-col="' + ci + '" class="' + modClass + jsonClass + '">' + formatCell(row[c.name], c) + '</td>';
       }).join('');
-      return '<tr>' + rowNum + cells + '</tr>';
+      var trClass = isNewRow ? ' class="new-row"' : isOutOfQuery ? ' class="out-of-query-row"' : '';
+      return '<tr' + trClass + '>' + rowNum + cells + '</tr>';
     }).join('');
 
     totalPages = Math.max(1, Math.ceil(TOTAL_ROW_COUNT / pageSize));
@@ -560,12 +598,13 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
         const ci = Number(td.dataset.col);
         const col = columns[ci];
         const val = pageRows[ri][col.name];
-        if (val !== null && val !== undefined && (jsonTypes.has(col.dataType) || isComplexValue(val))) {
+        if (val !== null && val !== undefined && val !== '__DEFAULT__' && (jsonTypes.has(col.dataType) || isComplexValue(val))) {
           const str = typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val);
           openJsonInTab(str, ri, col);
           return;
         }
-        if (!IS_READONLY) startEdit(td, ci, ri);
+        // Allow editing: existing rows need PK, new rows always editable
+        if (!IS_READONLY && (pkColumns.length > 0 || pendingNewRows.has(ri.toString()))) startEdit(td, ci, ri);
       });
     });
     // Row number: click selects row, right-click opens copy menu
@@ -721,8 +760,8 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     ctxMenuEl.style.top = e.clientY + 'px';
     const formats = [
       { label: 'Copy', fmt: 'tsv' },
-      { label: "Copy as One-row (')", fmt: 'onerow-sq' },
-      { label: 'Copy as One-row (")', fmt: 'onerow-dq' },
+      { label: 'Copy as One-row (SQL)', fmt: 'onerow-sq' },
+      { label: 'Copy as One-row (JSON)', fmt: 'onerow-dq' },
       { label: 'Copy as CSV', fmt: 'csv' },
       { label: 'Copy as TSV', fmt: 'tsv-explicit' },
       { label: 'Copy as Markdown', fmt: 'md' },
@@ -801,9 +840,15 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       case 'onerow-sq': text = formatOneRow(rows, colIdxs, "'"); break;
       case 'onerow-dq': text = formatOneRow(rows, colIdxs, '"'); break;
       case 'md': {
-        text = '| ' + headers.join(' | ') + ' |\\n';
-        text += '|' + headers.map(() => '---').join('|') + '|\\n';
-        text += rows.map(r => '| ' + r.join(' | ') + ' |').join('\\n');
+        var widths = headers.map(function(h, i) {
+          var max = h.length;
+          rows.forEach(function(r) { if (r[i].length > max) max = r[i].length; });
+          return Math.max(max, 3);
+        });
+        function mdPad(s, w) { return s + ' '.repeat(Math.max(0, w - s.length)); }
+        text = '| ' + headers.map(function(h, i) { return mdPad(h, widths[i]); }).join(' | ') + ' |\\n';
+        text += '|' + widths.map(function(w) { return '-'.repeat(w + 2); }).join('|') + '|\\n';
+        text += rows.map(function(r) { return '| ' + r.map(function(v, i) { return mdPad(v, widths[i]); }).join(' | ') + ' |'; }).join('\\n');
         break;
       }
       case 'json': {
@@ -859,13 +904,19 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     }
   }
 
+  var SQL_RESERVED_SET = new Set(['select','from','where','and','or','not','in','is','null','as','on','join','left','right','inner','outer','full','cross','order','by','group','having','limit','offset','insert','into','values','update','set','delete','create','alter','drop','table','index','view','distinct','between','like','ilike','exists','case','when','then','else','end','union','all','asc','desc','with','default','cascade','primary','key','references','foreign','constraint','returning','explain','analyze','true','false','boolean','integer','text','varchar','numeric','serial','bigserial','timestamp','timestamptz','date','time','interval','json','jsonb','uuid','array','bigint','smallint','real','double','precision','char','decimal','float','check','unique','grant','revoke','role','user','type','enum','schema','database','sequence','trigger','function','procedure','begin','commit','rollback','abort','do','for','if','loop','return','raise','exception']);
+  function quoteId(name) {
+    if (/^[a-z_][a-z0-9_]*$/.test(name) && !SQL_RESERVED_SET.has(name)) return name;
+    return '"' + name + '"';
+  }
+
   function applySortToQuery(query, sorts) {
     var q = query.replace(/;+\\s*$/, '');
     // Remove existing ORDER BY (greedy up to LIMIT/OFFSET/end)
     q = q.replace(/\\s+ORDER\\s+BY\\s+[^]*?(?=\\s+LIMIT\\b|\\s+OFFSET\\b|$)/i, '');
     if (sorts.length > 0) {
       var orderClause = ' ORDER BY ' + sorts.map(function(s) {
-        return '"' + s.column + '" ' + s.direction.toUpperCase();
+        return quoteId(s.column) + ' ' + s.direction.toUpperCase();
       }).join(', ');
       // Insert before LIMIT/OFFSET if present
       var limitMatch = q.match(/(\\s+LIMIT\\b[^]*)/i);
@@ -883,7 +934,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     if (td.classList.contains('editing')) return;
     const col = columns[colIdx];
     const currentVal = pageRows[rowIdx][col.name];
-    const valStr = currentVal === null || currentVal === undefined ? '' : (typeof currentVal === 'object' ? JSON.stringify(currentVal) : String(currentVal));
+    const valStr = currentVal === null || currentVal === undefined || currentVal === '__DEFAULT__' ? '' : (typeof currentVal === 'object' ? JSON.stringify(currentVal) : String(currentVal));
     td.classList.add('editing');
     if (col.enumValues && col.enumValues.length > 0) {
       makeSelect(td, col, rowIdx, valStr, currentVal, col.enumValues);
@@ -918,16 +969,41 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   function makeInput(td, col, rowIdx, valStr) {
     const input = document.createElement('input');
     input.type='text'; input.value=valStr;
-    input.addEventListener('blur', () => finishEdit(td, col, rowIdx, input.value===''?null:input.value));
-    input.addEventListener('keydown', e => { if(e.key==='Enter') finishEdit(td,col,rowIdx,input.value===''?null:input.value); if(e.key==='Escape') cancelEdit(td,col,rowIdx); });
+    var isNew = pendingNewRows.has(rowIdx.toString());
+    var ci = colInfoMap[col.name];
+    if (isNew && ci && ci.defaultValue != null) input.placeholder = 'DEFAULT';
+    function resolveVal() {
+      if (input.value === '') {
+        // For new rows with DEFAULT, empty means keep DEFAULT
+        if (isNew && ci && ci.defaultValue != null) return '__DEFAULT__';
+        return null;
+      }
+      return input.value;
+    }
+    input.addEventListener('blur', () => finishEdit(td, col, rowIdx, resolveVal()));
+    input.addEventListener('keydown', e => { if(e.key==='Enter') finishEdit(td,col,rowIdx,resolveVal()); if(e.key==='Escape') cancelEdit(td,col,rowIdx); });
     td.textContent=''; td.appendChild(input); input.focus(); input.select();
   }
 
   function finishEdit(td, col, rowIdx, newVal) {
     td.classList.remove('editing');
+    td.classList.remove('invalid-cell');
     const oldVal = originalRows[rowIdx][col.name];
     if (jsonTypes.has(col.dataType) && typeof newVal === 'string') { try { newVal = JSON.parse(newVal); } catch {} }
     pageRows[rowIdx][col.name] = newVal;
+
+    // Track edits for new rows separately
+    if (pendingNewRows.has(rowIdx.toString())) {
+      var nr = pendingNewRows.get(rowIdx.toString());
+      nr.values[col.name] = newVal;
+      nr.editedCols.add(col.name);
+      td.classList.add('modified');
+      td.innerHTML = formatCell(newVal, col);
+      reattachCell(td, columns.indexOf(col), rowIdx);
+      updateSaveButtons();
+      return;
+    }
+
     const newStr = typeof newVal === 'object' && newVal !== null ? JSON.stringify(newVal) : String(newVal);
     const oldStr = typeof oldVal === 'object' && oldVal !== null ? JSON.stringify(oldVal) : String(oldVal);
     if (newStr !== oldStr) {
@@ -963,49 +1039,137 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     td.addEventListener('dblclick', () => {
       const col = columns[colIdx];
       const val = pageRows[rowIdx][col.name];
-      if (val !== null && val !== undefined && (jsonTypes.has(col.dataType) || isComplexValue(val))) {
+      if (val !== null && val !== undefined && val !== '__DEFAULT__' && (jsonTypes.has(col.dataType) || isComplexValue(val))) {
         openJsonInTab(typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val), rowIdx, col);
         return;
       }
-      if (!IS_READONLY) startEdit(td, colIdx, rowIdx);
+      if (!IS_READONLY && (pkColumns.length > 0 || pendingNewRows.has(rowIdx.toString()))) startEdit(td, colIdx, rowIdx);
     });
   }
 
   function updateSaveButtons() {
-    const hasEdits = pendingEdits.size > 0;
-    document.getElementById('saveBtn').classList.toggle('hidden', !hasEdits);
-    document.getElementById('discardBtn').classList.toggle('hidden', !hasEdits);
-    document.getElementById('footerSaveBtn').classList.toggle('hidden', !hasEdits);
-    document.getElementById('footerDiscardBtn').classList.toggle('hidden', !hasEdits);
+    const hasChanges = pendingEdits.size > 0 || pendingNewRows.size > 0;
+    document.getElementById('saveBtn').classList.toggle('hidden', !hasChanges);
+    document.getElementById('discardBtn').classList.toggle('hidden', !hasChanges);
+    document.getElementById('footerSaveBtn').classList.toggle('hidden', !hasChanges);
+    document.getElementById('footerDiscardBtn').classList.toggle('hidden', !hasChanges);
+  }
+
+  // Validate new rows: return array of { rowIdx, missingCols } for rows with unfilled required columns
+  function validateNewRows() {
+    var errors = [];
+    pendingNewRows.forEach(function(nr, key) {
+      var missing = [];
+      columns.forEach(function(col) {
+        var ci = colInfoMap[col.name];
+        var val = nr.values[col.name];
+        // Required = not nullable AND no default value
+        var isRequired = ci && !ci.nullable && ci.defaultValue == null;
+        if (isRequired && (val === null || val === undefined)) {
+          missing.push(col.name);
+        }
+      });
+      if (missing.length > 0) errors.push({ rowIdx: parseInt(key), missingCols: missing });
+    });
+    return errors;
+  }
+
+  // Highlight invalid cells and return true if valid
+  function highlightInvalidCells(errors) {
+    // Clear previous highlights
+    document.querySelectorAll('td.invalid-cell').forEach(function(td) { td.classList.remove('invalid-cell'); });
+    if (errors.length === 0) return true;
+    errors.forEach(function(err) {
+      err.missingCols.forEach(function(colName) {
+        var ci = columns.findIndex(function(c) { return c.name === colName; });
+        if (ci >= 0) {
+          var td = document.querySelector('td[data-row="' + err.rowIdx + '"][data-col="' + ci + '"]');
+          if (td) td.classList.add('invalid-cell');
+        }
+      });
+    });
+    return false;
   }
 
   document.getElementById('saveBtn').addEventListener('click', () => {
-    vscode.postMessage({ type: 'saveEdits', edits: [...pendingEdits.values()] });
+    // Validate new rows first
+    var validationErrors = validateNewRows();
+    if (validationErrors.length > 0) {
+      highlightInvalidCells(validationErrors);
+      var allMissing = [];
+      validationErrors.forEach(function(err) { allMissing = allMissing.concat(err.missingCols); });
+      var unique = allMissing.filter(function(v, i, a) { return a.indexOf(v) === i; });
+      alert('Required columns not filled: ' + unique.join(', '));
+      return;
+    }
+    highlightInvalidCells([]);
+
+    // Send new row inserts
+    if (pendingNewRows.size > 0) {
+      var newRowInserts = [];
+      pendingNewRows.forEach(function(nr) {
+        var colValues = {};
+        var colTypes = {};
+        columns.forEach(function(col) {
+          colValues[col.name] = nr.values[col.name];
+          colTypes[col.name] = col.dataType;
+        });
+        newRowInserts.push({ values: colValues, columnTypes: colTypes });
+      });
+      vscode.postMessage({ type: 'insertRows', rows: newRowInserts });
+      pendingNewRows.clear();
+    }
+
+    // Send existing row edits
+    if (pendingEdits.size > 0) {
+      vscode.postMessage({ type: 'saveEdits', edits: [...pendingEdits.values()] });
+    }
     pendingEdits.clear();
     for (let i = 0; i < pageRows.length; i++) originalRows[i] = JSON.parse(JSON.stringify(pageRows[i]));
     document.querySelectorAll('td.modified').forEach(td => td.classList.remove('modified'));
+    renderPage();
     updateSaveButtons();
   });
 
   document.getElementById('discardBtn').addEventListener('click', () => {
-    for (let i = 0; i < pageRows.length; i++) pageRows[i] = JSON.parse(JSON.stringify(originalRows[i]));
+    // Remove new rows from pageRows
+    var newRowIndices = [];
+    pendingNewRows.forEach(function(nr, key) { newRowIndices.push(parseInt(key)); });
+    newRowIndices.sort(function(a, b) { return b - a; }); // reverse order for safe splice
+    newRowIndices.forEach(function(idx) { pageRows.splice(idx, 1); originalRows.splice(idx, 1); });
+    pendingNewRows.clear();
     pendingEdits.clear();
+    document.querySelectorAll('td.invalid-cell').forEach(function(td) { td.classList.remove('invalid-cell'); });
+    for (let i = 0; i < pageRows.length; i++) pageRows[i] = JSON.parse(JSON.stringify(originalRows[i]));
     renderPage();
     updateSaveButtons();
   });
 
   // --- Add / Delete Rows ---
-  if (!IS_READONLY && IS_TABLE_MODE && pkColumns.length > 0) {
+  if (!IS_READONLY && IS_TABLE_MODE) {
     document.getElementById('addRowBtn').classList.remove('hidden');
-    document.getElementById('deleteRowBtn').classList.remove('hidden');
     document.getElementById('footerAddRowBtn').classList.remove('hidden');
+  }
+  if (!IS_READONLY && IS_TABLE_MODE && pkColumns.length > 0) {
+    document.getElementById('deleteRowBtn').classList.remove('hidden');
     document.getElementById('footerDeleteRowBtn').classList.remove('hidden');
   }
 
   document.getElementById('addRowBtn').addEventListener('click', () => {
     var newRow = {};
-    columns.forEach(function(c) { newRow[c.name] = null; });
-    vscode.postMessage({ type: 'insertRow', row: newRow });
+    columns.forEach(function(c) {
+      var ci = colInfoMap[c.name];
+      newRow[c.name] = (ci && ci.defaultValue != null) ? '__DEFAULT__' : null;
+    });
+    pageRows.push(newRow);
+    originalRows.push(JSON.parse(JSON.stringify(newRow)));
+    var rowIdx = pageRows.length - 1;
+    pendingNewRows.set(rowIdx.toString(), { values: newRow, editedCols: new Set() });
+    renderPage();
+    updateSaveButtons();
+    // Scroll to the new row
+    var body = document.getElementById('dataBody');
+    if (body && body.lastElementChild) body.lastElementChild.scrollIntoView({ block: 'nearest' });
   });
 
   function sendDeleteRows() {
@@ -1060,7 +1224,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   document.getElementById('exportClose').addEventListener('click', closeExportPopup);
   document.getElementById('exportConfirm').addEventListener('click', () => {
     const fmt = document.getElementById('exportFormat').value;
-    if (IS_TABLE_MODE) {
+    if (IS_TABLE_MODE && !IS_QUERY_MODE) {
       vscode.postMessage({ type: 'exportAllData', format: fmt, orderBy: sortColumns, customQuery: customExportQuery || undefined });
     } else {
       vscode.postMessage({ type: 'exportAllData', format: fmt, columns, rows: pageRows });
@@ -1161,6 +1325,11 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       btn.disabled = false;
       document.getElementById('footerRowCount').textContent = msg.count + ' row' + (msg.count !== 1 ? 's' : '');
     }
+    if (msg.type === 'hideLoading') { hideLoading(); }
+    if (msg.type === 'insertedRows') {
+      // Store inserted rows — will be checked after rerun to highlight out-of-query rows
+      _lastInsertedRows = msg.rows;
+    }
     if (msg.type === 'rerunQuery') {
       if (queryInput && queryInput.value.trim()) {
         runCustomQuery();
@@ -1184,6 +1353,22 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       if (msg.totalPages !== undefined) totalPages = msg.totalPages;
       if (msg.isEstimatedCount !== undefined) IS_ESTIMATED_COUNT = msg.isEstimatedCount;
       pendingEdits.clear();
+      pendingNewRows.clear();
+
+      // Check if recently inserted rows are in the refreshed data
+      _outOfQueryRows = [];
+      if (_lastInsertedRows.length > 0 && pkColumns.length > 0) {
+        _lastInsertedRows.forEach(function(iRow) {
+          var found = pageRows.some(function(pRow) {
+            return pkColumns.every(function(pk) { return String(pRow[pk]) === String(iRow[pk]); });
+          });
+          if (!found) _outOfQueryRows.push(iRow);
+        });
+        // Append out-of-query rows to display
+        _outOfQueryRows.forEach(function(r) { pageRows.push(r); });
+        _lastInsertedRows = [];
+      }
+
       originalRows = JSON.parse(JSON.stringify(pageRows));
       document.getElementById('statsInfo').textContent = msg.executionTimeMs + 'ms';
       renderHeader();

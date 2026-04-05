@@ -58,9 +58,14 @@ export function stripMetadataFromContent(content: string): string {
 
 /** Check if a file path is under a given directory (cross-platform) */
 export function isUnderDir(filePath: string, dir: string): boolean {
-  const normalized = filePath.replace(/\\/g, '/');
+  let normalized = filePath.replace(/\\/g, '/');
   let dirNormalized = dir.replace(/\\/g, '/');
   if (!dirNormalized.endsWith('/')) dirNormalized += '/';
+  // Windows: vscode.Uri.file() lowercases the drive letter, os.homedir() uppercases it
+  if (process.platform === 'win32') {
+    normalized = normalized.toLowerCase();
+    dirNormalized = dirNormalized.toLowerCase();
+  }
   return normalized.startsWith(dirNormalized);
 }
 

@@ -256,6 +256,105 @@ describeIf(isDockerAvailable)('Unified Query Editor E2E', () => {
     });
   });
 
+  describe('query history cached results', () => {
+    it('should store cachedResult with columns and rows for SELECT', async () => {
+      const sql = 'SELECT name, price FROM products ORDER BY id';
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.columns.length).toBeGreaterThan(0);
+      expect(result.rows.length).toBeGreaterThan(0);
+
+      // Simulate history entry creation (same logic as commands/index.ts)
+      const cachedRows = result.rows.slice(0, 500);
+      const entry = {
+        id: 'test-history-1',
+        connectionId: config.id,
+        connectionName: config.name,
+        query: sql,
+        executedAt: Date.now(),
+        executionTimeMs: result.executionTimeMs,
+        rowCount: result.rowCount,
+        cachedResult: !result.error ? { columns: result.columns, rows: cachedRows } : undefined,
+      };
+
+      // cachedResult should be present with correct data
+      expect(entry.cachedResult).toBeDefined();
+      expect(entry.cachedResult!.columns.length).toBe(2);
+      expect(entry.cachedResult!.columns.map(c => c.name)).toEqual(['name', 'price']);
+      expect(entry.cachedResult!.rows.length).toBe(result.rowCount);
+
+      // Verify the data is the same as the original query
+      expect(entry.cachedResult!.rows[0]).toMatchObject(result.rows[0]);
+    });
+
+    it('should store cachedResult with empty columns for UPDATE', async () => {
+      const sql = 'UPDATE products SET price = 9.99 WHERE name = \'Widget\'';
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+
+      const entry = {
+        cachedResult: !result.error ? { columns: result.columns, rows: result.rows.slice(0, 500) } : undefined,
+      };
+
+      // UPDATE returns no columns — cachedResult exists but has empty columns
+      expect(entry.cachedResult).toBeDefined();
+      expect(entry.cachedResult!.columns.length).toBe(0);
+      // The condition used in openQueryFromHistory should be false for UPDATE
+      expect(entry.cachedResult!.columns.length > 0).toBe(false);
+    });
+
+    it('should not store cachedResult when query has error', async () => {
+      const result = await driver.execute('SELECT * FROM nonexistent_table_xyz');
+      expect(result.error).toBeDefined();
+
+      const entry = {
+        cachedResult: !result.error ? { columns: result.columns, rows: result.rows } : undefined,
+      };
+
+      expect(entry.cachedResult).toBeUndefined();
+    });
+
+    it('cached SELECT survives globalState roundtrip (close → reopen)', async () => {
+      // Step 1: Execute query
+      const sql = 'SELECT id, name, price FROM products WHERE category = \'gadgets\' ORDER BY id';
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBeGreaterThan(0);
+
+      // Step 2: Build history entry (same as commands/index.ts)
+      const cachedRows = result.rows.slice(0, 500);
+      const entry = {
+        id: 'test-roundtrip',
+        connectionId: config.id,
+        connectionName: config.name,
+        query: sql,
+        executedAt: Date.now(),
+        executionTimeMs: result.executionTimeMs,
+        rowCount: result.rowCount,
+        cachedResult: { columns: result.columns, rows: cachedRows },
+      };
+
+      // Step 3: Simulate "close" — serialize to globalState (JSON roundtrip)
+      const serialized = JSON.stringify(entry);
+      const restored = JSON.parse(serialized);
+
+      // Step 4: Simulate "reopen from history" — verify cachedResult is intact
+      expect(restored.cachedResult).toBeDefined();
+      expect(restored.cachedResult.columns.length).toBe(3);
+      expect(restored.cachedResult.columns.map((c: { name: string }) => c.name)).toEqual(['id', 'name', 'price']);
+      expect(restored.cachedResult.rows.length).toBe(result.rowCount);
+      expect(restored.cachedResult.rows[0]).toEqual(result.rows[0]);
+
+      // Step 5: The condition in openQueryFromHistory should pass for SELECT
+      expect(restored.cachedResult.columns.length > 0).toBe(true);
+
+      // Step 6: Re-execute to confirm data hasn't changed
+      const fresh = await driver.execute(restored.query);
+      expect(fresh.error).toBeUndefined();
+      expect(fresh.rows).toEqual(restored.cachedResult.rows);
+    });
+  });
+
   describe('cleanup workflow', () => {
     it('should clean up tmp directory', () => {
       // Write some tmp files

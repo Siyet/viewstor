@@ -150,7 +150,7 @@ export class ConnectionManager {
       .filter(s => s.config.scope === 'project')
       .map(s => {
         // Strip password from project file for security
-        const { password, ...rest } = s.config;
+        const { password: _password, ...rest } = s.config;
         return rest as ConnectionConfig;
       });
     const projectFolders = Array.from(this.folders.values())

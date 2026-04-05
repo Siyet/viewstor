@@ -39,6 +39,7 @@ export class RedisDriver implements DatabaseDriver {
       }
 
       const [cmd, ...args] = parts;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (this.client as any).call(cmd, ...args);
       const executionTimeMs = Date.now() - start;
 

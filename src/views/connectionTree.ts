@@ -105,9 +105,14 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
           this.schemaCache.set(cacheKey, schema);
         }
         const filtered = this.filterSchema(schema, element.connectionId);
-        // Collapse single-schema level
-        if (filtered.length === 1 && filtered[0].type === 'schema' && filtered[0].children) {
-          return this.createSchemaItems(filtered[0].children, element.connectionId, element.databaseName);
+        // Collapse single-database or single-schema level
+        if (filtered.length === 1 && (filtered[0].type === 'schema' || filtered[0].type === 'database') && filtered[0].children) {
+          let children = filtered[0].children;
+          // Also collapse nested single-schema (e.g. database > schema > tables)
+          if (children.length === 1 && children[0].type === 'schema' && children[0].children) {
+            children = children[0].children;
+          }
+          return this.createSchemaItems(children, element.connectionId, element.databaseName);
         }
         return this.createSchemaItems(filtered, element.connectionId, element.databaseName);
       } catch (err) {

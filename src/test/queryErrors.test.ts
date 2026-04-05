@@ -7,7 +7,10 @@ import {
   buildDeleteSql,
   buildInsertDefaultSql,
   quoteTable,
+  quoteIdentifier,
   sqlValue,
+  splitStatements,
+  getStatementAtOffset,
 } from '../utils/queryHelpers';
 
 describe('levenshtein', () => {
@@ -179,13 +182,52 @@ describe('enhanceColumnError', () => {
   });
 });
 
-describe('quoteTable', () => {
-  it('should quote table name without schema', () => {
-    expect(quoteTable('users')).toBe('"users"');
+describe('quoteIdentifier', () => {
+  it('should not quote simple lowercase identifiers', () => {
+    expect(quoteIdentifier('users')).toBe('users');
+    expect(quoteIdentifier('my_table')).toBe('my_table');
+    expect(quoteIdentifier('col1')).toBe('col1');
   });
 
-  it('should quote table name with schema', () => {
-    expect(quoteTable('users', 'public')).toBe('"public"."users"');
+  it('should quote reserved words', () => {
+    expect(quoteIdentifier('order')).toBe('"order"');
+    expect(quoteIdentifier('select')).toBe('"select"');
+    expect(quoteIdentifier('user')).toBe('"user"');
+    expect(quoteIdentifier('type')).toBe('"type"');
+    expect(quoteIdentifier('table')).toBe('"table"');
+  });
+
+  it('should quote identifiers with uppercase', () => {
+    expect(quoteIdentifier('Users')).toBe('"Users"');
+    expect(quoteIdentifier('MyTable')).toBe('"MyTable"');
+  });
+
+  it('should quote identifiers with special characters', () => {
+    expect(quoteIdentifier('my-table')).toBe('"my-table"');
+    expect(quoteIdentifier('my table')).toBe('"my table"');
+  });
+
+  it('should quote identifiers starting with a digit', () => {
+    expect(quoteIdentifier('1table')).toBe('"1table"');
+  });
+});
+
+describe('quoteTable', () => {
+  it('should not quote simple names', () => {
+    expect(quoteTable('users')).toBe('users');
+  });
+
+  it('should not quote simple schema.table', () => {
+    expect(quoteTable('users', 'public')).toBe('public.users');
+  });
+
+  it('should quote reserved word table name', () => {
+    expect(quoteTable('order')).toBe('"order"');
+    expect(quoteTable('user', 'public')).toBe('public."user"');
+  });
+
+  it('should quote reserved word schema', () => {
+    expect(quoteTable('items', 'default')).toBe('"default".items');
   });
 });
 
@@ -267,7 +309,7 @@ describe('buildUpdateSql', () => {
       pkValues: { id: 1 },
       pkTypes: { id: 'bigint' },
     });
-    expect(sql).toBe('UPDATE "public"."users" SET "name" = \'Alice\' WHERE "id" = 1');
+    expect(sql).toBe('UPDATE public.users SET name = \'Alice\' WHERE id = 1');
   });
 
   it('should build UPDATE with multiple changes and composite PK', () => {
@@ -275,8 +317,8 @@ describe('buildUpdateSql', () => {
       changes: { quantity: 5, price: null },
       pkValues: { order_id: 10, item_id: 20 },
     });
-    expect(sql).toContain('SET "quantity" = \'5\', "price" = NULL');
-    expect(sql).toContain('WHERE "order_id" = \'10\' AND "item_id" = \'20\'');
+    expect(sql).toContain('SET quantity = \'5\', price = NULL');
+    expect(sql).toContain('WHERE order_id = \'10\' AND item_id = \'20\'');
   });
 
   it('should escape quotes in values', () => {
@@ -293,7 +335,7 @@ describe('buildUpdateSql', () => {
       columnTypes: { data: 'jsonb' },
       pkValues: { id: 1 },
     });
-    expect(sql).toContain('"data" = \'{"key":"value"}\'::jsonb');
+    expect(sql).toContain('data = \'{"key":"value"}\'::jsonb');
   });
 
   it('should add ::jsonb cast for json type', () => {
@@ -321,7 +363,7 @@ describe('buildUpdateSql', () => {
       pkValues: { id: 244 },
       pkTypes: { id: 'bigint' },
     });
-    expect(sql).toContain('WHERE "id" = 244');
+    expect(sql).toContain('WHERE id = 244');
     expect(sql).toContain('::jsonb');
     expect(sql).not.toContain('\'244\'');
   });
@@ -333,46 +375,174 @@ describe('buildUpdateSql', () => {
       pkValues: { id: 1 },
       pkTypes: { id: 'integer' },
     });
-    expect(sql).toContain('"count" = 10');
-    expect(sql).toContain('"name" = \'Alice\'');
-    expect(sql).toContain('"active" = TRUE');
-    expect(sql).toContain('"meta" = \'{"a":1}\'::jsonb');
-    expect(sql).toContain('WHERE "id" = 1');
+    expect(sql).toContain('count = 10');
+    expect(sql).toContain('name = \'Alice\'');
+    expect(sql).toContain('active = TRUE');
+    expect(sql).toContain('meta = \'{"a":1}\'::jsonb');
+    expect(sql).toContain('WHERE id = 1');
+  });
+
+  it('should quote reserved word column names', () => {
+    const sql = buildUpdateSql('items', undefined, ['id'], {
+      changes: { order: 5, type: 'premium' },
+      pkValues: { id: 1 },
+      pkTypes: { id: 'integer' },
+    });
+    expect(sql).toContain('"order" = \'5\'');
+    expect(sql).toContain('"type" = \'premium\'');
   });
 });
 
 describe('buildDeleteSql', () => {
   it('should build DELETE with single PK', () => {
     const sql = buildDeleteSql('users', 'public', ['id'], { id: 42 }, { id: 'bigint' });
-    expect(sql).toBe('DELETE FROM "public"."users" WHERE "id" = 42');
+    expect(sql).toBe('DELETE FROM public.users WHERE id = 42');
   });
 
   it('should quote string PKs', () => {
     const sql = buildDeleteSql('t', undefined, ['code'], { code: 'ABC' }, { code: 'varchar' });
-    expect(sql).toBe('DELETE FROM "t" WHERE "code" = \'ABC\'');
+    expect(sql).toBe('DELETE FROM t WHERE code = \'ABC\'');
   });
 
   it('should build DELETE with composite PK', () => {
     const sql = buildDeleteSql('order_items', undefined, ['order_id', 'item_id'], {
       order_id: 10, item_id: 20,
     });
-    expect(sql).toBe('DELETE FROM "order_items" WHERE "order_id" = \'10\' AND "item_id" = \'20\'');
+    expect(sql).toBe('DELETE FROM order_items WHERE order_id = \'10\' AND item_id = \'20\'');
   });
 
   it('should handle NULL pk values', () => {
     const sql = buildDeleteSql('t', undefined, ['id'], { id: null });
-    expect(sql).toContain('WHERE "id" = NULL');
+    expect(sql).toContain('WHERE id = NULL');
   });
 });
 
 describe('buildInsertDefaultSql', () => {
   it('should build INSERT with DEFAULT values', () => {
     const sql = buildInsertDefaultSql('users', 'public', ['id', 'name', 'email']);
-    expect(sql).toBe('INSERT INTO "public"."users" ("id", "name", "email") VALUES (DEFAULT, DEFAULT, DEFAULT) RETURNING *');
+    expect(sql).toBe('INSERT INTO public.users (id, name, email) VALUES (DEFAULT, DEFAULT, DEFAULT) RETURNING *');
   });
 
   it('should work without schema', () => {
     const sql = buildInsertDefaultSql('logs', undefined, ['id', 'message']);
-    expect(sql).toBe('INSERT INTO "logs" ("id", "message") VALUES (DEFAULT, DEFAULT) RETURNING *');
+    expect(sql).toBe('INSERT INTO logs (id, message) VALUES (DEFAULT, DEFAULT) RETURNING *');
+  });
+
+  it('should quote reserved word columns', () => {
+    const sql = buildInsertDefaultSql('t', undefined, ['id', 'order', 'type']);
+    expect(sql).toBe('INSERT INTO t (id, "order", "type") VALUES (DEFAULT, DEFAULT, DEFAULT) RETURNING *');
+  });
+});
+
+describe('splitStatements', () => {
+  it('should split simple statements', () => {
+    const stmts = splitStatements('SELECT 1; SELECT 2;');
+    expect(stmts.map(s => s.text)).toEqual(['SELECT 1;', 'SELECT 2;']);
+  });
+
+  it('should handle statement without trailing semicolon', () => {
+    const stmts = splitStatements('SELECT 1');
+    expect(stmts.map(s => s.text)).toEqual(['SELECT 1']);
+  });
+
+  it('should ignore empty statements', () => {
+    const stmts = splitStatements('SELECT 1;; ; SELECT 2');
+    expect(stmts.map(s => s.text)).toEqual(['SELECT 1;', 'SELECT 2']);
+  });
+
+  it('should not split on semicolons inside string literals', () => {
+    const stmts = splitStatements('SELECT \'a;b\'; SELECT 2');
+    expect(stmts.map(s => s.text)).toEqual(['SELECT \'a;b\';', 'SELECT 2']);
+  });
+
+  it('should handle escaped quotes in strings', () => {
+    const stmts = splitStatements('SELECT \'it\'\'s\'; SELECT 2');
+    expect(stmts.map(s => s.text)).toEqual(['SELECT \'it\'\'s\';', 'SELECT 2']);
+  });
+
+  it('should not split on semicolons inside single-line comments', () => {
+    const stmts = splitStatements('-- comment; not a separator\nSELECT 1');
+    expect(stmts.map(s => s.text)).toEqual(['-- comment; not a separator\nSELECT 1']);
+  });
+
+  it('should not split on semicolons inside block comments', () => {
+    const stmts = splitStatements('/* comment; still */ SELECT 1');
+    expect(stmts.map(s => s.text)).toEqual(['/* comment; still */ SELECT 1']);
+  });
+
+  it('should handle dollar-quoted strings (PostgreSQL)', () => {
+    const sql = 'CREATE FUNCTION f() RETURNS void AS $$ BEGIN NULL; END; $$ LANGUAGE plpgsql; SELECT 1';
+    const stmts = splitStatements(sql);
+    expect(stmts.length).toBe(2);
+    expect(stmts[0].text).toContain('$$');
+    expect(stmts[1].text).toBe('SELECT 1');
+  });
+
+  it('should return correct start/end offsets', () => {
+    const sql = 'SELECT 1; SELECT 2;';
+    const stmts = splitStatements(sql);
+    expect(stmts[0].start).toBe(0);
+    expect(stmts[0].end).toBe(9); // 'SELECT 1;' ends at index 9
+    expect(stmts[1].start).toBe(9); // starts right after ';'
+    expect(stmts[1].end).toBe(19);
+  });
+
+  it('should handle multiline SQL', () => {
+    const sql = 'SELECT *\nFROM users;\n\nUPDATE users SET name = \'test\'\nWHERE id = 1;';
+    const stmts = splitStatements(sql);
+    expect(stmts.length).toBe(2);
+    expect(stmts[0].text).toContain('SELECT');
+    expect(stmts[1].text).toContain('UPDATE');
+  });
+
+  it('should return empty for empty/whitespace input', () => {
+    expect(splitStatements('')).toEqual([]);
+    expect(splitStatements('   ')).toEqual([]);
+    expect(splitStatements('  ;  ; ')).toEqual([]);
+  });
+});
+
+describe('getStatementAtOffset', () => {
+  it('should return the only statement for single query', () => {
+    const stmt = getStatementAtOffset('SELECT 1', 3);
+    expect(stmt?.text).toBe('SELECT 1');
+  });
+
+  it('should return first statement when cursor is in first statement', () => {
+    const sql = 'SELECT 1;\nUPDATE users SET name = \'x\' WHERE id = 1;';
+    const stmt = getStatementAtOffset(sql, 3);
+    expect(stmt?.text).toContain('SELECT');
+  });
+
+  it('should return second statement when cursor is in second statement', () => {
+    const sql = 'SELECT 1;\nUPDATE users SET name = \'x\' WHERE id = 1;';
+    const stmt = getStatementAtOffset(sql, 15);
+    expect(stmt?.text).toContain('UPDATE');
+  });
+
+  it('should return nearest statement when cursor is in whitespace between statements', () => {
+    const sql = 'SELECT 1;\n\n\nUPDATE users SET name = \'x\';';
+    // Cursor in empty lines between statements
+    const stmt = getStatementAtOffset(sql, 11);
+    expect(stmt).toBeDefined();
+    // Should pick the nearest (first or second)
+    expect(stmt!.text).toMatch(/SELECT|UPDATE/);
+  });
+
+  it('should return undefined for empty input', () => {
+    expect(getStatementAtOffset('', 0)).toBeUndefined();
+    expect(getStatementAtOffset('  ', 0)).toBeUndefined();
+  });
+
+  it('should handle cursor at the very end of the text', () => {
+    const sql = 'SELECT 1;\nSELECT 2';
+    const stmt = getStatementAtOffset(sql, sql.length);
+    expect(stmt?.text).toBe('SELECT 2');
+  });
+
+  it('should handle cursor at the very beginning', () => {
+    const sql = 'SELECT 1;\nSELECT 2';
+    const stmt = getStatementAtOffset(sql, 0);
+    expect(stmt?.text).toBe('SELECT 1;');
   });
 });

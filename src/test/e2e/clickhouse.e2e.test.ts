@@ -174,4 +174,82 @@ describeIf(isDockerAvailable)('ClickHouse Driver E2E', () => {
     const ping = await driver.ping();
     expect(ping).toBe(true);
   });
+
+  it('getTableData generates SQL without unnecessary quotes', async () => {
+    // "testdb" and "events" are not reserved words — should work without quotes
+    const result = await driver.getTableData('events', 'testdb', 5, 0);
+    expect(result.error).toBeUndefined();
+    expect(result.rows.length).toBeGreaterThan(0);
+  });
+
+  it('getTableData with orderBy works without unnecessary quotes', async () => {
+    const result = await driver.getTableData('events', 'testdb', 100, 0, [{ column: 'id', direction: 'desc' }]);
+    expect(result.error).toBeUndefined();
+    expect(result.rows.length).toBe(3);
+  });
+
+  describe('multi-database isolation', () => {
+    let secondDriver: ClickHouseDriver;
+
+    beforeAll(async () => {
+      // Create a second database with different tables
+      await driver.execute('CREATE DATABASE IF NOT EXISTS otherdb');
+      await driver.execute(`
+        CREATE TABLE IF NOT EXISTS otherdb.users (
+          id UInt64,
+          name String
+        ) ENGINE = MergeTree() ORDER BY id
+      `);
+      await driver.execute(`
+        INSERT INTO otherdb.users (id, name) VALUES (1, 'Alice'), (2, 'Bob')
+      `);
+    });
+
+    afterAll(async () => {
+      await secondDriver?.disconnect();
+      await driver.execute('DROP DATABASE IF EXISTS otherdb');
+    });
+
+    it('getSchema with specific database returns only that database', async () => {
+      const schema = await driver.getSchema();
+      const dbNames = schema.map(s => s.name);
+
+      expect(dbNames).toEqual(['testdb']);
+      expect(dbNames).not.toContain('otherdb');
+      expect(dbNames).not.toContain('default');
+    });
+
+    it('getSchema for otherdb returns only otherdb tables', async () => {
+      secondDriver = new ClickHouseDriver();
+      await secondDriver.connect({ ...config, database: 'otherdb' });
+
+      const schema = await secondDriver.getSchema();
+      const dbNames = schema.map(s => s.name);
+
+      expect(dbNames).toEqual(['otherdb']);
+      expect(dbNames).not.toContain('testdb');
+
+      const otherdb = schema.find(s => s.name === 'otherdb')!;
+      const tableNames = otherdb.children!.map(t => t.name);
+      expect(tableNames).toContain('users');
+      expect(tableNames).not.toContain('events');
+    });
+
+    it('getSchema without database returns all user databases', async () => {
+      const allDbDriver = new ClickHouseDriver();
+      await allDbDriver.connect({ ...config, database: undefined });
+
+      try {
+        const schema = await allDbDriver.getSchema();
+        const dbNames = schema.map(s => s.name);
+
+        expect(dbNames).toContain('testdb');
+        expect(dbNames).toContain('otherdb');
+        expect(dbNames).not.toContain('system');
+        expect(dbNames).not.toContain('INFORMATION_SCHEMA');
+      } finally {
+        await allDbDriver.disconnect();
+      }
+    });
+  });
 });

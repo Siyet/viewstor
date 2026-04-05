@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { dbg } from '../utils/debug';
 import {
   QueryFileMetadata,
   buildMetadataComment,
@@ -18,6 +19,8 @@ export class QueryFileManager {
   private readonly queriesDir: string;
   private readonly tmpDir: string;
   private readonly disposables: vscode.Disposable[] = [];
+  // URIs of documents saved manually (Ctrl+S) — used to skip autosave pins
+  private readonly manualSaveUris = new Set<string>();
 
   // Called when a tmp file is saved (Ctrl+S) — pins it to ~/.viewstor/queries/
   private onQueryPinned: (oldUri: vscode.Uri, newUri: vscode.Uri) => void = () => {};
@@ -30,6 +33,11 @@ export class QueryFileManager {
     fs.mkdirSync(this.tmpDir, { recursive: true });
 
     this.disposables.push(
+      vscode.workspace.onWillSaveTextDocument(e => {
+        if (e.reason === vscode.TextDocumentSaveReason.Manual) {
+          this.manualSaveUris.add(e.document.uri.toString());
+        }
+      }),
       vscode.workspace.onDidSaveTextDocument(doc => this.handleSave(doc)),
       vscode.window.onDidChangeActiveTextEditor(e => this.updateContextKey(e)),
     );
@@ -122,8 +130,19 @@ export class QueryFileManager {
     return this.isTmpFile(uri) || this.isPinnedFile(uri);
   }
 
+  /** Create a pinned query file directly in ~/.viewstor/queries/ (for manual pin from history) */
+  createPinnedQueryFile(connectionId: string, query: string, databaseName?: string): string {
+    const header = buildMetadataComment(connectionId, databaseName);
+    const content = header + '\n' + query;
+    const fileName = `query_${Date.now()}.sql`;
+    const filePath = path.join(this.queriesDir, fileName);
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return filePath;
+  }
+
   /** Pin a temp query: move from tmp/ to queries/ */
   async pinQuery(doc: vscode.TextDocument, name?: string): Promise<vscode.Uri | undefined> {
+    dbg('pinQuery', 'uri:', doc.uri.fsPath, 'isTmp:', this.isTmpFile(doc.uri));
     if (!this.isTmpFile(doc.uri)) return undefined;
 
     const baseName = name || path.basename(doc.uri.fsPath);
@@ -144,6 +163,7 @@ export class QueryFileManager {
     const edit = new vscode.WorkspaceEdit();
     edit.renameFile(doc.uri, newUri);
     const success = await vscode.workspace.applyEdit(edit);
+    dbg('pinQuery', 'rename success:', success, 'target:', newPath);
 
     if (success) {
       this.onQueryPinned(doc.uri, newUri);
@@ -154,6 +174,7 @@ export class QueryFileManager {
 
   /** Rename a pinned query file */
   async renamePinnedQuery(uri: vscode.Uri, newName: string): Promise<vscode.Uri | undefined> {
+    dbg('renamePinnedQuery', 'uri:', uri.fsPath, 'newName:', newName, 'isPinned:', this.isPinnedFile(uri));
     if (!this.isPinnedFile(uri)) return undefined;
 
     if (!newName.endsWith('.sql')) newName += '.sql';
@@ -191,11 +212,19 @@ export class QueryFileManager {
   }
 
   private handleSave(doc: vscode.TextDocument) {
+    dbg('handleSave', 'uri:', doc.uri.fsPath, 'isTmp:', this.isTmpFile(doc.uri));
     // Only handle files in ~/.viewstor/tmp/ that are regular queries (not confirmations)
     if (!this.isTmpFile(doc.uri)) return;
     const baseName = path.basename(doc.uri.fsPath);
     // Don't auto-pin confirmation SQL files — they have their own lifecycle
     if (baseName.startsWith('confirm_')) return;
+
+    // Only pin on explicit Ctrl+S, not on autosave (afterDelay / focusOut)
+    const uriKey = doc.uri.toString();
+    const isManual = this.manualSaveUris.has(uriKey);
+    dbg('handleSave', 'isManualSave:', isManual, 'baseName:', baseName);
+    if (!isManual) return;
+    this.manualSaveUris.delete(uriKey);
 
     this.pinQuery(doc).catch(() => {});
   }

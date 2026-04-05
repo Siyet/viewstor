@@ -13,8 +13,11 @@ const commonConfig = {
   infrastructureLogging: { level: 'log' },
 };
 
-/** @type {import('webpack').Configuration[]} */
-module.exports = [
+/** @type {(env: any, argv: { mode?: string }) => import('webpack').Configuration[]} */
+module.exports = (_env, argv) => {
+  const isDev = argv.mode !== 'production';
+
+  return [
   // VS Code extension
   {
     ...commonConfig,
@@ -30,6 +33,7 @@ module.exports = [
       'cpu-features': 'commonjs cpu-features',
     },
     plugins: [
+      new webpack.DefinePlugin({ __DEV__: JSON.stringify(isDev) }),
       new CopyPlugin({
         patterns: [
           { from: 'src/webview/styles', to: 'styles' },
@@ -52,7 +56,9 @@ module.exports = [
       'cpu-features': 'commonjs cpu-features',
     },
     plugins: [
+      new webpack.DefinePlugin({ __DEV__: JSON.stringify(isDev) }),
       new webpack.BannerPlugin({ banner: '#!/usr/bin/env node', raw: true }),
     ],
   },
 ];
+};
