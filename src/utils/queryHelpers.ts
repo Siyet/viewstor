@@ -50,7 +50,7 @@ export function quoteIdentifier(name: string): string {
   if (/^[a-z_][a-z0-9_]*$/.test(name) && !SQL_RESERVED.has(name)) {
     return name;
   }
-  return `"${name}"`;
+  return `"${name.replace(/"/g, '""')}"`;
 }
 
 /** Quote a table name with optional schema */

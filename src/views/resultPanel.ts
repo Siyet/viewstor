@@ -118,6 +118,10 @@ export class ResultPanelManager {
           vscode.commands.executeCommand('viewstor._saveEdits',
             ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.edits, ctx.databaseName, panelKey);
           break;
+        case 'saveAll':
+          vscode.commands.executeCommand('viewstor._saveAll',
+            ctx.connectionId, ctx.tableName, ctx.schema, ctx.pkColumns, msg.inserts, msg.edits, ctx.databaseName, panelKey);
+          break;
         case 'editJsonInTab':
           if (tfm) {
             tfm.openJsonEditor(msg.json, {
@@ -374,14 +378,14 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   }
 
   // --- Lightweight SQL syntax highlighting ---
-  var SQL_KEYWORDS = /\\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|IS|NULL|AS|ON|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|INDEX|VIEW|DISTINCT|BETWEEN|LIKE|ILIKE|EXISTS|CASE|WHEN|THEN|ELSE|END|UNION|ALL|ASC|DESC|WITH|DEFAULT|CASCADE|PRIMARY|KEY|REFERENCES|FOREIGN|CONSTRAINT|RETURNING|EXPLAIN|ANALYZE|COUNT|SUM|AVG|MIN|MAX|COALESCE|NULLIF|CAST|TRUE|FALSE|BOOLEAN|INTEGER|TEXT|VARCHAR|NUMERIC|SERIAL|BIGSERIAL|TIMESTAMP|TIMESTAMPTZ|DATE|TIME|INTERVAL|JSONB?|UUID|ARRAY|BIGINT|SMALLINT|REAL|DOUBLE|PRECISION|CHAR|DECIMAL|FLOAT)\\b/gi;
+  var SQL_KEYWORDS = /\\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|IS|NULL|AS|ON|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|INDEX|VIEW|DISTINCT|BETWEEN|LIKE|ILIKE|EXISTS|CASE|WHEN|THEN|ELSE|END|UNION|ALL|ASC|DESC|WITH|DEFAULT|CASCADE|PRIMARY|KEY|REFERENCES|FOREIGN|CONSTRAINT|RETURNING|EXPLAIN|ANALYZE|COUNT|SUM|AVG|MIN|MAX|COALESCE|NULLIF|CAST|TRUE|FALSE|BOOLEAN|INTEGER|TEXT|VARCHAR|NUMERIC|SERIAL|BIGSERIAL|TIMESTAMP|TIMESTAMPTZ|DATE|TIME|INTERVAL|JSONB?|UUID|ARRAY|BIGINT|SMALLINT|REAL|DOUBLE|PRECISION|CHAR|DECIMAL|FLOAT)\\b/i;
   function highlightSql(text) {
     var tokens = [];
     var remaining = text;
     var pos = 0;
     while (remaining.length > 0) {
       // String literal
-      var strMatch = remaining.match(/^'(?:[^'\\\\]|\\\\.)*'|^'[^']*'/);
+      var strMatch = remaining.match(/^'(?:[^'\\\\]|\\\\.)*'|^'(?:[^']|'')*'/);
       if (strMatch) {
         tokens.push('<span class="tk-str">' + escHtml(strMatch[0]) + '</span>');
         remaining = remaining.substring(strMatch[0].length);
@@ -413,7 +417,6 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       if (wordMatch) {
         var w = wordMatch[0];
         if (SQL_KEYWORDS.test(w)) {
-          SQL_KEYWORDS.lastIndex = 0;
           tokens.push('<span class="tk-kw">' + escHtml(w) + '</span>');
         } else {
           tokens.push('<span class="tk-id">' + escHtml(w) + '</span>');
@@ -446,6 +449,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   let pendingNewRows = new Map(); // rowIdx → { values: {col: val}, editedCols: Set }
   var _lastInsertedRows = [];   // rows from RETURNING * — set before rerunQuery
   var _outOfQueryRows = [];     // inserted rows not found in requeried data
+  var _outOfQueryPkSet = new Set(); // PK keys for O(1) lookup
   let originalRows = JSON.parse(JSON.stringify(pageRows));
 
   // Build columnInfo lookup: { colName → { nullable, defaultValue } }
@@ -561,9 +565,8 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     body.innerHTML = pageRows.map((row, ri) => {
       const globalRi = offset + ri;
       const isNewRow = pendingNewRows.has(ri.toString());
-      const isOutOfQuery = !isNewRow && _outOfQueryRows.some(function(oRow) {
-        return pkColumns.length > 0 && pkColumns.every(function(pk) { return String(row[pk]) === String(oRow[pk]); });
-      });
+      const isOutOfQuery = !isNewRow && _outOfQueryPkSet.size > 0 && pkColumns.length > 0 &&
+        _outOfQueryPkSet.has(pkColumns.map(function(pk) { return String(row[pk]); }).join('\\0'));
       const rowNum = '<td class="row-num" data-rownum="' + ri + '">' + (isNewRow ? '+' : (globalRi + 1)) + '</td>';
       const cells = columns.map((c, ci) => {
         const key = ri + ':' + c.name;
@@ -907,21 +910,42 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   var SQL_RESERVED_SET = new Set(['select','from','where','and','or','not','in','is','null','as','on','join','left','right','inner','outer','full','cross','order','by','group','having','limit','offset','insert','into','values','update','set','delete','create','alter','drop','table','index','view','distinct','between','like','ilike','exists','case','when','then','else','end','union','all','asc','desc','with','default','cascade','primary','key','references','foreign','constraint','returning','explain','analyze','true','false','boolean','integer','text','varchar','numeric','serial','bigserial','timestamp','timestamptz','date','time','interval','json','jsonb','uuid','array','bigint','smallint','real','double','precision','char','decimal','float','check','unique','grant','revoke','role','user','type','enum','schema','database','sequence','trigger','function','procedure','begin','commit','rollback','abort','do','for','if','loop','return','raise','exception']);
   function quoteId(name) {
     if (/^[a-z_][a-z0-9_]*$/.test(name) && !SQL_RESERVED_SET.has(name)) return name;
-    return '"' + name + '"';
+    return '"' + name.replace(/"/g, '""') + '"';
+  }
+
+  function findOuterKw(sql, kw) {
+    var depth = 0, idx = 0;
+    while (idx < sql.length) {
+      var ch = sql[idx];
+      if (ch === '(') { depth++; idx++; continue; }
+      if (ch === ')') { depth--; idx++; continue; }
+      if (ch === "'") { idx++; while (idx < sql.length) { if (sql[idx] === "'" && sql[idx+1] === "'") { idx += 2; continue; } if (sql[idx] === "'") { idx++; break; } idx++; } continue; }
+      if (depth === 0 && kw.test(sql.substring(idx))) return idx;
+      idx++;
+    }
+    return -1;
   }
 
   function applySortToQuery(query, sorts) {
     var q = query.replace(/;+\\s*$/, '');
-    // Remove existing ORDER BY (greedy up to LIMIT/OFFSET/end)
-    q = q.replace(/\\s+ORDER\\s+BY\\s+[^]*?(?=\\s+LIMIT\\b|\\s+OFFSET\\b|$)/i, '');
+    // Remove outermost ORDER BY (skip subqueries)
+    var orderPos = findOuterKw(q, /^\\s*ORDER\\s+BY\\b/i);
+    if (orderPos >= 0) {
+      var afterOrder = q.substring(orderPos);
+      var endMatch = afterOrder.match(/\\s+ORDER\\s+BY\\b/i);
+      var orderLen = endMatch ? endMatch[0].length : 0;
+      var rest = q.substring(orderPos + orderLen);
+      var limitPos = findOuterKw(rest, /^\\s*(LIMIT|OFFSET)\\b/i);
+      if (limitPos >= 0) { q = q.substring(0, orderPos) + rest.substring(limitPos); }
+      else { q = q.substring(0, orderPos); }
+    }
     if (sorts.length > 0) {
       var orderClause = ' ORDER BY ' + sorts.map(function(s) {
         return quoteId(s.column) + ' ' + s.direction.toUpperCase();
       }).join(', ');
-      // Insert before LIMIT/OFFSET if present
-      var limitMatch = q.match(/(\\s+LIMIT\\b[^]*)/i);
-      if (limitMatch) {
-        q = q.substring(0, q.length - limitMatch[1].length) + orderClause + limitMatch[1];
+      var lp = findOuterKw(q, /^\\s*(LIMIT|OFFSET)\\b/i);
+      if (lp >= 0) {
+        q = q.substring(0, lp) + orderClause + q.substring(lp);
       } else {
         q += orderClause;
       }
@@ -1104,9 +1128,9 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     }
     highlightInvalidCells([]);
 
-    // Send new row inserts
+    // Collect all changes and send as a single atomic message
+    var newRowInserts = [];
     if (pendingNewRows.size > 0) {
-      var newRowInserts = [];
       pendingNewRows.forEach(function(nr) {
         var colValues = {};
         var colTypes = {};
@@ -1116,14 +1140,10 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
         });
         newRowInserts.push({ values: colValues, columnTypes: colTypes });
       });
-      vscode.postMessage({ type: 'insertRows', rows: newRowInserts });
-      pendingNewRows.clear();
     }
-
-    // Send existing row edits
-    if (pendingEdits.size > 0) {
-      vscode.postMessage({ type: 'saveEdits', edits: [...pendingEdits.values()] });
-    }
+    var editsList = pendingEdits.size > 0 ? [...pendingEdits.values()] : [];
+    vscode.postMessage({ type: 'saveAll', inserts: newRowInserts, edits: editsList });
+    pendingNewRows.clear();
     pendingEdits.clear();
     for (let i = 0; i < pageRows.length; i++) originalRows[i] = JSON.parse(JSON.stringify(pageRows[i]));
     document.querySelectorAll('td.modified').forEach(td => td.classList.remove('modified'));
@@ -1357,12 +1377,18 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
 
       // Check if recently inserted rows are in the refreshed data
       _outOfQueryRows = [];
+      _outOfQueryPkSet = new Set();
       if (_lastInsertedRows.length > 0 && pkColumns.length > 0) {
+        var existingPks = new Set();
+        pageRows.forEach(function(pRow) {
+          existingPks.add(pkColumns.map(function(pk) { return String(pRow[pk]); }).join('\\0'));
+        });
         _lastInsertedRows.forEach(function(iRow) {
-          var found = pageRows.some(function(pRow) {
-            return pkColumns.every(function(pk) { return String(pRow[pk]) === String(iRow[pk]); });
-          });
-          if (!found) _outOfQueryRows.push(iRow);
+          var key = pkColumns.map(function(pk) { return String(iRow[pk]); }).join('\\0');
+          if (!existingPks.has(key)) {
+            _outOfQueryRows.push(iRow);
+            _outOfQueryPkSet.add(key);
+          }
         });
         // Append out-of-query rows to display
         _outOfQueryRows.forEach(function(r) { pageRows.push(r); });

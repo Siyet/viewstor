@@ -201,7 +201,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
     }),
   );
 
-  // Clear results when document changes
+  // Clear results when document changes or closes
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument(e => {
       queryResults.delete(e.document.uri.toString());
@@ -210,6 +210,10 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       if (editor && editor.document.uri.toString() === e.document.uri.toString()) {
         clearQueryDecorations(editor);
       }
+    }),
+    vscode.workspace.onDidCloseTextDocument(doc => {
+      queryResults.delete(doc.uri.toString());
+      historyDocMap.forEach((uri, id) => { if (uri === doc.uri.toString()) historyDocMap.delete(id); });
     }),
   );
 
@@ -397,7 +401,8 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         // If file has metadata, adjust offset for stripped content
         const rawText = editor.document.getText();
         const metadataOffset = rawText.length - fullText.length;
-        const stmt = getStatementAtOffset(fullText, cursorOffset - metadataOffset);
+        const adjustedOffset = Math.max(0, cursorOffset - metadataOffset);
+        const stmt = getStatementAtOffset(fullText, adjustedOffset);
         if (stmt) {
           query = stmt.text;
           // Skip leading whitespace to find actual statement start line
@@ -890,6 +895,56 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
     }),
 
+    vscode.commands.registerCommand('viewstor._saveAll', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], inserts: Array<{ values: Record<string, unknown>; columnTypes: Record<string, string> }>, edits: any[], databaseName?: string, explicitPanelKey?: string) => {
+      dbg('saveAll', 'table:', tableName, 'inserts:', inserts.length, 'edits:', edits.length);
+      const driver = databaseName
+        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : connectionManager.getDriver(connectionId);
+      if (!driver) return;
+
+      const state = connectionManager.get(connectionId);
+      const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
+
+      const insertStatements = inserts.map(row => buildInsertRowSql(tableName, schema, row.values, row.columnTypes) + ';');
+      const editStatements = edits.map(edit => buildUpdateSql(tableName, schema, pkColumns, edit) + ';');
+      const allStatements = [...insertStatements, ...editStatements];
+      if (allStatements.length === 0) return;
+
+      const confirmEdits = vscode.workspace.getConfiguration('viewstor').get<boolean>('confirmEdits', true);
+      if (confirmEdits) {
+        const fullSql = allStatements.join('\n');
+        const context = inserts.length > 0 && edits.length > 0 ? 'saveEdits' : inserts.length > 0 ? 'insertRow' : 'saveEdits';
+        await tempFileManager.openSqlEditor(fullSql, {
+          panelKey, connectionId, tableName, databaseName, context,
+        });
+      } else {
+        const errors: string[] = [];
+        const insertedRows: Record<string, unknown>[] = [];
+        for (const sql of insertStatements) {
+          const result = await driver.execute(sql.replace(/;+\s*$/, ''));
+          if (result.error) errors.push(result.error);
+          else if (result.rows.length > 0) insertedRows.push(...result.rows);
+        }
+        if (errors.length > 0) {
+          logAndShowError(vscode.l10n.t('Insert errors: {0}', errors.join('; ')));
+          return;
+        }
+        for (const sql of editStatements) {
+          const result = await driver.execute(sql.replace(/;+\s*$/, ''));
+          if (result.error) errors.push(result.error);
+        }
+        if (errors.length > 0) {
+          logAndShowError(vscode.l10n.t('Save errors: {0}', errors.join('; ')));
+        } else {
+          vscode.window.showInformationMessage(vscode.l10n.t('{0} row(s) saved.', allStatements.length));
+          if (insertedRows.length > 0) {
+            resultPanelManager.postMessage(panelKey, { type: 'insertedRows', rows: insertedRows });
+          }
+          resultPanelManager.postMessage(panelKey, { type: 'rerunQuery' });
+        }
+      }
+    }),
+
     vscode.commands.registerCommand('viewstor._deleteRows', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], rows: Record<string, unknown>[], databaseName?: string, pkTypes?: Record<string, string>, explicitPanelKey?: string) => {
       const driver = databaseName
         ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
@@ -1280,19 +1335,21 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       if (!state) return;
 
       // If entry has a pinned file, open it directly
+      let fileOpened = false;
       if (entry.filePath) {
         try {
           const uri = vscode.Uri.file(entry.filePath);
           const doc = await vscode.workspace.openTextDocument(uri);
           await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preview: false });
           queryEditorProvider.setConnectionForUri(uri, entry.connectionId, entry.databaseName);
+          fileOpened = true;
         } catch {
           // File was deleted — fall through to create temp
         }
       }
 
       // Reuse existing editor if already open for this entry (tracked by URI)
-      if (!entry.filePath) {
+      if (!fileOpened) {
         const trackedUri = historyDocMap.get(entry.id);
         const existingDoc = trackedUri
           ? vscode.workspace.textDocuments.find(d => d.uri.toString() === trackedUri)

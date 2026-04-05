@@ -197,9 +197,14 @@ export class QueryFileManager {
     try { fs.unlinkSync(uri.fsPath); } catch { /* ok */ }
   }
 
-  /** Clean up all tmp files */
+  /** Clean up all tmp files (removes individual files, keeps dir to avoid race with autosave) */
   cleanupTmp() {
-    try { fs.rmSync(this.tmpDir, { recursive: true, force: true }); } catch { /* ok */ }
+    try {
+      const entries = fs.readdirSync(this.tmpDir);
+      for (const entry of entries) {
+        try { fs.unlinkSync(path.join(this.tmpDir, entry)); } catch { /* ok */ }
+      }
+    } catch { /* ok */ }
   }
 
   /** List all pinned query files */

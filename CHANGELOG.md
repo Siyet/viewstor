@@ -2,6 +2,39 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.7] — 2026-04-06
+
+### Added
+- **Unified query editor** — file-based `.sql` queries (`~/.viewstor/tmp/` for temp, `~/.viewstor/queries/` for pinned) replace untitled documents; all query types share the same editor with play button, Ctrl+Enter, and autocomplete ([#46](https://github.com/Siyet/viewstor/issues/46))
+- **Pin on save** — Ctrl+S on a temp query moves it to `~/.viewstor/queries/` (autosave ignored)
+- **Multi-statement execution** — cursor position determines which statement to run; CodeLens play buttons per statement with inline result/error indicators
+- **SQL syntax highlighting in query bar** — keywords, strings, numbers, comments, operators highlighted in Table Data query editor
+- **Copy as One-row** — context menu formats: `'` (SQL) and `"` (JSON); numeric values unquoted, NULL as `NULL`, strings properly escaped
+- **Inline row insertion** — add new rows directly in table grid, edit cells before saving, validates required columns
+- **Query result gutter icons** — success/error icons in editor gutter after execution
+- **Debug logging** — `dbg()` utility for development diagnostics
+- Prepare-release GitHub Actions workflow
+- VS Code e2e test infrastructure with `@vscode/test-electron`
+
+### Changed
+- Query editors use `LogOutputChannel` instead of `OutputChannel` for structured logging
+- Confirmation SQL files use metadata headers for connection routing
+
+### Fixed
+- **SQL injection via identifier quoting** — `quoteIdentifier()` now escapes embedded double quotes (`"` → `""`) in table/column names ([#46](https://github.com/Siyet/viewstor/issues/46))
+- **ORDER BY stripping in subqueries** — `applySortToQuery()` now tracks parenthesis depth, won't corrupt nested queries
+- **SQL keyword highlighting flicker** — removed `/g` flag from `SQL_KEYWORDS` regex that caused `lastIndex` state bugs
+- **History: pinned file deleted** — no longer silently fails; falls through to create temp editor
+- **Cursor on metadata line** — prevented negative offset passed to `getStatementAtOffset`
+- **`formatOneRow` data loss** — string values `"null"`/`"NULL"` no longer silently converted to SQL NULL
+- **SQL string tokenizer** — handles SQL `''` escape convention alongside backslash escapes
+- **Memory leak** — `queryResults` map now cleaned up on document close (was only cleared on edit)
+- **Save race condition** — inserts and edits sent as single atomic `saveAll` message instead of two independent messages
+- **O(n×m) row lookup** — `_outOfQueryRows` check uses PK-based `Set` for O(1) lookup
+- **Tmp cleanup race** — `cleanupTmp()` removes files individually instead of deleting the directory (prevents autosave crash)
+- Sorting with custom query applies ORDER BY to the actual query, not the default `SELECT * FROM`
+- "No connection associated" error after VS Code restart — metadata parsed from file content
+
 ## [0.2.6] — 2026-03-30
 
 ### Added

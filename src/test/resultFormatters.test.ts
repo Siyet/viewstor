@@ -35,13 +35,13 @@ describe('formatOneRow', () => {
     expect(result).toBe('42, \'Alice\'');
   });
 
-  it('formats NULL and empty values as NULL', () => {
+  it('formats empty values and actual null as NULL, but string "NULL" is quoted', () => {
     const result = formatOneRow(
       [['NULL', '', 'null', 'test']],
       ['varchar', 'varchar', 'varchar', 'varchar'],
       '\'',
     );
-    expect(result).toBe('NULL, NULL, NULL, \'test\'');
+    expect(result).toBe('\'NULL\', NULL, \'null\', \'test\'');
   });
 
   it('escapes single quotes in values', () => {
@@ -89,22 +89,22 @@ describe('formatOneRow', () => {
     expect(result).toBe('1, "Alice", "alice@test.com"');
   });
 
-  it('NULL is uppercase in SQL mode (single quotes)', () => {
+  it('NULL is uppercase in SQL mode (single quotes) for empty values only', () => {
     const result = formatOneRow(
-      [['NULL', '', 'test']],
-      ['varchar', 'varchar', 'varchar'],
+      [['', 'test']],
+      ['varchar', 'varchar'],
       '\'',
     );
-    expect(result).toBe('NULL, NULL, \'test\'');
+    expect(result).toBe('NULL, \'test\'');
   });
 
-  it('null is lowercase in JSON mode (double quotes)', () => {
+  it('null is lowercase in JSON mode (double quotes) for empty values only', () => {
     const result = formatOneRow(
-      [['NULL', '', 'test']],
-      ['varchar', 'varchar', 'varchar'],
+      [['', 'test']],
+      ['varchar', 'varchar'],
       '"',
     );
-    expect(result).toBe('null, null, "test"');
+    expect(result).toBe('null, "test"');
   });
 });
 
