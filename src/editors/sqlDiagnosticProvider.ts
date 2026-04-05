@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { CompletionItem as DriverCompletion } from '../types/driver';
 import { QueryEditorProvider } from './queryEditor';
+import { dbg } from '../utils/debug';
 
 /**
  * Highlights references to non-existent tables and columns in SQL.
@@ -41,12 +42,14 @@ export class SqlDiagnosticProvider {
 
   private async checkDocument(document: vscode.TextDocument) {
     const connectionId = this.queryEditorProvider.getConnectionIdFromUri(document.uri);
+    dbg('sqlDiag', 'checkDocument uri:', document.uri.fsPath, 'connectionId:', connectionId);
     if (!connectionId) {
       this.diagnosticCollection.delete(document.uri);
       return;
     }
 
     const items = await this.getSchemaItems(connectionId);
+    dbg('sqlDiag', 'schemaItems:', items.length);
     if (items.length === 0) {
       this.diagnosticCollection.delete(document.uri);
       return;

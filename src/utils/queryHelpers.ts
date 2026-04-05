@@ -27,9 +27,35 @@ export function parseTablesFromQuery(sql: string): Array<{ table: string; schema
   return tables;
 }
 
+// SQL reserved words that require quoting when used as identifiers
+const SQL_RESERVED = new Set([
+  'select', 'from', 'where', 'and', 'or', 'not', 'in', 'is', 'null', 'as', 'on',
+  'join', 'left', 'right', 'inner', 'outer', 'full', 'cross', 'order', 'by',
+  'group', 'having', 'limit', 'offset', 'insert', 'into', 'values', 'update',
+  'set', 'delete', 'create', 'alter', 'drop', 'table', 'index', 'view',
+  'distinct', 'between', 'like', 'ilike', 'exists', 'case', 'when', 'then',
+  'else', 'end', 'union', 'all', 'asc', 'desc', 'with', 'default', 'cascade',
+  'primary', 'key', 'references', 'foreign', 'constraint', 'returning',
+  'explain', 'analyze', 'true', 'false', 'boolean', 'integer', 'text', 'varchar',
+  'numeric', 'serial', 'bigserial', 'timestamp', 'timestamptz', 'date', 'time',
+  'interval', 'json', 'jsonb', 'uuid', 'array', 'bigint', 'smallint', 'real',
+  'double', 'precision', 'char', 'decimal', 'float', 'check', 'unique',
+  'grant', 'revoke', 'role', 'user', 'type', 'enum', 'schema', 'database',
+  'sequence', 'trigger', 'function', 'procedure', 'begin', 'commit', 'rollback',
+  'abort', 'do', 'for', 'if', 'loop', 'return', 'raise', 'exception',
+]);
+
+/** Quote an identifier only if it needs quoting (reserved word, special chars, or uppercase) */
+export function quoteIdentifier(name: string): string {
+  if (/^[a-z_][a-z0-9_]*$/.test(name) && !SQL_RESERVED.has(name)) {
+    return name;
+  }
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
 /** Quote a table name with optional schema */
 export function quoteTable(tableName: string, schema?: string): string {
-  return schema ? `"${schema}"."${tableName}"` : `"${tableName}"`;
+  return schema ? `${quoteIdentifier(schema)}.${quoteIdentifier(tableName)}` : quoteIdentifier(tableName);
 }
 
 /** Escape a value for SQL: NULL → NULL, otherwise single-quoted with escaped quotes */
@@ -73,11 +99,11 @@ export function buildUpdateSql(
     .map(([col, val]) => {
       const colType = edit.columnTypes?.[col];
       const cast = colType && JSON_TYPES.has(colType) ? `::${colType}` : '';
-      return `"${col}" = ${sqlValue(val, colType)}${cast}`;
+      return `${quoteIdentifier(col)} = ${sqlValue(val, colType)}${cast}`;
     })
     .join(', ');
   const whereClauses = pkColumns
-    .map(pk => `"${pk}" = ${sqlValue(edit.pkValues[pk], edit.pkTypes?.[pk])}`)
+    .map(pk => `${quoteIdentifier(pk)} = ${sqlValue(edit.pkValues[pk], edit.pkTypes?.[pk])}`)
     .join(' AND ');
   return `UPDATE ${quoteTable(tableName, schema)} SET ${setClauses} WHERE ${whereClauses}`;
 }
@@ -91,7 +117,7 @@ export function buildDeleteSql(
   pkTypes?: Record<string, string>,
 ): string {
   const whereClauses = pkColumns
-    .map(pk => `"${pk}" = ${sqlValue(pkValues[pk], pkTypes?.[pk])}`)
+    .map(pk => `${quoteIdentifier(pk)} = ${sqlValue(pkValues[pk], pkTypes?.[pk])}`)
     .join(' AND ');
   return `DELETE FROM ${quoteTable(tableName, schema)} WHERE ${whereClauses}`;
 }
@@ -102,7 +128,164 @@ export function buildInsertDefaultSql(
   schema: string | undefined,
   columnNames: string[],
 ): string {
-  return `INSERT INTO ${quoteTable(tableName, schema)} (${columnNames.map(c => `"${c}"`).join(', ')}) VALUES (${columnNames.map(() => 'DEFAULT').join(', ')}) RETURNING *`;
+  return `INSERT INTO ${quoteTable(tableName, schema)} (${columnNames.map(c => quoteIdentifier(c)).join(', ')}) VALUES (${columnNames.map(() => 'DEFAULT').join(', ')}) RETURNING *`;
+}
+
+/** Build INSERT with explicit values (for inline row editing). __DEFAULT__ → DEFAULT keyword. */
+export function buildInsertRowSql(
+  tableName: string,
+  schema: string | undefined,
+  values: Record<string, unknown>,
+  columnTypes: Record<string, string>,
+): string {
+  const colNames = Object.keys(values);
+  const sqlValues = colNames.map(col => {
+    const val = values[col];
+    if (val === '__DEFAULT__') return 'DEFAULT';
+    return sqlValue(val, columnTypes[col]);
+  });
+  return `INSERT INTO ${quoteTable(tableName, schema)} (${colNames.map(c => quoteIdentifier(c)).join(', ')}) VALUES (${sqlValues.join(', ')}) RETURNING *`;
+}
+
+export interface StatementRange {
+  /** SQL text of the statement (trimmed) */
+  text: string;
+  /** Start offset in the original string */
+  start: number;
+  /** End offset in the original string (exclusive) */
+  end: number;
+}
+
+/**
+ * Split SQL text into individual statements, respecting string literals and comments.
+ * Returns ranges so callers can map back to line numbers.
+ */
+export function splitStatements(sql: string): StatementRange[] {
+  const statements: StatementRange[] = [];
+  let current = '';
+  let stmtStart = 0;
+  let index = 0;
+
+  while (index < sql.length) {
+    const ch = sql[index];
+
+    // Single-line comment
+    if (ch === '-' && sql[index + 1] === '-') {
+      const end = sql.indexOf('\n', index);
+      if (end === -1) { index = sql.length; }
+      else { current += sql.substring(index, end + 1); index = end + 1; }
+      continue;
+    }
+    // Block comment
+    if (ch === '/' && sql[index + 1] === '*') {
+      const end = sql.indexOf('*/', index + 2);
+      if (end === -1) { index = sql.length; }
+      else { current += sql.substring(index, end + 2); index = end + 2; }
+      continue;
+    }
+    // String literal (single-quoted, with '' escaping)
+    if (ch === '\'') {
+      let j = index + 1;
+      while (j < sql.length) {
+        if (sql[j] === '\'' && sql[j + 1] === '\'') { j += 2; continue; }
+        if (sql[j] === '\'') { j++; break; }
+        j++;
+      }
+      current += sql.substring(index, j);
+      index = j;
+      continue;
+    }
+    // Dollar-quoted string (PostgreSQL)
+    if (ch === '$') {
+      const tagMatch = sql.substring(index).match(/^\$([a-zA-Z_]*)\$/);
+      if (tagMatch) {
+        const tag = tagMatch[0];
+        const endIdx = sql.indexOf(tag, index + tag.length);
+        if (endIdx !== -1) {
+          current += sql.substring(index, endIdx + tag.length);
+          index = endIdx + tag.length;
+          continue;
+        }
+      }
+    }
+    // Statement separator
+    if (ch === ';') {
+      current += ';';
+      const trimmed = current.trim();
+      if (trimmed.length > 0 && trimmed !== ';') {
+        statements.push({ text: trimmed, start: stmtStart, end: index + 1 });
+      }
+      current = '';
+      stmtStart = index + 1;
+      index++;
+      continue;
+    }
+    current += ch;
+    index++;
+  }
+
+  // Last statement (no trailing semicolon)
+  const trimmed = current.trim();
+  if (trimmed.length > 0) {
+    statements.push({ text: trimmed, start: stmtStart, end: sql.length });
+  }
+
+  return statements;
+}
+
+/**
+ * Get the SQL statement at the given cursor offset.
+ * Returns the statement whose range contains the offset, or the nearest one.
+ */
+export function getStatementAtOffset(sql: string, offset: number): StatementRange | undefined {
+  const statements = splitStatements(sql);
+  if (statements.length === 0) return undefined;
+  if (statements.length === 1) return statements[0];
+
+  // Find statement containing the offset
+  for (const stmt of statements) {
+    if (offset >= stmt.start && offset <= stmt.end) return stmt;
+  }
+
+  // If offset is between statements (in whitespace), pick the nearest
+  let closest = statements[0];
+  let minDist = Infinity;
+  for (const stmt of statements) {
+    const dist = offset < stmt.start ? stmt.start - offset : offset - stmt.end;
+    if (dist < minDist) {
+      minDist = dist;
+      closest = stmt;
+    }
+  }
+  return closest;
+}
+
+/**
+ * Find the offset of the first non-comment, non-whitespace character in a SQL string.
+ * Skips leading whitespace, single-line comments (--), and block comments.
+ */
+export function firstSqlTokenOffset(sql: string): number {
+  let pos = 0;
+  while (pos < sql.length) {
+    // Skip whitespace
+    if (/\s/.test(sql[pos])) { pos++; continue; }
+    // Skip single-line comment
+    if (sql[pos] === '-' && sql[pos + 1] === '-') {
+      const end = sql.indexOf('\n', pos);
+      if (end === -1) return sql.length;
+      pos = end + 1;
+      continue;
+    }
+    // Skip block comment
+    if (sql[pos] === '/' && sql[pos + 1] === '*') {
+      const end = sql.indexOf('*/', pos + 2);
+      if (end === -1) return sql.length;
+      pos = end + 2;
+      continue;
+    }
+    break;
+  }
+  return pos;
 }
 
 /** Enhance "column X does not exist" errors with "Did you mean: Y?" */

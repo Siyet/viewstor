@@ -30,8 +30,12 @@ export interface QueryHistoryEntry {
   executionTimeMs: number;
   rowCount?: number;
   error?: string;
+  /** Database name for multi-DB connections */
+  databaseName?: string;
   /** Pinned entries are never auto-evicted */
   pinned?: boolean;
+  /** Path to the pinned .sql file in ~/.viewstor/queries/ */
+  filePath?: string;
   /** Cached result (columns + rows) for instant replay without re-executing */
   cachedResult?: {
     columns: QueryColumn[];

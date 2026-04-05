@@ -16,25 +16,57 @@ import { registerMcpCommands } from './mcp/server';
 import { registerCommands } from './commands';
 import { registerChatParticipant } from './chat/participant';
 import { TempFileManager } from './services/tempFileManager';
+import { QueryFileManager } from './services/queryFileManager';
+import { setDebugChannel, dbg } from './utils/debug';
 
 let connectionManager: ConnectionManager;
-let outputChannel: vscode.OutputChannel;
+let outputChannel: vscode.LogOutputChannel;
 let tempFileManager: TempFileManager;
+let queryFileManager: QueryFileManager;
 
 export function activate(context: vscode.ExtensionContext) {
-  outputChannel = vscode.window.createOutputChannel('Viewstor');
+  outputChannel = vscode.window.createOutputChannel('Viewstor', { log: true });
   context.subscriptions.push(outputChannel);
+  setDebugChannel(outputChannel);
 
   try {
+    dbg('activate', 'starting activation');
     connectionManager = new ConnectionManager(context);
 
     const connectionTreeProvider = new ConnectionTreeProvider(connectionManager);
     const queryHistoryProvider = new QueryHistoryProvider(context);
-    const queryEditorProvider = new QueryEditorProvider(connectionManager);
+    queryFileManager = new QueryFileManager();
+    const queryEditorProvider = new QueryEditorProvider(connectionManager, queryFileManager);
     const resultPanelManager = new ResultPanelManager(context);
-    tempFileManager = new TempFileManager(context);
+    tempFileManager = new TempFileManager(context, queryFileManager);
     tempFileManager.setPostMessage((key, msg) => resultPanelManager.postMessage(key, msg));
     resultPanelManager.setTempFileManager(tempFileManager);
+
+    // Wire up file rename handling (pin on save)
+    queryFileManager.setOnQueryPinned((oldUri, newUri) => {
+      dbg('onQueryPinned', 'old:', oldUri.fsPath, 'new:', newUri.fsPath);
+      queryEditorProvider.handleFileRenamed(oldUri, newUri);
+
+      // Mark the corresponding history entry as pinned with file path.
+      // Match by connectionId + databaseName, take the most recent entry without filePath.
+      // Query text is NOT compared — user often edits the query after execution before saving.
+      const metadata = queryFileManager.parseMetadataFromFile(newUri.fsPath);
+      dbg('onQueryPinned', 'metadata:', metadata);
+      if (metadata) {
+        const entries = queryHistoryProvider.getEntries();
+        // entries are sorted newest-first (unshift in addEntry), so first match = most recent
+        const match = entries.find(e =>
+          e.connectionId === metadata.connectionId &&
+          !e.filePath &&
+          (e.databaseName ?? undefined) === metadata.databaseName,
+        );
+        dbg('onQueryPinned', 'historyMatch:', match ? { id: match.id, query: match.query.substring(0, 60) } : 'none');
+        if (match) {
+          queryHistoryProvider.togglePin(match.id, true);
+          queryHistoryProvider.updateFilePath(match.id, newUri.fsPath);
+        }
+      }
+    });
     const connectionFormPanel = new ConnectionFormPanel(context, connectionManager);
     const folderFormPanel = new FolderFormPanel(context, connectionManager);
 
@@ -58,6 +90,7 @@ export function activate(context: vscode.ExtensionContext) {
       folderFormPanel,
       outputChannel,
       tempFileManager,
+      queryFileManager,
     });
 
     // MCP-compatible commands for AI agent integration
@@ -114,12 +147,15 @@ export function activate(context: vscode.ExtensionContext) {
     // "What's New" notification after update
     showWhatsNew(context);
 
-    outputChannel.appendLine(`Viewstor activated (v${vscode.extensions.getExtension('Siyet.viewstor')?.packageJSON.version ?? '?'})`);
+    outputChannel.info(`Viewstor activated (v${vscode.extensions.getExtension('Siyet.viewstor')?.packageJSON.version ?? '?'})`);
+
+    // Test API — used by VS Code e2e tests only
+    return { queryHistoryProvider, queryFileManager };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
-    outputChannel.appendLine(`[ERROR] Activation failed: ${message}`);
-    if (stack) outputChannel.appendLine(stack);
+    outputChannel.error(`Activation failed: ${message}`);
+    if (stack) outputChannel.error(stack);
     const showLogs = vscode.l10n.t('Show Logs');
     vscode.window.showErrorMessage(
       vscode.l10n.t('Viewstor failed to activate: {0}', message),
@@ -222,7 +258,7 @@ function showGetStartedOnFirstInstall(context: vscode.ExtensionContext) {
   showGetStarted(context);
 }
 
-function showGetStarted(context: vscode.ExtensionContext) {
+function showGetStarted(_context: vscode.ExtensionContext) {
   const mcpLauncherPath = getMcpLauncherPath().replace(/\\/g, '/');
   const mcpConfig = JSON.stringify({
     mcpServers: {
@@ -337,6 +373,7 @@ function escapeHtml(str: string): string {
 }
 
 export function deactivate() {
+  queryFileManager?.dispose();
   tempFileManager?.dispose();
   connectionManager?.dispose();
 }

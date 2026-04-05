@@ -54,6 +54,16 @@ export class QueryHistoryProvider implements vscode.TreeDataProvider<QueryHistor
     }
   }
 
+  async updateFilePath(id: string, filePath: string): Promise<void> {
+    const entries = this.getEntries();
+    const entry = entries.find(e => e.id === id);
+    if (entry) {
+      entry.filePath = filePath;
+      await this.context.globalState.update(STORAGE_KEY, entries);
+      this.refresh();
+    }
+  }
+
   async clear(): Promise<void> {
     // Keep pinned entries
     const pinned = this.getEntries().filter(e => e.pinned);
@@ -91,11 +101,20 @@ export class QueryHistoryProvider implements vscode.TreeDataProvider<QueryHistor
   }
 
   private createHistoryItem(entry: QueryHistoryEntry, isPinned: boolean): QueryHistoryItem {
-    const shortQuery = entry.query.substring(0, 60).replace(/\n/g, ' ');
-    const item = new QueryHistoryItem(shortQuery, vscode.TreeItemCollapsibleState.None);
+    // Pinned entries with a file show the file name; others show truncated query text
+    let label: string;
+    if (isPinned && entry.filePath) {
+      const fileName = entry.filePath.replace(/\\/g, '/').split('/').pop() || '';
+      label = fileName.replace(/\.sql$/i, '');
+    } else {
+      label = entry.query.substring(0, 60).replace(/\n/g, ' ');
+    }
+    const item = new QueryHistoryItem(label, vscode.TreeItemCollapsibleState.None);
     const time = new Date(entry.executedAt).toLocaleTimeString();
     item.description = `${entry.connectionName} · ${entry.executionTimeMs}ms · ${time}`;
-    item.tooltip = entry.query;
+    item.tooltip = isPinned && entry.filePath
+      ? entry.query.substring(0, 1000)
+      : entry.query;
     item.iconPath = new vscode.ThemeIcon(
       entry.error ? 'error' : isPinned ? 'pinned' : 'history',
     );

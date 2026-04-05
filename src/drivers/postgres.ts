@@ -5,6 +5,7 @@ import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/
 import { CompletionItem } from '../types/driver';
 import { SchemaObject, TableInfo, ColumnInfo } from '../types/schema';
 import { createSSHTunnel, createSocks5Connection, TunnelInfo } from '../connections/tunnel';
+import { quoteIdentifier } from '../utils/queryHelpers';
 
 // Return raw strings for bigint, numeric, etc. instead of JS number
 types.setTypeParser(20, (val: string) => val); // int8
@@ -62,9 +63,11 @@ export class PostgresDriver implements DatabaseDriver {
   async cancelQuery(): Promise<void> {
     if (!this.client) return;
     // pg Client exposes the underlying connection which has a processID
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pid = (this.client as any).processID;
     if (!pid) return;
     // Use a temporary connection to cancel the running query
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cancelClient = new Client((this.client as any).connectionParameters);
     try {
       await cancelClient.connect();
@@ -77,10 +80,16 @@ export class PostgresDriver implements DatabaseDriver {
   async execute(query: string): Promise<QueryResult> {
     const start = Date.now();
     try {
-      const res = await this.client!.query(query);
+      const rawRes = await this.client!.query(query);
       const executionTimeMs = Date.now() - start;
 
-      const columns: QueryColumn[] = (res.fields || []).map(f => ({
+      // pg returns an array of Results for multi-statement queries
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const results = Array.isArray(rawRes) ? rawRes as any[] : null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const res: any = results ? results[results.length - 1] : rawRes;
+
+      const columns: QueryColumn[] = (res.fields || []).map((f: { name: string; dataTypeID: number }) => ({
         name: f.name,
         dataType: pgTypeToString(f.dataTypeID),
       }));
@@ -88,11 +97,26 @@ export class PostgresDriver implements DatabaseDriver {
       const rows = res.rows || [];
       const truncated = rows.length > MAX_RESULT_ROWS;
 
+      // For multi-statement queries, sum up affectedRows from all non-SELECT results
+      let affectedRows: number | undefined;
+      if (res.command !== 'SELECT') {
+        if (results) {
+          affectedRows = 0;
+          for (const result of results) {
+            if (result.command !== 'SELECT' && result.rowCount != null) {
+              affectedRows += result.rowCount;
+            }
+          }
+        } else {
+          affectedRows = res.rowCount ?? undefined;
+        }
+      }
+
       return {
         columns,
         rows: truncated ? rows.slice(0, MAX_RESULT_ROWS) : rows,
         rowCount: rows.length,
-        affectedRows: res.command !== 'SELECT' ? res.rowCount ?? undefined : undefined,
+        affectedRows,
         executionTimeMs,
         truncated,
       };
@@ -479,16 +503,16 @@ export class PostgresDriver implements DatabaseDriver {
   }
 
   async getTableRowCount(name: string, schema = 'public'): Promise<number> {
-    const quoted = `"${schema}"."${name}"`;
+    const quoted = `${quoteIdentifier(schema)}.${quoteIdentifier(name)}`;
     const res = await this.client!.query(`SELECT COUNT(*) AS cnt FROM ${quoted}`);
     return parseInt(res.rows[0]?.cnt, 10) || 0;
   }
 
   async getTableData(name: string, schema = 'public', limit = MAX_RESULT_ROWS, offset = 0, orderBy?: SortColumn[]): Promise<QueryResult> {
-    const quoted = `"${schema}"."${name}"`;
+    const quoted = `${quoteIdentifier(schema)}.${quoteIdentifier(name)}`;
     let sql = `SELECT * FROM ${quoted}`;
     if (orderBy && orderBy.length > 0) {
-      const clauses = orderBy.map(s => `"${s.column}" ${s.direction === 'desc' ? 'DESC' : 'ASC'}`);
+      const clauses = orderBy.map(s => `${quoteIdentifier(s.column)} ${s.direction === 'desc' ? 'DESC' : 'ASC'}`);
       sql += ` ORDER BY ${clauses.join(', ')}`;
     }
     sql += ` LIMIT ${limit} OFFSET ${offset}`;

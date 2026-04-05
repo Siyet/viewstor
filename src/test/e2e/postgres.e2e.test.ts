@@ -313,6 +313,51 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
     expect(ping).toBe(true);
   });
 
+  // --- quoteIdentifier: SQL without unnecessary quotes ---
+
+  it('getTableData generates SQL without quotes for simple names', async () => {
+    // "users" and "public" are not reserved — no quotes needed
+    const result = await driver.getTableData('users', 'public', 5, 0);
+    expect(result.error).toBeUndefined();
+    expect(result.rows.length).toBeGreaterThan(0);
+  });
+
+  it('getTableRowCount works without quotes for simple names', async () => {
+    const count = await driver.getTableRowCount!('users', 'public');
+    expect(count).toBeGreaterThan(0);
+  });
+
+  it('table with reserved-word column name works with quoteIdentifier', async () => {
+    // "order" and "type" are reserved words — must be quoted
+    await driver.execute('CREATE TABLE IF NOT EXISTS quote_test (id SERIAL PRIMARY KEY, "order" INTEGER, "type" VARCHAR(50))');
+    await driver.execute('INSERT INTO quote_test ("order", "type") VALUES (1, \'premium\')');
+
+    const result = await driver.getTableData('quote_test', 'public');
+    expect(result.error).toBeUndefined();
+    expect(result.rows.length).toBe(1);
+
+    // Sort by reserved-word column should work
+    const sorted = await driver.getTableData('quote_test', 'public', 100, 0, [{ column: 'order', direction: 'asc' }]);
+    expect(sorted.error).toBeUndefined();
+
+    // Cleanup
+    await driver.execute('DROP TABLE quote_test');
+  });
+
+  it('quoteIdentifier only quotes when necessary', async () => {
+    const { quoteIdentifier } = await import('../../utils/queryHelpers');
+    // Simple names — no quotes
+    expect(quoteIdentifier('users')).toBe('users');
+    expect(quoteIdentifier('public')).toBe('public');
+    expect(quoteIdentifier('my_table')).toBe('my_table');
+    // Reserved words — quoted
+    expect(quoteIdentifier('order')).toBe('"order"');
+    expect(quoteIdentifier('user')).toBe('"user"');
+    expect(quoteIdentifier('type')).toBe('"type"');
+    // Uppercase — quoted
+    expect(quoteIdentifier('MyTable')).toBe('"MyTable"');
+  });
+
   // --- Bug regression tests ---
 
   it('getSchema does not duplicate tables when same name exists in multiple schemas', async () => {
@@ -418,6 +463,257 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
 
     // Cleanup
     await driver.execute(`DELETE FROM settings WHERE id = ${result.rows[0].id}`);
+  });
+
+  // --- Multi-statement execution tests ---
+
+  it('multi-statement SELECT + UPDATE returns correct affectedRows', async () => {
+    const result = await driver.execute(
+      'SELECT * FROM users WHERE id = 1; UPDATE users SET name = \'MultiTest\' WHERE id = 1'
+    );
+    expect(result.error).toBeUndefined();
+    // Last statement is UPDATE, so affectedRows should be reported
+    expect(result.affectedRows).toBe(1);
+
+    // Verify the UPDATE actually applied
+    const check = await driver.execute('SELECT name FROM users WHERE id = 1');
+    expect(check.rows[0].name).toBe('MultiTest');
+
+    // Restore
+    await driver.execute('UPDATE users SET name = \'Alice\' WHERE id = 1');
+  });
+
+  it('multi-statement with multiple UPDATEs sums affectedRows', async () => {
+    const result = await driver.execute(
+      'UPDATE users SET name = \'X\' WHERE id = 1; UPDATE users SET name = \'Y\' WHERE id = 2'
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.affectedRows).toBe(2);
+
+    // Restore
+    await driver.execute('UPDATE users SET name = \'Alice\' WHERE id = 1');
+    await driver.execute('UPDATE users SET name = \'Bob\' WHERE id = 2');
+  });
+
+  it('multi-statement ending with SELECT returns rows', async () => {
+    const result = await driver.execute(
+      'UPDATE users SET name = \'Peek\' WHERE id = 1; SELECT * FROM users WHERE id = 1'
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.columns.length).toBeGreaterThan(0);
+    expect(result.rows.length).toBe(1);
+    expect(result.rows[0].name).toBe('Peek');
+    // affectedRows should be undefined for SELECT
+    expect(result.affectedRows).toBeUndefined();
+
+    // Restore
+    await driver.execute('UPDATE users SET name = \'Alice\' WHERE id = 1');
+  });
+
+  // --- Statement-at-cursor execution tests ---
+
+  describe('statement-at-cursor execution', () => {
+    it('executes only the statement at cursor (first of two)', async () => {
+      const sql = 'SELECT * FROM users WHERE id = 1;\nUPDATE users SET name = \'CursorTest\' WHERE id = 1;';
+      const { getStatementAtOffset } = await import('../../utils/queryHelpers');
+
+      const stmt = getStatementAtOffset(sql, 5); // cursor in SELECT
+      expect(stmt).toBeDefined();
+      expect(stmt!.text).toContain('SELECT');
+      expect(stmt!.text).not.toContain('UPDATE');
+
+      const result = await driver.execute(stmt!.text);
+      expect(result.error).toBeUndefined();
+      expect(result.columns.length).toBeGreaterThan(0);
+      expect(result.rows.length).toBe(1);
+    });
+
+    it('executes only the statement at cursor (second of two)', async () => {
+      const sql = 'SELECT * FROM users WHERE id = 1;\nUPDATE users SET name = \'CursorTest2\' WHERE id = 2;';
+      const { getStatementAtOffset } = await import('../../utils/queryHelpers');
+
+      const stmt = getStatementAtOffset(sql, 40); // cursor in UPDATE
+      expect(stmt).toBeDefined();
+      expect(stmt!.text).toContain('UPDATE');
+      expect(stmt!.text).not.toContain('SELECT');
+
+      const result = await driver.execute(stmt!.text);
+      expect(result.error).toBeUndefined();
+      expect(result.affectedRows).toBe(1);
+
+      // Verify the UPDATE applied
+      const check = await driver.execute('SELECT name FROM users WHERE id = 2');
+      expect(check.rows[0].name).toBe('CursorTest2');
+
+      // Restore
+      await driver.execute('UPDATE users SET name = \'Bob\' WHERE id = 2');
+    });
+
+    it('executes all statements when full text is selected', async () => {
+      const sql = 'UPDATE users SET name = \'All1\' WHERE id = 1; UPDATE users SET name = \'All2\' WHERE id = 2';
+      // Simulating "select all" — execute the whole text
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.affectedRows).toBe(2);
+
+      const check1 = await driver.execute('SELECT name FROM users WHERE id = 1');
+      expect(check1.rows[0].name).toBe('All1');
+      const check2 = await driver.execute('SELECT name FROM users WHERE id = 2');
+      expect(check2.rows[0].name).toBe('All2');
+
+      // Restore
+      await driver.execute('UPDATE users SET name = \'Alice\' WHERE id = 1');
+      await driver.execute('UPDATE users SET name = \'Bob\' WHERE id = 2');
+    });
+
+    it('handles metadata line offset correctly', async () => {
+      const { stripMetadataFromContent } = await import('../../utils/queryFileHelpers');
+      const { getStatementAtOffset: getStmt } = await import('../../utils/queryHelpers');
+
+      const metaLine = '-- viewstor:connectionId=test-pg&database=testdb';
+      const queryPart = 'SELECT 1;\nSELECT name FROM users WHERE id = 1;';
+      const fullContent = metaLine + '\n' + queryPart;
+
+      const stripped = stripMetadataFromContent(fullContent);
+      expect(stripped).toBe(queryPart);
+
+      const metadataOffset = fullContent.length - stripped.length;
+      // Cursor on the second SELECT (after metadata + first statement)
+      const cursorInFull = metadataOffset + 11;
+      const stmt = getStmt(stripped, cursorInFull - metadataOffset);
+      expect(stmt).toBeDefined();
+      expect(stmt!.text).toContain('users');
+
+      const result = await driver.execute(stmt!.text);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBe(1);
+    });
+
+    it('cursor in third of three statements selects correct one', async () => {
+      const { getStatementAtOffset: getStmt } = await import('../../utils/queryHelpers');
+      const sql = [
+        'SELECT 1 AS a;',
+        'SELECT 2 AS b;',
+        'SELECT name FROM users WHERE id = 1;',
+      ].join('\n');
+
+      // Cursor in third statement
+      const thirdStart = sql.lastIndexOf('SELECT name');
+      const stmt = getStmt(sql, thirdStart + 5);
+      expect(stmt).toBeDefined();
+      expect(stmt!.text).toContain('users');
+      expect(stmt!.text).not.toContain('AS a');
+      expect(stmt!.text).not.toContain('AS b');
+
+      const result = await driver.execute(stmt!.text);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBe(1);
+      expect(result.columns.map(c => c.name)).toContain('name');
+    });
+
+    it('cursor on blank line between statements picks nearest', async () => {
+      const { getStatementAtOffset: getStmt } = await import('../../utils/queryHelpers');
+      const sql = 'SELECT 1;\n\n\nSELECT name FROM users WHERE id = 2;';
+      // Cursor on second empty line
+      const stmt = getStmt(sql, 11);
+      expect(stmt).toBeDefined();
+      // Should pick a valid statement
+      const result = await driver.execute(stmt!.text);
+      expect(result.error).toBeUndefined();
+    });
+
+    it('single statement without semicolon executes correctly', async () => {
+      const { getStatementAtOffset: getStmt } = await import('../../utils/queryHelpers');
+      const sql = 'SELECT name FROM users WHERE id = 1';
+      const stmt = getStmt(sql, 10);
+      expect(stmt).toBeDefined();
+      expect(stmt!.text).toBe(sql);
+
+      const result = await driver.execute(stmt!.text);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBe(1);
+    });
+
+    it('statement with string containing semicolons is not split', async () => {
+      const { splitStatements } = await import('../../utils/queryHelpers');
+      const sql = 'SELECT \'a;b;c\' AS val; SELECT 2';
+      const stmts = splitStatements(sql);
+      expect(stmts.length).toBe(2);
+      expect(stmts[0].text).toContain('\'a;b;c\'');
+
+      // Execute the first statement with embedded semicolons
+      const result = await driver.execute(stmts[0].text);
+      expect(result.error).toBeUndefined();
+      expect(result.rows[0].val).toBe('a;b;c');
+    });
+
+    it('statement with comment containing semicolons is not split', async () => {
+      const { splitStatements } = await import('../../utils/queryHelpers');
+      const sql = '-- this; is a; comment\nSELECT 1; SELECT 2';
+      const stmts = splitStatements(sql);
+      expect(stmts.length).toBe(2);
+      expect(stmts[0].text).toContain('-- this; is a; comment');
+
+      const result = await driver.execute(stmts[0].text);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBe(1);
+    });
+
+    it('dollar-quoted function body is not split on inner semicolons', async () => {
+      const { splitStatements } = await import('../../utils/queryHelpers');
+      const sql = [
+        'CREATE OR REPLACE FUNCTION test_fn() RETURNS integer AS $$',
+        'BEGIN',
+        '  RETURN 42;',
+        'END;',
+        '$$ LANGUAGE plpgsql;',
+        'SELECT test_fn() AS val;',
+      ].join('\n');
+
+      const stmts = splitStatements(sql);
+      expect(stmts.length).toBe(2);
+      expect(stmts[0].text).toContain('$$');
+      expect(stmts[1].text).toContain('test_fn');
+
+      // Execute both to verify
+      const createResult = await driver.execute(stmts[0].text);
+      expect(createResult.error).toBeUndefined();
+
+      const callResult = await driver.execute(stmts[1].text);
+      expect(callResult.error).toBeUndefined();
+      expect(Number(callResult.rows[0].val)).toBe(42);
+
+      // Cleanup
+      await driver.execute('DROP FUNCTION test_fn()');
+    });
+
+    it('each statement independently reports correct result type', async () => {
+      const { splitStatements } = await import('../../utils/queryHelpers');
+      const sql = [
+        'INSERT INTO users (name, email) VALUES (\'StmtTest\', \'s@t.com\');',
+        'SELECT * FROM users WHERE name = \'StmtTest\';',
+        'DELETE FROM users WHERE name = \'StmtTest\';',
+      ].join('\n');
+
+      const stmts = splitStatements(sql);
+      expect(stmts.length).toBe(3);
+
+      // INSERT → affectedRows
+      const insertResult = await driver.execute(stmts[0].text);
+      expect(insertResult.error).toBeUndefined();
+      expect(insertResult.affectedRows).toBe(1);
+
+      // SELECT → columns + rows
+      const selectResult = await driver.execute(stmts[1].text);
+      expect(selectResult.error).toBeUndefined();
+      expect(selectResult.columns.length).toBeGreaterThan(0);
+      expect(selectResult.rows.length).toBe(1);
+
+      // DELETE → affectedRows
+      const deleteResult = await driver.execute(stmts[2].text);
+      expect(deleteResult.error).toBeUndefined();
+      expect(deleteResult.affectedRows).toBe(1);
+    });
   });
 
   it('multi-database: getTableData on second database returns correct data', async () => {

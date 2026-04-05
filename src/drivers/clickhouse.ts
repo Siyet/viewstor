@@ -3,13 +3,16 @@ import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { SchemaObject, TableInfo, ColumnInfo } from '../types/schema';
+import { quoteIdentifier } from '../utils/queryHelpers';
 
 export class ClickHouseDriver implements DatabaseDriver {
   private client: ClickHouseClient | undefined;
   private abortController: AbortController | undefined;
+  private database: string | undefined;
 
   async connect(config: ConnectionConfig): Promise<void> {
     const protocol = config.ssl ? 'https' : 'http';
+    this.database = config.database;
     this.client = createClient({
       host: `${protocol}://${config.host}:${config.port}`,
       username: config.username || 'default',
@@ -83,15 +86,22 @@ export class ClickHouseDriver implements DatabaseDriver {
   }
 
   async getSchema(): Promise<SchemaObject[]> {
-    const dbResult = await this.client!.query({
-      query: 'SHOW DATABASES',
-      format: 'JSONEachRow',
-    });
-    const databases = await dbResult.json<{ name: string }[]>();
+    let userDbs: { name: string }[];
 
-    const userDbs = databases.filter(db =>
-      db.name !== 'system' && db.name !== 'INFORMATION_SCHEMA' && db.name !== 'information_schema'
-    );
+    if (this.database) {
+      // Single-database mode: only fetch schema for the connected database
+      userDbs = [{ name: this.database }];
+    } else {
+      const dbResult = await this.client!.query({
+        query: 'SHOW DATABASES',
+        format: 'JSONEachRow',
+      });
+      const databases = await dbResult.json<{ name: string }[]>();
+
+      userDbs = databases.filter(db =>
+        db.name !== 'system' && db.name !== 'INFORMATION_SCHEMA' && db.name !== 'information_schema'
+      );
+    }
 
     if (userDbs.length === 0) return [];
 
@@ -157,7 +167,7 @@ export class ClickHouseDriver implements DatabaseDriver {
     const db = schema || 'default';
     if (type === 'table') {
       const result = await this.client!.query({
-        query: `SHOW CREATE TABLE "${db}"."${name}"`,
+        query: `SHOW CREATE TABLE ${quoteIdentifier(db)}.${quoteIdentifier(name)}`,
         format: 'JSONEachRow',
       });
       const rows = await result.json<{ statement: string }[]>();
@@ -169,7 +179,7 @@ export class ClickHouseDriver implements DatabaseDriver {
   async getTableInfo(name: string, schema?: string): Promise<TableInfo> {
     const db = schema || 'default';
     const result = await this.client!.query({
-      query: `DESCRIBE TABLE "${db}"."${name}"`,
+      query: `DESCRIBE TABLE ${quoteIdentifier(db)}.${quoteIdentifier(name)}`,
       format: 'JSONEachRow',
     });
     const colRows = await result.json<{
@@ -205,15 +215,15 @@ export class ClickHouseDriver implements DatabaseDriver {
 
   async getTableRowCount(name: string, schema?: string): Promise<number> {
     const db = schema || 'default';
-    const result = await this.execute(`SELECT COUNT(*) AS cnt FROM "${chEscapeId(db)}"."${chEscapeId(name)}"`);
+    const result = await this.execute(`SELECT COUNT(*) AS cnt FROM ${quoteIdentifier(db)}.${quoteIdentifier(name)}`);
     return parseInt(String(result.rows[0]?.cnt), 10) || 0;
   }
 
   async getTableData(name: string, schema?: string, limit = MAX_RESULT_ROWS, offset = 0, orderBy?: SortColumn[]): Promise<QueryResult> {
     const db = schema || 'default';
-    let sql = `SELECT * FROM "${db}"."${name}"`;
+    let sql = `SELECT * FROM ${quoteIdentifier(db)}.${quoteIdentifier(name)}`;
     if (orderBy && orderBy.length > 0) {
-      const clauses = orderBy.map(s => `"${s.column}" ${s.direction === 'desc' ? 'DESC' : 'ASC'}`);
+      const clauses = orderBy.map(s => `${quoteIdentifier(s.column)} ${s.direction === 'desc' ? 'DESC' : 'ASC'}`);
       sql += ` ORDER BY ${clauses.join(', ')}`;
     }
     sql += ` LIMIT ${limit} OFFSET ${offset}`;
@@ -243,11 +253,6 @@ export class ClickHouseDriver implements DatabaseDriver {
 
     return items;
   }
-}
-
-/** Escape a ClickHouse identifier by doubling embedded double-quotes */
-function chEscapeId(id: string): string {
-  return id.replace(/"/g, '""');
 }
 
 function formatChRowCount(rows: number, bytes: number): string | undefined {

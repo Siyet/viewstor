@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { CompletionItem as DriverCompletion } from '../types/driver';
 import { QueryEditorProvider } from './queryEditor';
+import { dbg } from '../utils/debug';
 
 const SQL_KEYWORDS = [
   'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'EXISTS',
@@ -34,9 +35,11 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     position: vscode.Position,
   ): Promise<vscode.CompletionItem[]> {
     const connectionId = this.queryEditorProvider.getConnectionIdFromUri(document.uri);
+    dbg('completion', 'uri:', document.uri.toString(), 'connectionId:', connectionId);
     if (!connectionId) return [];
 
     const dbItems = await this.getDbItems(connectionId);
+    dbg('completion', 'dbItems:', dbItems.length);
     const fullText = document.getText();
     const lineText = document.lineAt(position).text.substring(0, position.character);
 
@@ -45,7 +48,6 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
       || lineText.match(/\b(\w+)\s+IN\s*\(\s*(?:'[^']*'\s*,\s*)*'?[\w]*$/i);
     if (enumMatch) {
       const colName = enumMatch[1].toLowerCase();
-      const aliases = extractAliases(fullText);
       const referencedTables = extractTableNames(fullText);
 
       for (const c of dbItems) {
@@ -134,6 +136,7 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     if (this.cache.has(connectionId)) return this.cache.get(connectionId)!;
 
     const driver = this.connectionManager.getDriver(connectionId);
+    dbg('completion', 'getDbItems driver:', !!driver, 'hasGetCompletions:', !!driver?.getCompletions);
     if (!driver?.getCompletions) return [];
 
     try {

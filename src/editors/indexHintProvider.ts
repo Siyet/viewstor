@@ -185,7 +185,7 @@ function extractTables(sql: string): TableRef[] {
   return tables;
 }
 
-function extractClauseColumns(sql: string, clauseRegex: RegExp, _splitRegex: RegExp): ColumnRef[] {
+function extractClauseColumns(sql: string, _clauseRegex: RegExp, _splitRegex: RegExp): ColumnRef[] {
   const cols: ColumnRef[] = [];
   // Find WHERE ... (until GROUP BY, ORDER BY, LIMIT, HAVING, or end)
   const whereRegex = /\bWHERE\b([\s\S]*?)(?=\b(?:GROUP|ORDER|LIMIT|HAVING|UNION|EXCEPT|INTERSECT)\b|;|$)/gi;

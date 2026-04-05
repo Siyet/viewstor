@@ -9,8 +9,10 @@ import { FolderFormPanel } from '../views/folderForm';
 import { SortColumn, QueryResult, QueryColumn, QueryHistoryEntry } from '../types/query';
 import { ExportService } from '../services/exportService';
 import { ImportSource, parseImportFile } from '../services/importService';
-import { enhanceColumnError, buildUpdateSql, buildDeleteSql, buildInsertDefaultSql } from '../utils/queryHelpers';
+import { enhanceColumnError, buildUpdateSql, buildDeleteSql, buildInsertDefaultSql, buildInsertRowSql, getStatementAtOffset, splitStatements, firstSqlTokenOffset, parseTablesFromQuery } from '../utils/queryHelpers';
 import { TempFileManager } from '../services/tempFileManager';
+import { QueryFileManager } from '../services/queryFileManager';
+import { dbg } from '../utils/debug';
 
 interface CommandContext {
   connectionManager: ConnectionManager;
@@ -20,17 +22,200 @@ interface CommandContext {
   resultPanelManager: ResultPanelManager;
   connectionFormPanel: ConnectionFormPanel;
   folderFormPanel: FolderFormPanel;
-  outputChannel: vscode.OutputChannel;
+  outputChannel: vscode.LogOutputChannel;
   tempFileManager: TempFileManager;
+  queryFileManager: QueryFileManager;
 }
 
 let queryResultCounter = 0;
 const historyDocMap = new Map<string, string>(); // entry.id → doc URI
-let _outputChannel: vscode.OutputChannel;
+let _outputChannel: vscode.LogOutputChannel;
+
+// --- Query result CodeLens + gutter icons ---
+
+interface QueryResultInfo {
+  line: number;
+  text: string;
+  isError: boolean;
+  timestamp: string;
+}
+
+// Per-document query results for CodeLens + gutter
+const queryResults = new Map<string, QueryResultInfo[]>();
+let codeLensEmitter: vscode.EventEmitter<void>;
+
+class QueryCodeLensProvider implements vscode.CodeLensProvider {
+  private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
+  readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
+
+  constructor() {
+    codeLensEmitter = this._onDidChangeCodeLenses;
+  }
+
+  provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+    const lenses: vscode.CodeLens[] = [];
+    const results = queryResults.get(document.uri.toString()) || [];
+
+    // Play buttons for each statement
+    const fullText = document.getText();
+    // Skip metadata line
+    const firstLine = document.lineAt(0).text;
+    const hasMetadata = firstLine.startsWith('-- viewstor:');
+    const statementsText = hasMetadata
+      ? fullText.substring(fullText.indexOf('\n') + 1)
+      : fullText;
+    const metadataOffset = fullText.length - statementsText.length;
+
+    const stmts = splitStatements(statementsText);
+    for (const stmt of stmts) {
+      const rawContent = statementsText.substring(stmt.start, stmt.end);
+      const sqlOffset = firstSqlTokenOffset(rawContent);
+      const stmtLine = document.positionAt(stmt.start + metadataOffset + sqlOffset).line;
+      const range = new vscode.Range(stmtLine, 0, stmtLine, 0);
+
+      const result = results.find(r => r.line === stmtLine);
+      if (result) {
+        // Result + rerun on same line
+        const icon = result.isError ? '$(error)' : '$(check)';
+        lenses.push(new vscode.CodeLens(range, {
+          title: `${icon} ${result.timestamp}  ${result.text}`,
+          command: 'viewstor._showOutputChannel',
+          tooltip: vscode.l10n.t('Show query log'),
+        }));
+        lenses.push(new vscode.CodeLens(range, {
+          title: '$(play)  Rerun Query',
+          command: 'viewstor._runStatementAtLine',
+          arguments: [stmtLine],
+          tooltip: vscode.l10n.t('Re-run this statement'),
+        }));
+      } else {
+        // Play button only
+        lenses.push(new vscode.CodeLens(range, {
+          title: '$(play)  Run Query',
+          command: 'viewstor._runStatementAtLine',
+          arguments: [stmtLine],
+          tooltip: vscode.l10n.t('Execute this statement'),
+        }));
+      }
+    }
+
+    return lenses;
+  }
+}
+
+// Gutter decoration types
+const gutterDecoSuccess = vscode.window.createTextEditorDecorationType({
+  gutterIconPath: vscode.Uri.parse('data:image/svg+xml,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#4ec9b0" d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1zm3.35 4.65a.5.5 0 0 0-.7 0L7 9.3 5.35 7.65a.5.5 0 1 0-.7.7l2 2a.5.5 0 0 0 .7 0l4-4a.5.5 0 0 0 0-.7z"/></svg>'
+  )),
+  gutterIconSize: '80%',
+});
+const gutterDecoError = vscode.window.createTextEditorDecorationType({
+  gutterIconPath: vscode.Uri.parse('data:image/svg+xml,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#f44747" d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1zm2.65 3.65a.5.5 0 0 0-.7 0L8 6.59 6.05 4.65a.5.5 0 1 0-.7.7L7.29 7.3 5.35 9.25a.5.5 0 1 0 .7.7L8 8.01l1.95 1.94a.5.5 0 0 0 .7-.7L8.71 7.3l1.94-1.95a.5.5 0 0 0 0-.7z"/></svg>'
+  )),
+  gutterIconSize: '80%',
+});
+
+function formatTimestamp(): string {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`;
+}
+
+function updateGutterIcons(editor: vscode.TextEditor) {
+  const results = queryResults.get(editor.document.uri.toString()) || [];
+  const successRanges: vscode.Range[] = [];
+  const errorRanges: vscode.Range[] = [];
+  for (const result of results) {
+    const range = new vscode.Range(result.line, 0, result.line, 0);
+    if (result.isError) {
+      errorRanges.push(range);
+    } else {
+      successRanges.push(range);
+    }
+  }
+  editor.setDecorations(gutterDecoSuccess, successRanges);
+  editor.setDecorations(gutterDecoError, errorRanges);
+}
+
+function clearQueryDecorations(editor: vscode.TextEditor) {
+  editor.setDecorations(gutterDecoSuccess, []);
+  editor.setDecorations(gutterDecoError, []);
+}
+
+function showQueryResult(editor: vscode.TextEditor, line: number, resultText: string, isError: boolean) {
+  const ts = formatTimestamp();
+  const docUri = editor.document.uri.toString();
+
+  // Add result to CodeLens data (replace previous result on same line)
+  let results = queryResults.get(docUri);
+  if (!results) {
+    results = [];
+    queryResults.set(docUri, results);
+  }
+  const existing = results.findIndex(r => r.line === line);
+  const info: QueryResultInfo = { line, text: resultText, isError, timestamp: ts };
+  if (existing >= 0) {
+    results[existing] = info;
+  } else {
+    results.push(info);
+  }
+
+  // Update all gutter icons (handles mixed success/error)
+  updateGutterIcons(editor);
+
+  // Trigger CodeLens refresh
+  codeLensEmitter.fire();
+}
+
+function logQueryToOutput(sql: string, resultText: string, isError: boolean) {
+  const shortSql = sql.replace(/\s+/g, ' ').trim();
+  _outputChannel.info(shortSql);
+  if (isError) {
+    _outputChannel.error(resultText);
+  } else {
+    _outputChannel.info(resultText);
+  }
+  _outputChannel.info('────────────────────────────────────────');
+}
 
 export function registerCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
-  const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel, outputChannel, tempFileManager } = ctx;
+  const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel, outputChannel, tempFileManager, queryFileManager } = ctx;
   _outputChannel = outputChannel;
+
+  // Register CodeLens provider for query results
+  const codeLensProvider = new QueryCodeLensProvider();
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider({ language: 'sql' }, codeLensProvider),
+    vscode.commands.registerCommand('viewstor._showOutputChannel', () => {
+      _outputChannel.show(true);
+    }),
+    vscode.commands.registerCommand('viewstor._runStatementAtLine', async (line: number) => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      // Move cursor to the target line and run query
+      const pos = new vscode.Position(line, 0);
+      editor.selection = new vscode.Selection(pos, pos);
+      await vscode.commands.executeCommand('viewstor.runQuery');
+    }),
+  );
+
+  // Clear results when document changes or closes
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument(e => {
+      queryResults.delete(e.document.uri.toString());
+      codeLensEmitter.fire();
+      const editor = vscode.window.activeTextEditor;
+      if (editor && editor.document.uri.toString() === e.document.uri.toString()) {
+        clearQueryDecorations(editor);
+      }
+    }),
+    vscode.workspace.onDidCloseTextDocument(doc => {
+      queryResults.delete(doc.uri.toString());
+      historyDocMap.forEach((uri, id) => { if (uri === doc.uri.toString()) historyDocMap.delete(id); });
+    }),
+  );
 
   // Wire up TempFileManager callbacks
   tempFileManager.setOnSqlExecuted(async (sqlCtx, sql) => {
@@ -40,9 +225,13 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
     if (!driver) return;
     const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
     const errors: string[] = [];
+    const insertedRows: Record<string, unknown>[] = [];
     for (const stmt of statements) {
       const result = await driver.execute(stmt);
       if (result.error) errors.push(result.error);
+      else if (sqlCtx.context === 'insertRow' && result.rows.length > 0) {
+        insertedRows.push(...result.rows);
+      }
     }
     if (errors.length > 0) {
       logAndShowError(errors.join('; '));
@@ -51,11 +240,14 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       if (sqlCtx.context === 'deleteRows') {
         vscode.window.showInformationMessage(vscode.l10n.t('{0} row(s) deleted.', count));
       } else if (sqlCtx.context === 'insertRow') {
-        vscode.window.showInformationMessage(vscode.l10n.t('Row inserted.'));
+        vscode.window.showInformationMessage(vscode.l10n.t('{0} row(s) inserted.', count));
       } else {
         vscode.window.showInformationMessage(vscode.l10n.t('{0} row(s) saved.', count));
       }
       if (sqlCtx.panelKey) {
+        if (insertedRows.length > 0) {
+          resultPanelManager.postMessage(sqlCtx.panelKey, { type: 'insertedRows', rows: insertedRows });
+        }
         resultPanelManager.postMessage(sqlCtx.panelKey, { type: 'rerunQuery' });
       }
     }
@@ -63,6 +255,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 
   tempFileManager.setOnSqlSaved(async (sqlCtx, sql) => {
     const state = connectionManager.get(sqlCtx.connectionId);
+    const filePath = queryFileManager.createPinnedQueryFile(
+      sqlCtx.connectionId, sql, sqlCtx.databaseName,
+    );
     await queryHistoryProvider.addEntry({
       id: Date.now().toString(36) + Math.random().toString(36).substring(2, 8),
       connectionId: sqlCtx.connectionId,
@@ -72,6 +267,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       executionTimeMs: 0,
       rowCount: 0,
       pinned: true,
+      filePath,
     });
   });
 
@@ -169,6 +365,17 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         return;
       }
 
+      // Auto-connect if disconnected
+      const connState = connectionManager.get(connectionId);
+      if (connState && !connState.connected) {
+        try {
+          await connectionManager.connect(connectionId);
+        } catch (err) {
+          logAndShowError(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
+          return;
+        }
+      }
+
       const databaseName = queryEditorProvider.getDatabaseNameFromUri(editor.document.uri);
       const driver = databaseName
         ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
@@ -179,9 +386,33 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
 
       const selection = editor.selection;
-      const query = selection.isEmpty
-        ? editor.document.getText()
-        : editor.document.getText(selection);
+      const fullText = queryFileManager.isViewstorFile(editor.document.uri)
+        ? queryFileManager.getQueryText(editor.document)
+        : editor.document.getText();
+
+      let query: string;
+      let queryStartLine = 0;
+      if (!selection.isEmpty) {
+        query = editor.document.getText(selection);
+        queryStartLine = selection.start.line;
+      } else {
+        // Find the statement at cursor position
+        const cursorOffset = editor.document.offsetAt(editor.selection.active);
+        // If file has metadata, adjust offset for stripped content
+        const rawText = editor.document.getText();
+        const metadataOffset = rawText.length - fullText.length;
+        const adjustedOffset = Math.max(0, cursorOffset - metadataOffset);
+        const stmt = getStatementAtOffset(fullText, adjustedOffset);
+        if (stmt) {
+          query = stmt.text;
+          // Skip leading whitespace to find actual statement start line
+          const rawContent = rawText.substring(stmt.start + metadataOffset, stmt.end + metadataOffset);
+          const sqlOffset = firstSqlTokenOffset(rawContent);
+          queryStartLine = editor.document.positionAt(stmt.start + metadataOffset + sqlOffset).line;
+        } else {
+          query = fullText;
+        }
+      }
 
       if (!query.trim()) return;
 
@@ -210,7 +441,11 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         try {
           const explainResult = await driver.execute('EXPLAIN ' + finalQuery);
           const plan = explainResult.rows.map(r => Object.values(r).join(' ')).join('\n');
-          if (plan.includes('Seq Scan')) {
+          // Skip warning when LIMIT is small — Seq Scan with a small LIMIT is harmless
+          const limitMatch = finalQuery.match(/\bLIMIT\s+(\d+)/i);
+          const limitValue = limitMatch ? parseInt(limitMatch[1], 10) : Infinity;
+          dbg('safeMode', 'seqScan:', plan.includes('Seq Scan'), 'limit:', limitValue, 'mode:', safeMode);
+          if (plan.includes('Seq Scan') && limitValue > 1000) {
             const seqMatch = plan.match(/Seq Scan on (\w+)/);
             const tableName = seqMatch ? seqMatch[1] : 'unknown';
 
@@ -249,6 +484,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
 
       const shortQuery = finalQuery.length > 255 ? finalQuery.substring(0, 255) + '...' : finalQuery;
+      // Clear previous decorations before execution
+      clearQueryDecorations(editor);
+
       try {
         const result = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: `Running: ${shortQuery}` },
@@ -258,11 +496,56 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         if (result.error) {
           const enhanced = await enhanceColumnError(result.error, finalQuery, driver);
           logAndShowError(`${enhanced}\n\n---\n${shortQuery}`);
+          const errorMsg = result.error.split('\n')[0];
+          showQueryResult(editor, queryStartLine,`Error: ${errorMsg}`, true);
+          logQueryToOutput(finalQuery, `Error: ${errorMsg}`, true);
         } else {
-          const color = connectionManager.getConnectionColor(connectionId);
-          const readonly = connectionManager.isConnectionReadonly(connectionId);
-          queryResultCounter++;
-          resultPanelManager.show(result, `Results #${queryResultCounter} — ${state?.config.name || 'Query'}`, { color, readonly });
+          const hasResultSet = result.columns.length > 0;
+          if (hasResultSet) {
+            const color = connectionManager.getConnectionColor(connectionId);
+            const readonly = connectionManager.isConnectionReadonly(connectionId);
+            queryResultCounter++;
+
+            // For single-table SELECTs, resolve PK so edits work in query mode
+            let queryTableName: string | undefined;
+            let querySchema: string | undefined;
+            let queryPkColumns: string[] | undefined;
+            let queryColumnInfo: Array<{ name: string; nullable: boolean; defaultValue?: string }> | undefined;
+            const tables = parseTablesFromQuery(finalQuery);
+            dbg('queryResult', 'tables:', tables, 'readonly:', readonly);
+            if (tables.length === 1 && !readonly) {
+              queryTableName = tables[0].table;
+              querySchema = tables[0].schema;
+              try {
+                const tableInfo = await driver.getTableInfo(queryTableName, querySchema);
+                const pks = tableInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
+                if (pks.length > 0) queryPkColumns = pks;
+                queryColumnInfo = tableInfo.columns.map(c => ({ name: c.name, nullable: c.nullable, defaultValue: c.defaultValue }));
+                dbg('queryResult', 'table:', queryTableName, 'schema:', querySchema, 'pkColumns:', queryPkColumns);
+              } catch { /* table info unavailable — skip */ }
+            }
+
+            resultPanelManager.show(result, `Results #${queryResultCounter} — ${state?.config.name || 'Query'}`, {
+              color, readonly,
+              connectionId: queryPkColumns ? connectionId : undefined,
+              tableName: queryTableName,
+              schema: querySchema,
+              pkColumns: queryPkColumns,
+              databaseName: queryPkColumns ? databaseName : undefined,
+              columnInfo: queryColumnInfo,
+              query: finalQuery,
+              queryMode: true,
+            });
+            const resultMsg = `${result.rowCount} rows, ${result.executionTimeMs} ms`;
+            showQueryResult(editor, queryStartLine,resultMsg, false);
+            logQueryToOutput(finalQuery, resultMsg, false);
+          } else {
+            const affected = result.affectedRows ?? 0;
+            const resultMsg = `${affected} rows affected, ${result.executionTimeMs} ms`;
+            showQueryResult(editor, queryStartLine,resultMsg, false);
+            logQueryToOutput(finalQuery, resultMsg, false);
+            _outputChannel.show(true);
+          }
         }
 
         // Cache up to 500 rows to keep globalState reasonable
@@ -383,19 +666,23 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         const title = `${item.schemaObject.name} — ${state?.config.name}`;
         const color = connectionManager.getConnectionColor(item.connectionId);
         const readonly = connectionManager.isConnectionReadonly(item.connectionId);
+        const columnInfoForWebview = tableInfo.columns.map(c => ({
+          name: c.name, nullable: c.nullable, defaultValue: c.defaultValue,
+        }));
         resultPanelManager.show(result, title, {
           connectionId: item.connectionId,
           tableName: item.schemaObject.name,
           schema: item.schemaObject.schema,
           pkColumns, color, readonly, pageSize, currentPage: 0, totalRowCount, isEstimatedCount,
           databaseName: item.databaseName,
+          columnInfo: columnInfoForWebview,
         });
       } catch (err) {
         logAndShowError(vscode.l10n.t('Failed to load data: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._fetchPage', async (connectionId: string, tableName: string, schema: string | undefined, page: number, pageSize: number, orderBy?: SortColumn[], databaseName?: string) => {
+    vscode.commands.registerCommand('viewstor._fetchPage', async (connectionId: string, tableName: string, schema: string | undefined, page: number, pageSize: number, orderBy?: SortColumn[], databaseName?: string, explicitPanelKey?: string) => {
       const driver = databaseName
         ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
         : connectionManager.getDriver(connectionId);
@@ -421,10 +708,11 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         );
         if (result.error) {
           logAndShowError(vscode.l10n.t('Failed to load data: {0}', result.error));
+          resultPanelManager.postMessage(explicitPanelKey || `${tableName} — ${connectionManager.get(connectionId)?.config.name}`, { type: 'hideLoading' });
           return;
         }
         const state = connectionManager.get(connectionId);
-        const panelKey = `${tableName} — ${state?.config.name}`;
+        const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
         resultPanelManager.postMessage(panelKey, {
           type: 'updateData',
           columns: result.columns,
@@ -502,11 +790,15 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._saveEdits', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], edits: any[], databaseName?: string) => {
+    vscode.commands.registerCommand('viewstor._saveEdits', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], edits: any[], databaseName?: string, explicitPanelKey?: string) => {
+      dbg('saveEdits', 'connectionId:', connectionId, 'table:', tableName, 'schema:', schema, 'pkColumns:', pkColumns, 'edits:', edits.length, 'db:', databaseName, 'panelKey:', explicitPanelKey);
       const driver = databaseName
         ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
         : connectionManager.getDriver(connectionId);
-      if (!driver) return;
+      if (!driver) { dbg('saveEdits', 'no driver found'); return; }
+
+      const state = connectionManager.get(connectionId);
+      const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
 
       // Build all SQL statements
       const statements = edits.map(edit => buildUpdateSql(tableName, schema, pkColumns, edit) + ';');
@@ -515,8 +807,6 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 
       if (confirmEdits) {
         const fullSql = statements.join('\n');
-        const state = connectionManager.get(connectionId);
-        const panelKey = `${tableName} — ${state?.config.name}`;
         await tempFileManager.openSqlEditor(fullSql, {
           panelKey, connectionId, tableName, databaseName, context: 'saveEdits',
         });
@@ -536,11 +826,14 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._insertRow', async (connectionId: string, tableName: string, schema: string | undefined, _row: Record<string, unknown>, databaseName?: string) => {
+    vscode.commands.registerCommand('viewstor._insertRow', async (connectionId: string, tableName: string, schema: string | undefined, _row: Record<string, unknown>, databaseName?: string, explicitPanelKey?: string) => {
       const driver = databaseName
         ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
         : connectionManager.getDriver(connectionId);
       if (!driver) return;
+
+      const state = connectionManager.get(connectionId);
+      const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
 
       // Get column info to build INSERT with DEFAULT values
       const tableInfo = await driver.getTableInfo(tableName, schema);
@@ -549,8 +842,6 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 
       const confirmEdits = vscode.workspace.getConfiguration('viewstor').get<boolean>('confirmEdits', true);
       if (confirmEdits) {
-        const state = connectionManager.get(connectionId);
-        const panelKey = `${tableName} — ${state?.config.name}`;
         await tempFileManager.openSqlEditor(sql, {
           panelKey, connectionId, tableName, databaseName, context: 'insertRow',
         });
@@ -562,12 +853,99 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         logAndShowError(vscode.l10n.t('Insert failed: {0}', result.error));
       } else {
         vscode.window.showInformationMessage(vscode.l10n.t('Row inserted.'));
-        const state = connectionManager.get(connectionId);
-        resultPanelManager.postMessage(`${tableName} — ${state?.config.name}`, { type: 'rerunQuery' });
+        resultPanelManager.postMessage(panelKey, { type: 'rerunQuery' });
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._deleteRows', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], rows: Record<string, unknown>[], databaseName?: string, pkTypes?: Record<string, string>) => {
+    vscode.commands.registerCommand('viewstor._insertRows', async (connectionId: string, tableName: string, schema: string | undefined, rows: Array<{ values: Record<string, unknown>; columnTypes: Record<string, string> }>, databaseName?: string, explicitPanelKey?: string) => {
+      dbg('insertRows', 'table:', tableName, 'rowCount:', rows.length);
+      const driver = databaseName
+        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : connectionManager.getDriver(connectionId);
+      if (!driver) return;
+
+      const statements = rows.map(row => buildInsertRowSql(tableName, schema, row.values, row.columnTypes) + ';');
+      const confirmEdits = vscode.workspace.getConfiguration('viewstor').get<boolean>('confirmEdits', true);
+
+      const state = connectionManager.get(connectionId);
+      const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
+
+      if (confirmEdits) {
+        const fullSql = statements.join('\n');
+        await tempFileManager.openSqlEditor(fullSql, {
+          panelKey, connectionId, tableName, databaseName, context: 'insertRow',
+        });
+      } else {
+        const errors: string[] = [];
+        const insertedRows: Record<string, unknown>[] = [];
+        for (const sql of statements) {
+          const result = await driver.execute(sql.replace(/;+\s*$/, ''));
+          if (result.error) errors.push(result.error);
+          else if (result.rows.length > 0) insertedRows.push(...result.rows);
+        }
+        if (errors.length > 0) {
+          logAndShowError(vscode.l10n.t('Insert errors: {0}', errors.join('; ')));
+        } else {
+          vscode.window.showInformationMessage(vscode.l10n.t('{0} row(s) inserted.', statements.length));
+          if (insertedRows.length > 0) {
+            resultPanelManager.postMessage(panelKey, { type: 'insertedRows', rows: insertedRows });
+          }
+          resultPanelManager.postMessage(panelKey, { type: 'rerunQuery' });
+        }
+      }
+    }),
+
+    vscode.commands.registerCommand('viewstor._saveAll', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], inserts: Array<{ values: Record<string, unknown>; columnTypes: Record<string, string> }>, edits: any[], databaseName?: string, explicitPanelKey?: string) => {
+      dbg('saveAll', 'table:', tableName, 'inserts:', inserts.length, 'edits:', edits.length);
+      const driver = databaseName
+        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : connectionManager.getDriver(connectionId);
+      if (!driver) return;
+
+      const state = connectionManager.get(connectionId);
+      const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
+
+      const insertStatements = inserts.map(row => buildInsertRowSql(tableName, schema, row.values, row.columnTypes) + ';');
+      const editStatements = edits.map(edit => buildUpdateSql(tableName, schema, pkColumns, edit) + ';');
+      const allStatements = [...insertStatements, ...editStatements];
+      if (allStatements.length === 0) return;
+
+      const confirmEdits = vscode.workspace.getConfiguration('viewstor').get<boolean>('confirmEdits', true);
+      if (confirmEdits) {
+        const fullSql = allStatements.join('\n');
+        const context = inserts.length > 0 && edits.length > 0 ? 'saveEdits' : inserts.length > 0 ? 'insertRow' : 'saveEdits';
+        await tempFileManager.openSqlEditor(fullSql, {
+          panelKey, connectionId, tableName, databaseName, context,
+        });
+      } else {
+        const errors: string[] = [];
+        const insertedRows: Record<string, unknown>[] = [];
+        for (const sql of insertStatements) {
+          const result = await driver.execute(sql.replace(/;+\s*$/, ''));
+          if (result.error) errors.push(result.error);
+          else if (result.rows.length > 0) insertedRows.push(...result.rows);
+        }
+        if (errors.length > 0) {
+          logAndShowError(vscode.l10n.t('Insert errors: {0}', errors.join('; ')));
+          return;
+        }
+        for (const sql of editStatements) {
+          const result = await driver.execute(sql.replace(/;+\s*$/, ''));
+          if (result.error) errors.push(result.error);
+        }
+        if (errors.length > 0) {
+          logAndShowError(vscode.l10n.t('Save errors: {0}', errors.join('; ')));
+        } else {
+          vscode.window.showInformationMessage(vscode.l10n.t('{0} row(s) saved.', allStatements.length));
+          if (insertedRows.length > 0) {
+            resultPanelManager.postMessage(panelKey, { type: 'insertedRows', rows: insertedRows });
+          }
+          resultPanelManager.postMessage(panelKey, { type: 'rerunQuery' });
+        }
+      }
+    }),
+
+    vscode.commands.registerCommand('viewstor._deleteRows', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], rows: Record<string, unknown>[], databaseName?: string, pkTypes?: Record<string, string>, explicitPanelKey?: string) => {
       const driver = databaseName
         ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
         : connectionManager.getDriver(connectionId);
@@ -576,13 +954,13 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       const statements = rows.map(pkValues => buildDeleteSql(tableName, schema, pkColumns, pkValues, pkTypes) + ';');
 
       const state = connectionManager.get(connectionId);
-      const panelKey = `${tableName} — ${state?.config.name}`;
+      const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
       await tempFileManager.openSqlEditor(statements.join('\n'), {
         panelKey, connectionId, tableName, databaseName, context: 'deleteRows',
       });
     }),
 
-    vscode.commands.registerCommand('viewstor._runCustomTableQuery', async (connectionId: string, tableName: string, _schema: string | undefined, query: string, pageSize: number, databaseName?: string) => {
+    vscode.commands.registerCommand('viewstor._runCustomTableQuery', async (connectionId: string, tableName: string, _schema: string | undefined, query: string, pageSize: number, databaseName?: string, explicitPanelKey?: string) => {
       const driver = databaseName
         ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
         : connectionManager.getDriver(connectionId);
@@ -609,7 +987,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           return;
         }
         const state = connectionManager.get(connectionId);
-        const panelKey = `${tableName} — ${state?.config.name}`;
+        const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
         resultPanelManager.postMessage(panelKey, {
           type: 'updateData',
           columns: result.columns,
@@ -956,17 +1334,33 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       const state = connectionManager.get(entry.connectionId);
       if (!state) return;
 
+      // If entry has a pinned file, open it directly
+      let fileOpened = false;
+      if (entry.filePath) {
+        try {
+          const uri = vscode.Uri.file(entry.filePath);
+          const doc = await vscode.workspace.openTextDocument(uri);
+          await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preview: false });
+          queryEditorProvider.setConnectionForUri(uri, entry.connectionId, entry.databaseName);
+          fileOpened = true;
+        } catch {
+          // File was deleted — fall through to create temp
+        }
+      }
+
       // Reuse existing editor if already open for this entry (tracked by URI)
-      const trackedUri = historyDocMap.get(entry.id);
-      const existingDoc = trackedUri
-        ? vscode.workspace.textDocuments.find(d => d.uri.toString() === trackedUri)
-        : undefined;
-      if (existingDoc) {
-        await vscode.window.showTextDocument(existingDoc, { viewColumn: vscode.ViewColumn.One, preview: false });
-      } else {
-        const doc = await vscode.workspace.openTextDocument({ language: 'sql', content: entry.query });
-        historyDocMap.set(entry.id, doc.uri.toString());
-        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, preview: false });
+      if (!fileOpened) {
+        const trackedUri = historyDocMap.get(entry.id);
+        const existingDoc = trackedUri
+          ? vscode.workspace.textDocuments.find(d => d.uri.toString() === trackedUri)
+          : undefined;
+        if (existingDoc) {
+          await vscode.window.showTextDocument(existingDoc, { viewColumn: vscode.ViewColumn.One, preview: false });
+        } else {
+          const uri = await queryFileManager.createTempQuery(entry.connectionId, entry.databaseName, entry.query);
+          historyDocMap.set(entry.id, uri.toString());
+          queryEditorProvider.setConnectionForUri(uri, entry.connectionId, entry.databaseName);
+        }
       }
 
       // Show cached results — reuse panel by stable title
@@ -983,14 +1377,41 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       }
     }),
 
+    vscode.commands.registerCommand('viewstor.renameHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
+      dbg('renameHistoryEntry', 'id:', item?.entry?.id, 'filePath:', item?.entry?.filePath);
+      if (!item?.entry?.id || !item.entry.filePath) return;
+      const currentName = item.entry.filePath.replace(/\\/g, '/').split('/').pop() || '';
+      const newName = await vscode.window.showInputBox({
+        prompt: vscode.l10n.t('Rename pinned query'),
+        value: currentName.replace(/\.sql$/, ''),
+        validateInput: (v) => v.trim() ? undefined : vscode.l10n.t('Name cannot be empty'),
+      });
+      if (!newName) return;
+
+      const uri = vscode.Uri.file(item.entry.filePath);
+      const newUri = await queryFileManager.renamePinnedQuery(uri, newName);
+      dbg('renameHistoryEntry', 'newUri:', newUri?.fsPath);
+      if (newUri) {
+        queryEditorProvider.handleFileRenamed(uri, newUri);
+        await queryHistoryProvider.updateFilePath(item.entry.id, newUri.fsPath);
+      }
+    }),
+
     vscode.commands.registerCommand('viewstor.removeHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
       if (!item?.entry?.id) return;
       await queryHistoryProvider.removeEntry(item.entry.id);
     }),
 
     vscode.commands.registerCommand('viewstor.pinHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
+      dbg('pinHistoryEntry', 'id:', item?.entry?.id, 'connectionId:', item?.entry?.connectionId);
       if (!item?.entry?.id) return;
+      // Create a .sql file in queries/ so the entry can be renamed/reopened
+      const filePath = queryFileManager.createPinnedQueryFile(
+        item.entry.connectionId, item.entry.query, item.entry.databaseName,
+      );
+      dbg('pinHistoryEntry', 'createdFile:', filePath);
       await queryHistoryProvider.togglePin(item.entry.id, true);
+      await queryHistoryProvider.updateFilePath(item.entry.id, filePath);
     }),
 
     vscode.commands.registerCommand('viewstor.unpinHistoryEntry', async (item: { entry?: QueryHistoryEntry }) => {
@@ -1010,7 +1431,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
 }
 
 function logAndShowError(message: string) {
-  _outputChannel.appendLine(`[ERROR] ${message}`);
+  _outputChannel.error(message);
   vscode.window.showErrorMessage(message);
 }
 

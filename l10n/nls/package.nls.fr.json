@@ -40,6 +40,7 @@
   "command.clearHistory": "Effacer l'historique",
   "command.pinHistoryEntry": "Épingler la requête",
   "command.unpinHistoryEntry": "Détacher la requête",
+  "command.renameHistoryEntry": "Renommer la requête",
   "config.queryHistoryLimit.description": "Nombre maximal d'entrées dans l'historique. Les entrées épinglées ne sont jamais supprimées.",
   "command.setupMcp": "Configurer le serveur MCP",
   "command.getStarted": "Prise en main"
