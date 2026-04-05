@@ -1,7 +1,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
 
-  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123 };
+  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0 };
 
   const dbType = document.getElementById('dbType');
   const connName = document.getElementById('connName');
@@ -32,11 +32,26 @@
   var sshFields = document.getElementById('sshFields');
   var proxyFields = document.getElementById('proxyFields');
 
+  var sqliteFileField = document.getElementById('sqliteFileField');
+  var sqliteFile = document.getElementById('sqliteFile');
+
   function updateFieldVisibility() {
     var isRedis = dbType.value === 'redis';
-    authFields.style.display = isRedis ? 'none' : 'block';
-    dbFields.style.display = isRedis ? 'none' : 'block';
+    var isSqlite = dbType.value === 'sqlite';
+    var isNetworkDb = !isRedis && !isSqlite;
+    authFields.style.display = isNetworkDb ? 'block' : 'none';
+    dbFields.style.display = isNetworkDb ? 'block' : 'none';
+    document.querySelector('.form-row')?.closest('.form-row')?.setAttribute('style', isSqlite ? 'display:none' : '');
+    var hostPortRow = host.closest('.form-row');
+    if (hostPortRow) hostPortRow.style.display = isSqlite ? 'none' : '';
     redisDbField.classList.toggle('hidden', !isRedis);
+    sqliteFileField.classList.toggle('hidden', !isSqlite);
+    var sslGroup = ssl.closest('.checkbox-group');
+    if (sslGroup) sslGroup.style.display = isSqlite ? 'none' : '';
+    var proxyGroup = proxyType.closest('.form-group');
+    if (proxyGroup) proxyGroup.style.display = isSqlite ? 'none' : '';
+    var hiddenSchemasGroup = document.getElementById('hiddenSchemasGroup');
+    if (hiddenSchemasGroup) hiddenSchemasGroup.style.display = isSqlite ? 'none' : '';
     updateProxyVisibility();
   }
 
@@ -294,8 +309,8 @@
       port: port.value,
       username: username.value.trim(),
       password: password.value,
-      database: dbType.value === 'redis' ? redisDb.value : database.value.trim(),
-      databases: dbType.value === 'redis' ? '' : databases.value.trim(),
+      database: dbType.value === 'redis' ? redisDb.value : dbType.value === 'sqlite' ? sqliteFile.value.trim() : database.value.trim(),
+      databases: dbType.value === 'redis' || dbType.value === 'sqlite' ? '' : databases.value.trim(),
       ssl: ssl.checked ? 'true' : 'false',
       color: connColor.value.trim(),
       readonly: readonlyMode.checked ? 'true' : 'false',
@@ -318,19 +333,27 @@
 
   function validate() {
     var valid = true;
+    var isSqlite = dbType.value === 'sqlite';
     document.querySelectorAll('.error-text').forEach(function (el) { el.remove(); });
 
     if (!connName.value.trim()) {
       showError(connName, 'Connection name is required');
       valid = false;
     }
-    if (!host.value.trim()) {
-      showError(host, 'Host is required');
-      valid = false;
-    }
-    if (!port.value || isNaN(Number(port.value)) || Number(port.value) <= 0) {
-      showError(port, 'Port must be a positive number');
-      valid = false;
+    if (isSqlite) {
+      if (!sqliteFile.value.trim()) {
+        showError(sqliteFile, 'Database file path is required');
+        valid = false;
+      }
+    } else {
+      if (!host.value.trim()) {
+        showError(host, 'Host is required');
+        valid = false;
+      }
+      if (!port.value || isNaN(Number(port.value)) || Number(port.value) <= 0) {
+        showError(port, 'Port must be a positive number');
+        valid = false;
+      }
     }
     return valid;
   }
@@ -387,6 +410,7 @@
           database.value = c.database || '';
           databases.value = (c.databases || []).join(',');
           if (c.type === 'redis') { redisDb.value = c.database || '0'; }
+          if (c.type === 'sqlite') { sqliteFile.value = c.database || ''; }
           initChips();
           ssl.checked = !!c.ssl;
           connColor.value = c.color || '';

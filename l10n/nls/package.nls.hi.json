@@ -1,5 +1,5 @@
 {
-  "extension.description": "VS Code के लिए डेटाबेस प्रबंधन उपकरण — PostgreSQL, Redis और ClickHouse में स्कीमा ब्राउज़ करें, क्वेरी चलाएँ और डेटा देखें।",
+  "extension.description": "VS Code के लिए डेटाबेस प्रबंधन उपकरण — PostgreSQL, Redis, ClickHouse और SQLite में स्कीमा ब्राउज़ करें, क्वेरी चलाएँ और डेटा देखें।",
   "view.connections.name": "कनेक्शन",
   "view.queryHistory.name": "क्वेरी इतिहास",
   "command.addConnection": "कनेक्शन जोड़ें",

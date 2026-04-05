@@ -82,6 +82,7 @@ function mapDBeaverProvider(provider?: string, driver?: string): DatabaseType | 
   if (p.includes('postgres')) return 'postgresql';
   if (p.includes('redis') || p.includes('iredis')) return 'redis';
   if (p.includes('clickhouse')) return 'clickhouse';
+  if (p.includes('sqlite')) return 'sqlite';
   return null;
 }
 
@@ -144,6 +145,7 @@ function mapDataGripDriver(driver?: string): DatabaseType | null {
   if (d.includes('postgres')) return 'postgresql';
   if (d.includes('redis')) return 'redis';
   if (d.includes('clickhouse')) return 'clickhouse';
+  if (d.includes('sqlite')) return 'sqlite';
   return null;
 }
 

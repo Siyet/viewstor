@@ -1,5 +1,5 @@
 {
-  "extension.description": "VS Code 数据库管理工具 — 浏览数据库结构、执行查询、查看数据，支持 PostgreSQL、Redis 和 ClickHouse。",
+  "extension.description": "VS Code 数据库管理工具 — 浏览数据库结构、执行查询、查看数据，支持 PostgreSQL、Redis、ClickHouse 和 SQLite。",
   "view.connections.name": "连接",
   "view.queryHistory.name": "查询历史",
   "command.addConnection": "添加连接",

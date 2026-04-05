@@ -1,5 +1,5 @@
 {
-  "extension.description": "Datenbankverwaltung für VS Code — Schemas durchsuchen, Abfragen ausführen und Daten in PostgreSQL, Redis und ClickHouse inspizieren.",
+  "extension.description": "Datenbankverwaltung für VS Code — Schemas durchsuchen, Abfragen ausführen und Daten in PostgreSQL, Redis, ClickHouse und SQLite inspizieren.",
   "view.connections.name": "Verbindungen",
   "view.queryHistory.name": "Abfrageverlauf",
   "command.addConnection": "Verbindung hinzufügen",

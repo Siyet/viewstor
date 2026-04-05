@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>PostgreSQL + Redis + ClickHouse in one extension.<br>Free. Open source. No paywalls.</b>
+  <b>PostgreSQL + Redis + ClickHouse + SQLite in one extension.<br>Free. Open source. No paywalls.</b>
 </p>
 
 ---
@@ -24,13 +24,13 @@
 
 Database extensions for VS Code are either locked to one database, or freemium with crippled free tiers (limited connections, no export, closed source). Switching between DBeaver and VS Code breaks flow. DataGrip costs money.
 
-Viewstor is a free, open-source extension that covers PostgreSQL, Redis, and ClickHouse in a single tool — with features you won't find elsewhere:
+Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHouse, and SQLite in a single tool — with features you won't find elsewhere:
 
 | | Viewstor | Database Client | SQLTools | DBCode |
 |---|---|---|---|---|
 | **Price** | Free forever | Freemium | Free | Freemium |
 | **Open source** | AGPL-3.0 | Closed (since v4.7) | MIT | Closed |
-| **PG + Redis + CH** | All free | Free tier limits | No Redis | Redis/CH paid |
+| **PG + Redis + CH + SQLite** | All free | Free tier limits | No Redis | Redis/CH paid |
 | **Safe mode** | Block / Warn / Off | No | No | No |
 | **Copilot Chat participant** | `@viewstor` | No | No | No |
 | **MCP for AI agents** | Built-in, free | No | No | Paid tier |
@@ -171,6 +171,7 @@ All MCP interfaces auto-connect and respect read-only mode.
 - JSON/JSONB cell editor with **syntax highlighting** (double-click to open)
 - PostgreSQL arrays displayed with `{curly braces}`
 - Redis — inspect strings, lists, sets, sorted sets, hashes
+- SQLite — open `.sqlite`/`.db` files directly, file-based connection (no server needed)
 
 ## Keyboard Shortcuts
 
@@ -191,6 +192,7 @@ All shortcuts use physical key codes — work on any keyboard layout.
 | PostgreSQL | TCP | [pg](https://www.npmjs.com/package/pg) |
 | Redis | TCP | [ioredis](https://www.npmjs.com/package/ioredis) |
 | ClickHouse | HTTP | [@clickhouse/client](https://www.npmjs.com/package/@clickhouse/client) |
+| SQLite | File | [better-sqlite3](https://www.npmjs.com/package/better-sqlite3) |
 
 ## Development
 

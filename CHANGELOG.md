@@ -2,6 +2,11 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **SQLite driver** — open `.sqlite`/`.db` files directly from VS Code, file-based connection with no server needed. Schema browser, DDL, autocomplete, index hints, and all standard driver features ([#11](https://github.com/Siyet/viewstor/issues/11))
+
 ## [0.2.7] — 2026-04-06
 
 ### Added

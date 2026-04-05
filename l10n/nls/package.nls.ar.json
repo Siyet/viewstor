@@ -1,5 +1,5 @@
 {
-  "extension.description": "أداة إدارة قواعد البيانات لـ VS Code — تصفّح المخططات، وتنفيذ الاستعلامات، وفحص البيانات عبر PostgreSQL وRedis وClickHouse.",
+  "extension.description": "أداة إدارة قواعد البيانات لـ VS Code — تصفّح المخططات، وتنفيذ الاستعلامات، وفحص البيانات عبر PostgreSQL وRedis وClickHouse وSQLite.",
   "view.connections.name": "الاتصالات",
   "view.queryHistory.name": "سجل الاستعلامات",
   "command.addConnection": "إضافة اتصال",

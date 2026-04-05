@@ -1,5 +1,5 @@
 {
-  "extension.description": "VS Code 用データベース管理ツール — PostgreSQL、Redis、ClickHouse のスキーマ閲覧、クエリ実行、データ確認ができます。",
+  "extension.description": "VS Code 用データベース管理ツール — PostgreSQL、Redis、ClickHouse、SQLite のスキーマ閲覧、クエリ実行、データ確認ができます。",
   "view.connections.name": "接続",
   "view.queryHistory.name": "クエリ履歴",
   "command.addConnection": "接続を追加",

@@ -72,7 +72,7 @@ describe('ImportService', () => {
       expect(result.warnings[0]).toContain('unsupported provider');
     });
 
-    it('should parse Redis and ClickHouse connections', () => {
+    it('should parse Redis, ClickHouse, and SQLite connections', () => {
       const input = JSON.stringify({
         connections: {
           'redis-1': {
@@ -85,13 +85,19 @@ describe('ImportService', () => {
             name: 'ClickHouse Analytics',
             configuration: { host: 'ch.local', port: '8123' },
           },
+          'sqlite-1': {
+            provider: 'sqlite',
+            name: 'SQLite Local',
+            configuration: { database: '/tmp/test.db' },
+          },
         },
       });
 
       const result = parseDBeaver(input);
-      expect(result.connections).toHaveLength(2);
+      expect(result.connections).toHaveLength(3);
       expect(result.connections[0].type).toBe('redis');
       expect(result.connections[1].type).toBe('clickhouse');
+      expect(result.connections[2].type).toBe('sqlite');
     });
 
     it('should handle invalid JSON', () => {
@@ -159,6 +165,21 @@ describe('ImportService', () => {
       const result = parseDataGrip(xml);
       expect(result.connections).toHaveLength(0);
       expect(result.warnings[0]).toContain('unsupported driver');
+    });
+
+    it('should parse SQLite data sources', () => {
+      const xml = `<application>
+  <component name="dataSourceStorage">
+    <data-source source="LOCAL" name="Local SQLite" uuid="x">
+      <driver-ref>sqlite.xerial</driver-ref>
+      <jdbc-url>jdbc:sqlite:/path/to/db.sqlite</jdbc-url>
+    </data-source>
+  </component>
+</application>`;
+
+      const result = parseDataGrip(xml);
+      expect(result.connections).toHaveLength(1);
+      expect(result.connections[0].type).toBe('sqlite');
     });
 
     it('should handle empty/invalid XML', () => {

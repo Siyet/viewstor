@@ -1,5 +1,5 @@
 {
-  "extension.description": "Инструмент управления базами данных для VS Code — просмотр схем, выполнение запросов и работа с данными в PostgreSQL, Redis и ClickHouse.",
+  "extension.description": "Инструмент управления базами данных для VS Code — просмотр схем, выполнение запросов и работа с данными в PostgreSQL, Redis, ClickHouse и SQLite.",
   "view.connections.name": "Подключения",
   "view.queryHistory.name": "История запросов",
   "command.addConnection": "Добавить подключение",

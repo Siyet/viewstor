@@ -1,5 +1,5 @@
 {
-  "extension.description": "Ferramenta de gerenciamento de bancos de dados para VS Code — explorar esquemas, executar consultas e inspecionar dados no PostgreSQL, Redis e ClickHouse.",
+  "extension.description": "Ferramenta de gerenciamento de bancos de dados para VS Code — explorar esquemas, executar consultas e inspecionar dados no PostgreSQL, Redis, ClickHouse e SQLite.",
   "view.connections.name": "Conexões",
   "view.queryHistory.name": "Histórico de consultas",
   "command.addConnection": "Adicionar conexão",

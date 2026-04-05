@@ -1,5 +1,5 @@
 {
-  "extension.description": "VS Code-এর জন্য ডেটাবেস ব্যবস্থাপনা টুল — PostgreSQL, Redis এবং ClickHouse জুড়ে স্কীমা ব্রাউজ করুন, কুয়েরি চালান এবং ডেটা পরীক্ষা করুন।",
+  "extension.description": "VS Code-এর জন্য ডেটাবেস ব্যবস্থাপনা টুল — PostgreSQL, Redis, ClickHouse এবং SQLite জুড়ে স্কীমা ব্রাউজ করুন, কুয়েরি চালান এবং ডেটা পরীক্ষা করুন।",
   "view.connections.name": "সংযোগসমূহ",
   "view.queryHistory.name": "কুয়েরি ইতিহাস",
   "command.addConnection": "সংযোগ যোগ করুন",
