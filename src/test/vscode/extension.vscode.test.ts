@@ -65,6 +65,8 @@ suite('Extension Activation', () => {
       'viewstor._executeSqlStatements',
       'viewstor.exportResults',
       'viewstor.reportIssue',
+      'viewstor.visualizeResults',
+      'viewstor.exportGrafana',
     ];
     for (const cmd of required) {
       assert.ok(commands.includes(cmd), `Command ${cmd} not registered`);
@@ -1399,7 +1401,167 @@ suite('SQL Diagnostics Provider', () => {
 });
 
 // ============================================================
-// 13. Regressions
+// 13. Chart Visualization
+// ============================================================
+
+suite('Chart Visualization', () => {
+  test('visualizeResults command exists and handles no data gracefully', async () => {
+    // Should show warning but not throw when called without data
+    await vscode.commands.executeCommand('viewstor.visualizeResults');
+  });
+
+  test('visualizeResults command accepts data payload', async () => {
+    // Should not throw when given valid data
+    await vscode.commands.executeCommand('viewstor.visualizeResults', {
+      columns: [{ name: 'x', dataType: 'integer' }, { name: 'y', dataType: 'integer' }],
+      rows: [{ x: 1, y: 2 }, { x: 3, y: 4 }],
+      query: 'SELECT x, y FROM test',
+    });
+    // Close any opened panel
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+  });
+
+  test('exportGrafana command exists and does not throw', async () => {
+    await vscode.commands.executeCommand('viewstor.exportGrafana');
+  });
+
+  test('chart types and config module can be imported', async () => {
+    const chartTypes = await import('../../types/chart');
+    assert.ok(chartTypes.GRAFANA_TYPE_MAP, 'GRAFANA_TYPE_MAP should exist');
+    assert.ok(chartTypes.CHART_TYPE_MAPPING, 'CHART_TYPE_MAPPING should exist');
+    assert.strictEqual(chartTypes.isGrafanaCompatible('line'), true);
+    assert.strictEqual(chartTypes.isGrafanaCompatible('radar'), false);
+    assert.strictEqual(chartTypes.isGrafanaCompatible('funnel'), false);
+  });
+
+  test('chart data transform builds options for all axis chart types', async () => {
+    const { buildEChartsOption } = await import('../../chart/chartDataTransform');
+    const result = {
+      columns: [{ name: 'x', dataType: 'text' }, { name: 'y', dataType: 'integer' }],
+      rows: [{ x: 'A', y: 10 }, { x: 'B', y: 20 }],
+      rowCount: 2,
+      executionTimeMs: 0,
+    };
+
+    for (const chartType of ['line', 'bar', 'scatter'] as const) {
+      const option = buildEChartsOption(result, {
+        chartType,
+        axis: { xColumn: 'x', yColumns: ['y'] },
+        aggregation: { function: 'none' },
+      });
+      assert.ok(option.series, `${chartType} should produce series`);
+      const series = option.series as Array<Record<string, unknown>>;
+      assert.strictEqual(series[0].type, chartType, `Series type should be ${chartType}`);
+    }
+  });
+
+  test('chart data transform builds options for category charts', async () => {
+    const { buildEChartsOption } = await import('../../chart/chartDataTransform');
+    const result = {
+      columns: [{ name: 'name', dataType: 'text' }, { name: 'value', dataType: 'integer' }],
+      rows: [{ name: 'A', value: 10 }, { name: 'B', value: 20 }],
+      rowCount: 2,
+      executionTimeMs: 0,
+    };
+
+    for (const chartType of ['pie', 'funnel', 'treemap', 'sunburst'] as const) {
+      const option = buildEChartsOption(result, {
+        chartType,
+        category: { nameColumn: 'name', valueColumn: 'value' },
+        aggregation: { function: 'none' },
+      });
+      assert.ok(option.series, `${chartType} should produce series`);
+    }
+  });
+
+  test('suggestChartConfig auto-detects timeseries', async () => {
+    const { suggestChartConfig } = await import('../../chart/chartDataTransform');
+    const result = {
+      columns: [
+        { name: 'ts', dataType: 'timestamp' },
+        { name: 'val', dataType: 'float8' },
+      ],
+      rows: [{ ts: '2024-01-01', val: 1 }],
+      rowCount: 1,
+      executionTimeMs: 0,
+    };
+    const config = suggestChartConfig(result);
+    assert.strictEqual(config.chartType, 'line');
+    assert.ok(config.axis);
+    assert.strictEqual(config.axis!.xColumn, 'ts');
+  });
+
+  test('Grafana export builds dashboard for compatible types', async () => {
+    const { buildGrafanaDashboard } = await import('../../chart/grafanaExport');
+    const config = {
+      chartType: 'line' as const,
+      axis: { xColumn: 'ts', yColumns: ['value'] },
+      aggregation: { function: 'none' as const },
+      sourceQuery: 'SELECT ts, value FROM metrics',
+      databaseType: 'postgresql',
+      title: 'Test',
+    };
+    const dashboard = buildGrafanaDashboard(config);
+    assert.ok(dashboard, 'Should produce dashboard for line chart');
+    assert.strictEqual(dashboard!.dashboard.panels[0].type, 'timeseries');
+    assert.strictEqual(dashboard!.dashboard.panels[0].targets[0].rawSql, 'SELECT ts, value FROM metrics');
+  });
+
+  test('Grafana export returns null for incompatible types', async () => {
+    const { buildGrafanaDashboard } = await import('../../chart/grafanaExport');
+    for (const chartType of ['radar', 'funnel', 'boxplot', 'candlestick', 'treemap', 'sunburst'] as const) {
+      const result = buildGrafanaDashboard({
+        chartType,
+        aggregation: { function: 'none' },
+      });
+      assert.strictEqual(result, null, `${chartType} should not produce Grafana dashboard`);
+    }
+  });
+
+  test('multi-source join merges rows correctly', async () => {
+    const { joinByColumn } = await import('../../chart/chartDataTransform');
+    const primary = [
+      { date: '2024-01-01', sales: 100 },
+      { date: '2024-01-02', sales: 200 },
+    ];
+    const additional = [
+      { dt: '2024-01-01', returns: 5 },
+      { dt: '2024-01-02', returns: 10 },
+    ];
+    const joined = joinByColumn(primary, additional, 'date', 'dt');
+    assert.strictEqual(joined.length, 2);
+    assert.strictEqual(joined[0].returns, 5);
+    assert.strictEqual(joined[1].returns, 10);
+    assert.strictEqual(joined[0].sales, 100);
+  });
+
+  test('multi-source buildMultiSourceEChartsOption adds series', async () => {
+    const { buildMultiSourceEChartsOption } = await import('../../chart/chartDataTransform');
+    const primary = {
+      columns: [{ name: 'ts', dataType: 'timestamp' }, { name: 'cpu', dataType: 'float8' }],
+      rows: [{ ts: '2024-01-01', cpu: 50 }],
+      rowCount: 1,
+      executionTimeMs: 0,
+    };
+    const config = {
+      chartType: 'line' as const,
+      axis: { xColumn: 'ts', yColumns: ['cpu'] },
+      aggregation: { function: 'none' as const },
+    };
+    const additional = [{
+      source: { id: '1', label: 'Mem', yColumns: ['mem'], mergeMode: 'separate' as const },
+      columns: [{ name: 'ts', dataType: 'timestamp' }, { name: 'mem', dataType: 'float8' }],
+      rows: [{ ts: '2024-01-01', mem: 70 }],
+    }];
+    const option = buildMultiSourceEChartsOption(primary, additional, config);
+    const series = option.series as Array<Record<string, unknown>>;
+    assert.strictEqual(series.length, 2, 'Should have primary + additional series');
+    assert.ok(String(series[1].name).includes('Mem'), 'Additional series should be labeled');
+  });
+});
+
+// ============================================================
+// 14. Regressions
 // ============================================================
 
 suite('Regressions', () => {

@@ -8,6 +8,9 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { ConnectionStore } from './connectionStore';
 import { SchemaObject } from '../types/schema';
+import { ChartConfig, EChartsChartType, isGrafanaCompatible } from '../types/chart';
+import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
+import { buildGrafanaDashboard } from '../chart/grafanaExport';
 
 const store = new ConnectionStore();
 
@@ -98,6 +101,40 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: 'reload_connections',
       description: 'Reload connections from config files (call after adding connections via VS Code or editing config files)',
       inputSchema: { type: 'object' as const, properties: {} },
+    },
+    {
+      name: 'build_chart',
+      description: 'Execute a query and return an ECharts option JSON for visualization. Returns auto-suggested config if none provided.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          connectionId: { type: 'string', description: 'Connection ID' },
+          query: { type: 'string', description: 'SQL query to execute' },
+          chartType: { type: 'string', description: 'Chart type: line, bar, scatter, pie, radar, heatmap, funnel, gauge, boxplot, candlestick, treemap, sunburst' },
+          xColumn: { type: 'string', description: 'X axis column name (for axis charts)' },
+          yColumns: { type: 'array', items: { type: 'string' }, description: 'Y axis column names (for axis charts)' },
+          groupByColumn: { type: 'string', description: 'Group by column name' },
+          nameColumn: { type: 'string', description: 'Name column (for pie/funnel/treemap)' },
+          valueColumn: { type: 'string', description: 'Value column (for pie/funnel/gauge)' },
+        },
+        required: ['connectionId', 'query'],
+      },
+    },
+    {
+      name: 'export_grafana_dashboard',
+      description: 'Generate a Grafana dashboard JSON from a query. Only works for Grafana-compatible chart types: line, bar, scatter, pie, gauge, heatmap.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          connectionId: { type: 'string', description: 'Connection ID' },
+          query: { type: 'string', description: 'SQL query' },
+          chartType: { type: 'string', description: 'Chart type: line, bar, scatter, pie, gauge, heatmap' },
+          title: { type: 'string', description: 'Dashboard title' },
+          xColumn: { type: 'string', description: 'X axis column name' },
+          yColumns: { type: 'array', items: { type: 'string' }, description: 'Y axis column names' },
+        },
+        required: ['connectionId', 'query', 'chartType'],
+      },
     },
   ],
 }));
@@ -202,6 +239,63 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         store.reload();
         const all = store.getAll();
         return jsonResponse({ message: `Reloaded ${all.length} connection(s)`, connections: all.map(c => c.name) });
+      }
+
+      case 'build_chart': {
+        const { connectionId, query, chartType, xColumn, yColumns, groupByColumn, nameColumn, valueColumn } = args as {
+          connectionId: string; query: string; chartType?: string;
+          xColumn?: string; yColumns?: string[]; groupByColumn?: string;
+          nameColumn?: string; valueColumn?: string;
+        };
+        const chartDriver = await store.ensureDriver(connectionId);
+        const chartResult = await chartDriver.execute(query);
+        if (chartResult.error) return errorResponse(chartResult.error);
+
+        const suggested = suggestChartConfig(chartResult);
+        const config: ChartConfig = {
+          chartType: (chartType as EChartsChartType) || suggested.chartType || 'bar',
+          aggregation: suggested.aggregation || { function: 'none' },
+          sourceQuery: query,
+          connectionId,
+        };
+
+        if (xColumn && yColumns) {
+          config.axis = { xColumn, yColumns, groupByColumn };
+        } else if (nameColumn && valueColumn) {
+          config.category = { nameColumn, valueColumn };
+        } else if (suggested.axis) {
+          config.axis = suggested.axis;
+        } else if (suggested.category) {
+          config.category = suggested.category;
+        }
+
+        const option = buildEChartsOption(chartResult, config);
+        return jsonResponse({ config, option, rowCount: chartResult.rowCount });
+      }
+
+      case 'export_grafana_dashboard': {
+        const { connectionId: grafConnId, query: grafQuery, chartType: grafChartType, title: grafTitle, xColumn: grafX, yColumns: grafY } = args as {
+          connectionId: string; query: string; chartType: string;
+          title?: string; xColumn?: string; yColumns?: string[];
+        };
+        if (!isGrafanaCompatible(grafChartType as EChartsChartType)) {
+          return errorResponse(`Chart type "${grafChartType}" is not compatible with Grafana. Use: line, bar, scatter, pie, gauge, heatmap.`);
+        }
+        const grafConn = store.get(grafConnId);
+        const grafConfig: ChartConfig = {
+          chartType: grafChartType as EChartsChartType,
+          aggregation: { function: 'none' },
+          sourceQuery: grafQuery,
+          connectionId: grafConnId,
+          databaseType: grafConn?.type,
+          title: grafTitle,
+        };
+        if (grafX && grafY) {
+          grafConfig.axis = { xColumn: grafX, yColumns: grafY };
+        }
+        const dashboard = buildGrafanaDashboard(grafConfig);
+        if (!dashboard) return errorResponse('Failed to build Grafana dashboard');
+        return jsonResponse(dashboard);
       }
 
       default:

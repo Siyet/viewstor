@@ -67,5 +67,14 @@
   "Viewstor failed to activate: {0}": "Falha ao ativar o Viewstor: {0}",
   "Copy Config": "Copiar configuração",
   "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "Adicione isso à configuração MCP do seu agente AI (Claude Code, Cline, etc.):",
-  "MCP config copied to clipboard": "Configuração MCP copiada para a área de transferência"
+  "MCP config copied to clipboard": "Configuração MCP copiada para a área de transferência",
+  "No data to visualize.": "Nenhum dado para visualizar.",
+  "This chart type cannot be exported to Grafana.": "Este tipo de gráfico não pode ser exportado para o Grafana.",
+  "Grafana dashboard JSON copied to clipboard.": "JSON do painel do Grafana copiado para a área de transferência.",
+  "Grafana dashboard saved to {0}": "Painel do Grafana salvo em {0}",
+  "Set viewstor.grafanaUrl and viewstor.grafanaApiKey in settings to push dashboards.": "Defina viewstor.grafanaUrl e viewstor.grafanaApiKey nas configurações para enviar painéis.",
+  "Dashboard pushed to Grafana: {0}": "Painel enviado ao Grafana: {0}",
+  "Grafana push failed: {0}": "Falha ao enviar para o Grafana: {0}",
+  "Open a chart panel and use the Export to Grafana button.": "Abra um painel de gráfico e use o botão Export to Grafana.",
+  "Query returned {0} rows. Opening chart...": "A consulta retornou {0} linhas. Abrindo gráfico..."
 }

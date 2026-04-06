@@ -76,6 +76,30 @@ Query mode → client-side data + export in-memory rows.
 
 `safeJsonForScript()` escapes `</script>` and `<!--` in inline JSON.
 
+"Visualize" button (`visualizeBtn`) sends `{ type: 'visualize', columns, rows }` → opens Chart Panel.
+
+### Chart Panel
+`src/chart/chartPanel.ts` — ChartPanelManager, webview panel for chart visualization. Uses Apache ECharts (loaded from `dist/scripts/echarts.min.js`).
+
+`src/types/chart.ts` — EChartsChartType (12 types), GrafanaChartType (6 compatible), ChartConfig, AxisMapping, CategoryMapping, etc.
+
+`src/chart/chartDataTransform.ts` — pure functions: `buildEChartsOption()` transforms QueryResult + ChartConfig into ECharts option. `suggestChartConfig()` auto-detects best chart type from column types. Builder registry per chart type. No vscode dependency, fully unit-tested.
+
+`src/chart/grafanaExport.ts` — pure functions: `buildGrafanaDashboard()` converts ChartConfig to Grafana JSON (returns null for incompatible types). `pushToGrafana()` POSTs to Grafana HTTP API.
+
+Chart types and Grafana mapping:
+- axis charts: line → timeseries, bar → barchart, scatter → xychart, heatmap → heatmap
+- category charts: pie → piechart, funnel/treemap/sunburst → no Grafana equivalent
+- gauge → gauge, boxplot/candlestick/radar → no Grafana equivalent
+
+Webview: `src/webview/scripts/chart-panel.js` (config sidebar + ECharts init), `src/webview/styles/chart-panel.css` (VS Code theme vars).
+
+Messages: buildOption (webview → host, triggers `buildEChartsOption` or `buildMultiSourceEChartsOption`), setOption (host → webview), exportGrafana, copyGrafanaJson, saveGrafanaJson, pushToGrafana, showGrafanaJson, requestPinnedQueries, pinnedQueries, requestDataSourceColumns, dataSourceColumns.
+
+Multi-source: `ChartDataSource` in config, resolved via `PinnedQueryProvider` (injected from `QueryHistoryProvider`). Merge modes: `join` (left join by key column via `joinByColumn()`) and `separate` (independent series). Webview manages data sources list, toolbar "+" button opens pinned query picker → config popup → adds to sidebar.
+
+Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana push.
+
 ### SQL Autocomplete
 `src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).
 
@@ -92,15 +116,17 @@ Query mode → client-side data + export in-memory rows.
 `src/connections/tunnel.ts` — SSH tunnel via `ssh2` library (port forwarding). SOCKS5 proxy via raw socket negotiation. Used by PostgreSQL driver when `config.proxy` is set. Tunnel cleaned up on disconnect or connect failure.
 
 ### Chat Participant
-`src/chat/participant.ts` — Copilot Chat participant `@viewstor`. Registered via `vscode.chat.createChatParticipant()`. Slash commands: `/schema` (dump schema), `/describe <table>` (table info), `/query` (generate SQL). Resolves active connection from query editor URI or first connected connection. Injects schema context (tables + columns + types) as system prompt. Uses `vscode.lm.selectChatModels()` to forward to Copilot LLM. Respects readonly mode in system prompt. Requires VS Code 1.93+.
+`src/chat/participant.ts` — Copilot Chat participant `@viewstor`. Registered via `vscode.chat.createChatParticipant()`. Slash commands: `/schema` (dump schema), `/describe <table>` (table info), `/query` (generate SQL), `/chart` (generate SQL + open chart visualization). Resolves active connection from query editor URI or first connected connection. Injects schema context (tables + columns + types) as system prompt. Uses `vscode.lm.selectChatModels()` to forward to Copilot LLM. Respects readonly mode in system prompt. Requires VS Code 1.93+.
 
 ### MCP
-`src/mcp/server.ts` — 5 VS Code commands for AI agents:
+`src/mcp/server.ts` — 7 VS Code commands for AI agents:
 - `viewstor.mcp.listConnections` → connection list with status
 - `viewstor.mcp.getSchema` → flattened schema (name, type, path, detail)
 - `viewstor.mcp.executeQuery` → SQL execution (readonly enforced: only SELECT/EXPLAIN/SHOW/WITH)
 - `viewstor.mcp.getTableData` → rows with column metadata
 - `viewstor.mcp.getTableInfo` → column details with PK/nullable
+- `viewstor.mcp.visualize` → execute query and open chart panel
+- `viewstor.mcp.exportGrafana` → generate Grafana dashboard JSON
 
 All auto-connect. Returns structured JSON or `{ error }`.
 
@@ -109,7 +135,7 @@ All auto-connect. Returns structured JSON or `{ error }`.
 
 `src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle.
 
-7 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`.
+9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`.
 
 Usage in Claude Code config:
 ```json

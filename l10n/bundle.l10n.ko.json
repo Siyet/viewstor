@@ -67,5 +67,14 @@
   "Viewstor failed to activate: {0}": "Viewstor 활성화 실패: {0}",
   "Copy Config": "설정 복사",
   "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "AI 에이전트 MCP 설정에 추가하세요 (Claude Code, Cline 등):",
-  "MCP config copied to clipboard": "MCP 설정이 클립보드에 복사되었습니다"
+  "MCP config copied to clipboard": "MCP 설정이 클립보드에 복사되었습니다",
+  "No data to visualize.": "시각화할 데이터가 없습니다.",
+  "This chart type cannot be exported to Grafana.": "이 차트 유형은 Grafana로 내보낼 수 없습니다.",
+  "Grafana dashboard JSON copied to clipboard.": "Grafana 대시보드 JSON이 클립보드에 복사되었습니다.",
+  "Grafana dashboard saved to {0}": "Grafana 대시보드가 {0}에 저장되었습니다",
+  "Set viewstor.grafanaUrl and viewstor.grafanaApiKey in settings to push dashboards.": "대시보드를 푸시하려면 설정에서 viewstor.grafanaUrl과 viewstor.grafanaApiKey를 설정하세요.",
+  "Dashboard pushed to Grafana: {0}": "Grafana에 대시보드가 푸시되었습니다: {0}",
+  "Grafana push failed: {0}": "Grafana 푸시 실패: {0}",
+  "Open a chart panel and use the Export to Grafana button.": "차트 패널을 열고 Export to Grafana 버튼을 사용하세요.",
+  "Query returned {0} rows. Opening chart...": "쿼리가 {0}개의 행을 반환했습니다. 차트를 여는 중..."
 }

@@ -68,5 +68,14 @@
   "Copy Config": "Скопировать конфиг",
   "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "Добавьте это в конфиг MCP вашего AI-агента (Claude Code, Cline и др.):",
   "MCP config copied to clipboard": "Конфиг MCP скопирован в буфер обмена",
-  "Query error: {0}": "Ошибка запроса: {0}"
+  "Query error: {0}": "Ошибка запроса: {0}",
+  "No data to visualize.": "Нет данных для визуализации.",
+  "This chart type cannot be exported to Grafana.": "Этот тип графика нельзя экспортировать в Grafana.",
+  "Grafana dashboard JSON copied to clipboard.": "JSON дашборда Grafana скопирован в буфер обмена.",
+  "Grafana dashboard saved to {0}": "Дашборд Grafana сохранён в {0}",
+  "Set viewstor.grafanaUrl and viewstor.grafanaApiKey in settings to push dashboards.": "Укажите viewstor.grafanaUrl и viewstor.grafanaApiKey в настройках для отправки дашбордов.",
+  "Dashboard pushed to Grafana: {0}": "Дашборд отправлен в Grafana: {0}",
+  "Grafana push failed: {0}": "Ошибка отправки в Grafana: {0}",
+  "Open a chart panel and use the Export to Grafana button.": "Откройте панель графика и нажмите кнопку Export to Grafana.",
+  "Query returned {0} rows. Opening chart...": "Запрос вернул {0} строк. Открытие графика..."
 }

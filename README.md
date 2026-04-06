@@ -36,7 +36,9 @@ Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHo
 | **MCP for AI agents** | Built-in, free | No | No | Paid tier |
 | **Import from DBeaver/DataGrip/pgAdmin** | Yes | No | No | No |
 | **Index hints** | Yes | No | No | No |
+| **Chart visualization + Grafana export** | 12 chart types, free | No | No | No |
 | **Color-coded folders** | Nested, inherited | No | No | No |
+| **Localization** | 12 languages | English only | English only | English only |
 
 ## Get Started
 
@@ -117,6 +119,30 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 - Right-click cells → Copy as CSV / TSV / Markdown / JSON
 - `Ctrl+C` copies selected cells as TSV
 
+### Chart Visualization
+
+Visualize query results as interactive charts — powered by [Apache ECharts](https://echarts.apache.org/):
+
+- **12 chart types** — line, bar, scatter, pie, heatmap, radar, funnel, gauge, boxplot, candlestick, treemap, sunburst
+- Click the **chart button** in the Result Panel toolbar to open the chart panel
+- **Config sidebar** — axis mapping, aggregation, group by, area fill, legend
+- **Auto-detection** — suggests the best chart type based on column types (time → line, categorical → pie, etc.)
+- **Grafana export** — compatible chart types (line, bar, scatter, pie, gauge, heatmap) can be exported as Grafana dashboard JSON: copy to clipboard, save as `.json`, or push directly via Grafana HTTP API
+
+**Multi-source charts** — overlay data from multiple queries on one chart:
+
+1. Execute and **pin** queries you want to combine (pin icon in Query History)
+2. Open a chart from any result set
+3. Click **+ Data Source** in the chart toolbar, pick a pinned query
+4. Choose merge mode:
+   - **Separate series** — each source rendered as independent series (different X values are fine)
+   - **Join by column** — rows matched by a key column (like SQL LEFT JOIN), additional Y columns merged into the primary dataset
+5. Select which numeric columns to include, set a label — done
+
+Example: pin `SELECT ts, cpu FROM metrics` and `SELECT ts, mem FROM metrics`, open chart from CPU, add Memory as data source with join on `ts` — both metrics on the same time axis.
+
+Configure `viewstor.grafanaUrl` and `viewstor.grafanaApiKey` in settings to enable Grafana push.
+
 ### Copilot Chat (`@viewstor`)
 
 Ask questions about your database in natural language:
@@ -124,8 +150,9 @@ Ask questions about your database in natural language:
 - `@viewstor describe the users table`
 - `@viewstor write a query to find orders without payments`
 - `@viewstor what indexes are missing for this query?`
+- `@viewstor /chart show request latency over the last hour grouped by endpoint`
 
-Schema context is injected automatically from the active connection. Slash commands: `/schema`, `/query`, `/describe`. Requires GitHub Copilot.
+Schema context is injected automatically from the active connection. Slash commands: `/schema`, `/query`, `/describe`, `/chart`. Requires GitHub Copilot.
 
 ### AI Agent Integration (MCP)
 
@@ -140,6 +167,8 @@ Two MCP interfaces — pick the one that fits your workflow:
 | `viewstor.mcp.executeQuery` | Run SQL (read-only enforced) |
 | `viewstor.mcp.getTableData` | Fetch rows with limit |
 | `viewstor.mcp.getTableInfo` | Column metadata, PKs, nullability |
+| `viewstor.mcp.visualize` | Execute query and open chart panel |
+| `viewstor.mcp.exportGrafana` | Generate Grafana dashboard JSON |
 
 **Standalone MCP server** (for Claude Code, Cline — CLI agents running outside VS Code):
 
@@ -160,7 +189,7 @@ Or add manually:
 }
 ```
 
-7 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
+9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
 
 All MCP interfaces auto-connect and respect read-only mode.
 

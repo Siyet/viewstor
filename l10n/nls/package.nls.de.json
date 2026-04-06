@@ -43,5 +43,10 @@
   "command.renameHistoryEntry": "Abfrage umbenennen",
   "config.queryHistoryLimit.description": "Maximale Anzahl der Abfrageverlaufseinträge. Angeheftete Einträge werden nie entfernt.",
   "command.setupMcp": "MCP-Server einrichten",
-  "command.getStarted": "Erste Schritte"
+  "command.getStarted": "Erste Schritte",
+  "command.visualizeResults": "Als Diagramm anzeigen",
+  "command.exportGrafana": "In Grafana-Dashboard exportieren",
+  "config.grafanaUrl.description": "Grafana-Server-URL für direkten Dashboard-Push (z. B. https://grafana.example.com).",
+  "config.grafanaApiKey.description": "Grafana-API-Schlüssel zum Pushen von Dashboards. Erstellen Sie einen Schlüssel mit der Editor-Rolle.",
+  "chat.command.chart": "Diagramm-Visualisierung aus einer Abfrage erstellen"
 }

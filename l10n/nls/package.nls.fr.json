@@ -43,5 +43,10 @@
   "command.renameHistoryEntry": "Renommer la requête",
   "config.queryHistoryLimit.description": "Nombre maximal d'entrées dans l'historique. Les entrées épinglées ne sont jamais supprimées.",
   "command.setupMcp": "Configurer le serveur MCP",
-  "command.getStarted": "Prise en main"
+  "command.getStarted": "Prise en main",
+  "command.visualizeResults": "Visualiser en graphique",
+  "command.exportGrafana": "Exporter vers un tableau de bord Grafana",
+  "config.grafanaUrl.description": "URL du serveur Grafana pour l'envoi direct de tableaux de bord (ex. : https://grafana.example.com).",
+  "config.grafanaApiKey.description": "Clé API Grafana pour envoyer des tableaux de bord. Créez une clé avec le rôle Editor.",
+  "chat.command.chart": "Générer un graphique à partir d'une requête"
 }

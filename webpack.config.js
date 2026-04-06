@@ -39,6 +39,7 @@ module.exports = (_env, argv) => {
         patterns: [
           { from: 'src/webview/styles', to: 'styles' },
           { from: 'src/webview/scripts', to: 'scripts' },
+          { from: 'node_modules/echarts/dist/echarts.min.js', to: 'scripts/echarts.min.js' },
         ],
       }),
     ],

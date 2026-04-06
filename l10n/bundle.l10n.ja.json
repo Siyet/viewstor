@@ -67,5 +67,14 @@
   "Viewstor failed to activate: {0}": "Viewstor のアクティベーションに失敗しました: {0}",
   "Copy Config": "設定をコピー",
   "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "AIエージェントのMCP設定に追加してください（Claude Code、Clineなど）：",
-  "MCP config copied to clipboard": "MCP設定をクリップボードにコピーしました"
+  "MCP config copied to clipboard": "MCP設定をクリップボードにコピーしました",
+  "No data to visualize.": "表示するデータがありません。",
+  "This chart type cannot be exported to Grafana.": "このチャートタイプはGrafanaにエクスポートできません。",
+  "Grafana dashboard JSON copied to clipboard.": "GrafanaダッシュボードJSONをクリップボードにコピーしました。",
+  "Grafana dashboard saved to {0}": "Grafanaダッシュボードを{0}に保存しました",
+  "Set viewstor.grafanaUrl and viewstor.grafanaApiKey in settings to push dashboards.": "ダッシュボードをプッシュするには、設定でviewstor.grafanaUrlとviewstor.grafanaApiKeyを設定してください。",
+  "Dashboard pushed to Grafana: {0}": "Grafanaにダッシュボードをプッシュしました: {0}",
+  "Grafana push failed: {0}": "Grafanaへのプッシュに失敗しました: {0}",
+  "Open a chart panel and use the Export to Grafana button.": "チャートパネルを開き、Export to Grafanaボタンを使用してください。",
+  "Query returned {0} rows. Opening chart...": "クエリが{0}行を返しました。チャートを開いています..."
 }

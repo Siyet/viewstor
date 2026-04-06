@@ -43,5 +43,10 @@
   "command.renameHistoryEntry": "重命名查询",
   "config.queryHistoryLimit.description": "查询历史的最大记录数。已固定的记录不会被清除。",
   "command.setupMcp": "设置 MCP 服务器",
-  "command.getStarted": "快速入门"
+  "command.getStarted": "快速入门",
+  "command.visualizeResults": "可视化为图表",
+  "command.exportGrafana": "导出到 Grafana 仪表板",
+  "config.grafanaUrl.description": "用于直接推送仪表板的 Grafana 服务器 URL（例如 https://grafana.example.com）。",
+  "config.grafanaApiKey.description": "用于推送仪表板的 Grafana API 密钥。请创建具有 Editor 角色的密钥。",
+  "chat.command.chart": "从查询生成图表可视化"
 }

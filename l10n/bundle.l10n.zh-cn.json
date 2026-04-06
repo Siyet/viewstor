@@ -67,5 +67,14 @@
   "Viewstor failed to activate: {0}": "Viewstor 激活失败: {0}",
   "Copy Config": "复制配置",
   "Add this to your AI agent MCP config (Claude Code, Cline, etc.):": "将此添加到您的 AI 代理 MCP 配置中（Claude Code、Cline 等）：",
-  "MCP config copied to clipboard": "MCP 配置已复制到剪贴板"
+  "MCP config copied to clipboard": "MCP 配置已复制到剪贴板",
+  "No data to visualize.": "没有可视化的数据。",
+  "This chart type cannot be exported to Grafana.": "此图表类型无法导出到 Grafana。",
+  "Grafana dashboard JSON copied to clipboard.": "Grafana 仪表板 JSON 已复制到剪贴板。",
+  "Grafana dashboard saved to {0}": "Grafana 仪表板已保存到 {0}",
+  "Set viewstor.grafanaUrl and viewstor.grafanaApiKey in settings to push dashboards.": "请在设置中配置 viewstor.grafanaUrl 和 viewstor.grafanaApiKey 以推送仪表板。",
+  "Dashboard pushed to Grafana: {0}": "仪表板已推送到 Grafana: {0}",
+  "Grafana push failed: {0}": "Grafana 推送失败: {0}",
+  "Open a chart panel and use the Export to Grafana button.": "打开图表面板并使用 Export to Grafana 按钮。",
+  "Query returned {0} rows. Opening chart...": "查询返回了 {0} 行。正在打开图表..."
 }

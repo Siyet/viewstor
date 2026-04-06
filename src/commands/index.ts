@@ -4,6 +4,7 @@ import { ConnectionTreeProvider, ConnectionTreeItem } from '../views/connectionT
 import { QueryHistoryProvider } from '../views/queryHistory';
 import { QueryEditorProvider, QueryDocumentProvider } from '../editors/queryEditor';
 import { ResultPanelManager } from '../views/resultPanel';
+import { ChartPanelManager } from '../chart/chartPanel';
 import { ConnectionFormPanel } from '../views/connectionForm';
 import { FolderFormPanel } from '../views/folderForm';
 import { SortColumn, QueryResult, QueryColumn, QueryHistoryEntry } from '../types/query';
@@ -20,6 +21,7 @@ interface CommandContext {
   queryHistoryProvider: QueryHistoryProvider;
   queryEditorProvider: QueryEditorProvider;
   resultPanelManager: ResultPanelManager;
+  chartPanelManager: ChartPanelManager;
   connectionFormPanel: ConnectionFormPanel;
   folderFormPanel: FolderFormPanel;
   outputChannel: vscode.LogOutputChannel;
@@ -181,7 +183,7 @@ function logQueryToOutput(sql: string, resultText: string, isError: boolean) {
 }
 
 export function registerCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
-  const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel, outputChannel, tempFileManager, queryFileManager } = ctx;
+  const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, chartPanelManager, connectionFormPanel, folderFormPanel, outputChannel, tempFileManager, queryFileManager } = ctx;
   _outputChannel = outputChannel;
 
   // Register CodeLens provider for query results
@@ -1426,6 +1428,40 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       );
       if (confirm !== confirmBtn) return;
       await queryHistoryProvider.clear();
+    }),
+
+    vscode.commands.registerCommand('viewstor.visualizeResults', (data?: {
+      columns: QueryColumn[];
+      rows: Record<string, unknown>[];
+      query?: string;
+      connectionId?: string;
+      databaseName?: string;
+      databaseType?: string;
+      color?: string;
+    }) => {
+      if (!data?.columns || !data?.rows) {
+        vscode.window.showWarningMessage(vscode.l10n.t('No data to visualize.'));
+        return;
+      }
+      const result: QueryResult = {
+        columns: data.columns,
+        rows: data.rows,
+        rowCount: data.rows.length,
+        executionTimeMs: 0,
+      };
+      chartPanelManager.show(result, 'Chart', {
+        connectionId: data.connectionId,
+        databaseName: data.databaseName,
+        databaseType: data.databaseType,
+        query: data.query,
+        color: data.color,
+      });
+    }),
+
+    vscode.commands.registerCommand('viewstor.exportGrafana', () => {
+      vscode.window.showInformationMessage(
+        vscode.l10n.t('Open a chart panel and use the Export to Grafana button.'),
+      );
     }),
   );
 }

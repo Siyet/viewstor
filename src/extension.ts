@@ -15,6 +15,7 @@ import { SqlDiagnosticProvider } from './editors/sqlDiagnosticProvider';
 import { registerMcpCommands } from './mcp/server';
 import { registerCommands } from './commands';
 import { registerChatParticipant } from './chat/participant';
+import { ChartPanelManager } from './chart/chartPanel';
 import { TempFileManager } from './services/tempFileManager';
 import { QueryFileManager } from './services/queryFileManager';
 import { setDebugChannel, dbg } from './utils/debug';
@@ -38,6 +39,8 @@ export function activate(context: vscode.ExtensionContext) {
     queryFileManager = new QueryFileManager();
     const queryEditorProvider = new QueryEditorProvider(connectionManager, queryFileManager);
     const resultPanelManager = new ResultPanelManager(context);
+    const chartPanelManager = new ChartPanelManager(context);
+    chartPanelManager.setPinnedQueryProvider(queryHistoryProvider);
     tempFileManager = new TempFileManager(context, queryFileManager);
     tempFileManager.setPostMessage((key, msg) => resultPanelManager.postMessage(key, msg));
     resultPanelManager.setTempFileManager(tempFileManager);
@@ -86,6 +89,7 @@ export function activate(context: vscode.ExtensionContext) {
       queryHistoryProvider,
       queryEditorProvider,
       resultPanelManager,
+      chartPanelManager,
       connectionFormPanel,
       folderFormPanel,
       outputChannel,

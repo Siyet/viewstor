@@ -43,5 +43,10 @@
   "command.renameHistoryEntry": "Renombrar consulta",
   "config.queryHistoryLimit.description": "Número máximo de entradas en el historial. Las entradas fijadas nunca se eliminan.",
   "command.setupMcp": "Configurar servidor MCP",
-  "command.getStarted": "Primeros pasos"
+  "command.getStarted": "Primeros pasos",
+  "command.visualizeResults": "Visualizar como gráfico",
+  "command.exportGrafana": "Exportar a panel de Grafana",
+  "config.grafanaUrl.description": "URL del servidor Grafana para enviar paneles directamente (ej., https://grafana.example.com).",
+  "config.grafanaApiKey.description": "Clave API de Grafana para enviar paneles. Cree una clave con el rol Editor.",
+  "chat.command.chart": "Generar una visualización de gráfico a partir de una consulta"
 }

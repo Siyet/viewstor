@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
+import { ChartConfig, isGrafanaCompatible } from '../types/chart';
+import { buildGrafanaDashboard } from '../chart/grafanaExport';
 
 /**
  * MCP-compatible tool definitions exposed via VS Code commands.
@@ -137,6 +139,54 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };
       }
+    }),
+    vscode.commands.registerCommand('viewstor.mcp.visualize', async (connectionId: string, query: string, _chartConfig?: Partial<ChartConfig>) => {
+      let driver = connectionManager.getDriver(connectionId);
+      if (!driver) {
+        try {
+          await connectionManager.connect(connectionId);
+          driver = connectionManager.getDriver(connectionId);
+        } catch (err) {
+          return { error: `Connection failed: ${err instanceof Error ? err.message : err}` };
+        }
+      }
+      if (!driver) return { error: 'Driver not available' };
+
+      try {
+        const result = await driver.execute(query);
+        if (result.error) return { error: result.error };
+
+        const state = connectionManager.get(connectionId);
+        vscode.commands.executeCommand('viewstor.visualizeResults', {
+          columns: result.columns,
+          rows: result.rows,
+          query,
+          connectionId,
+          databaseName: state?.config.database,
+          databaseType: state?.config.type,
+        });
+
+        return { rowCount: result.rowCount, message: 'Chart panel opened' };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) };
+      }
+    }),
+
+    vscode.commands.registerCommand('viewstor.mcp.exportGrafana', async (connectionId: string, query: string, chartConfig: ChartConfig) => {
+      const state = connectionManager.get(connectionId);
+      if (!isGrafanaCompatible(chartConfig.chartType)) {
+        return { error: `Chart type "${chartConfig.chartType}" is not compatible with Grafana` };
+      }
+      const config: ChartConfig = {
+        ...chartConfig,
+        sourceQuery: query,
+        connectionId,
+        databaseName: state?.config.database,
+        databaseType: state?.config.type,
+      };
+      const dashboard = buildGrafanaDashboard(config);
+      if (!dashboard) return { error: 'Failed to build Grafana dashboard' };
+      return dashboard;
     }),
   );
 }

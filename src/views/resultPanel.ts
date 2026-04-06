@@ -162,6 +162,16 @@ export class ResultPanelManager {
         case 'rerunLastQuery':
           vscode.commands.executeCommand('viewstor.runQuery');
           break;
+        case 'visualize':
+          vscode.commands.executeCommand('viewstor.visualizeResults', {
+            columns: msg.columns,
+            rows: msg.rows,
+            query: ctx.query,
+            connectionId: ctx.connectionId,
+            databaseName: ctx.databaseName,
+            color: ctx.color,
+          });
+          break;
       }
     });
     this.messageDisposables.set(panelKey, disposable);
@@ -281,6 +291,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     <span id="searchCount" class="search-count"></span>
     <span style="flex:1"></span>
     <button id="exportBtn">Export</button>
+    <button id="visualizeBtn" title="Visualize as chart">📊</button>
     <button id="addRowBtn" class="hidden">+ Row</button>
     <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
     <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
@@ -1241,6 +1252,9 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     }
   });
   document.getElementById('exportBtn').addEventListener('click', showExportPopup);
+  document.getElementById('visualizeBtn').addEventListener('click', () => {
+    vscode.postMessage({ type: 'visualize', columns, rows: pageRows });
+  });
   document.getElementById('exportClose').addEventListener('click', closeExportPopup);
   document.getElementById('exportConfirm').addEventListener('click', () => {
     const fmt = document.getElementById('exportFormat').value;

@@ -43,5 +43,10 @@
   "command.renameHistoryEntry": "إعادة تسمية الاستعلام",
   "config.queryHistoryLimit.description": "الحد الأقصى لعدد سجلات الاستعلامات. السجلات المثبتة لا تُحذف أبداً.",
   "command.setupMcp": "إعداد خادم MCP",
-  "command.getStarted": "البدء"
+  "command.getStarted": "البدء",
+  "command.visualizeResults": "عرض كرسم بياني",
+  "command.exportGrafana": "تصدير إلى لوحة Grafana",
+  "config.grafanaUrl.description": "عنوان URL لخادم Grafana لإرسال لوحات المعلومات مباشرة (مثال: https://grafana.example.com).",
+  "config.grafanaApiKey.description": "مفتاح API لـ Grafana لإرسال لوحات المعلومات. أنشئ مفتاحاً بصلاحية Editor.",
+  "chat.command.chart": "إنشاء رسم بياني من استعلام"
 }

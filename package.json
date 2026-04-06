@@ -77,6 +77,10 @@
           {
             "name": "describe",
             "description": "%chat.command.describe%"
+          },
+          {
+            "name": "chart",
+            "description": "%chat.command.chart%"
           }
         ]
       }
@@ -275,6 +279,17 @@
         "title": "%command.unpinHistoryEntry%",
         "category": "Viewstor",
         "icon": "$(pinned)"
+      },
+      {
+        "command": "viewstor.visualizeResults",
+        "title": "%command.visualizeResults%",
+        "category": "Viewstor",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "viewstor.exportGrafana",
+        "title": "%command.exportGrafana%",
+        "category": "Viewstor"
       }
     ],
     "menus": {
@@ -475,6 +490,16 @@
           "minimum": 10,
           "maximum": 1000,
           "description": "%config.queryHistoryLimit.description%"
+        },
+        "viewstor.grafanaUrl": {
+          "type": "string",
+          "default": "",
+          "description": "%config.grafanaUrl.description%"
+        },
+        "viewstor.grafanaApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "%config.grafanaApiKey.description%"
         }
       }
     },
@@ -531,6 +556,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.9.1",
+    "echarts": "^5.6.0",
     "ssh2": "^1.17.0"
   }
 }

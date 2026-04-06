@@ -43,5 +43,10 @@
   "command.renameHistoryEntry": "쿼리 이름 변경",
   "config.queryHistoryLimit.description": "쿼리 기록의 최대 항목 수. 고정된 항목은 삭제되지 않습니다.",
   "command.setupMcp": "MCP 서버 설정",
-  "command.getStarted": "시작하기"
+  "command.getStarted": "시작하기",
+  "command.visualizeResults": "차트로 시각화",
+  "command.exportGrafana": "Grafana 대시보드로 내보내기",
+  "config.grafanaUrl.description": "대시보드를 직접 푸시하기 위한 Grafana 서버 URL (예: https://grafana.example.com).",
+  "config.grafanaApiKey.description": "대시보드 푸시를 위한 Grafana API 키. Editor 역할로 키를 생성하세요.",
+  "chat.command.chart": "쿼리에서 차트 시각화 생성"
 }
