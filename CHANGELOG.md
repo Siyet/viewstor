@@ -2,8 +2,6 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
-
 ## [0.3.0] — 2026-04-12
 
 ### Added
