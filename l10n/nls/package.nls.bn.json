@@ -1,5 +1,5 @@
 {
-  "extension.description": "VS Code-এর জন্য ডেটাবেস ব্যবস্থাপনা টুল — PostgreSQL, Redis এবং ClickHouse জুড়ে স্কীমা ব্রাউজ করুন, কুয়েরি চালান এবং ডেটা পরীক্ষা করুন।",
+  "extension.description": "VS Code-এর জন্য ডেটাবেস ব্যবস্থাপনা টুল — PostgreSQL, Redis, ClickHouse এবং SQLite জুড়ে স্কীমা ব্রাউজ করুন, কুয়েরি চালান এবং ডেটা পরীক্ষা করুন।",
   "view.connections.name": "সংযোগসমূহ",
   "view.queryHistory.name": "কুয়েরি ইতিহাস",
   "command.addConnection": "সংযোগ যোগ করুন",
@@ -43,5 +43,10 @@
   "command.renameHistoryEntry": "কুয়েরি পুনরায় নামকরণ",
   "config.queryHistoryLimit.description": "কোয়েরি ইতিহাসের সর্বোচ্চ এন্ট্রি সংখ্যা। পিন করা এন্ট্রি কখনো মুছে যায় না।",
   "command.setupMcp": "MCP সার্ভার সেটআপ",
-  "command.getStarted": "শুরু করুন"
+  "command.getStarted": "শুরু করুন",
+  "command.visualizeResults": "চার্ট হিসেবে দেখুন",
+  "command.exportGrafana": "Grafana ড্যাশবোর্ডে রপ্তানি",
+  "config.grafanaUrl.description": "সরাসরি ড্যাশবোর্ড পুশ করার জন্য Grafana সার্ভার URL (যেমন, https://grafana.example.com)।",
+  "config.grafanaApiKey.description": "ড্যাশবোর্ড পুশ করার জন্য Grafana API কী। Editor ভূমিকা দিয়ে একটি কী তৈরি করুন।",
+  "chat.command.chart": "একটি কোয়েরি থেকে চার্ট ভিজুয়ালাইজেশন তৈরি করুন"
 }

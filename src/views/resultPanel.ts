@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { QueryResult } from '../types/query';
+import { QueryResult, QueryColumn } from '../types/query';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import path from 'path';
 
@@ -19,38 +19,68 @@ export interface ShowOptions {
   query?: string;
   /** Database name for multi-DB connections */
   databaseName?: string;
+  /** Database type (postgresql, sqlite, clickhouse, redis) — passed to chart for DB-specific SQL */
+  databaseType?: string;
   /** Column metadata from getTableInfo — used for inline row insertion (nullable, defaultValue) */
   columnInfo?: Array<{ name: string; nullable: boolean; defaultValue?: string }>;
   /** True when opened from SQL editor (not from tree) — export uses in-memory rows */
   queryMode?: boolean;
+  /** Localized loading phrases for the animated loading overlay */
+  loadingPhrases?: string[];
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 500, 1000];
 const DEFAULT_PAGE_SIZE = 100;
 
+const LOADING_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="112" viewBox="0 0 128 112" fill="none">
+  <g stroke="var(--vscode-descriptionForeground)" stroke-width="2.2">
+    <ellipse cx="50" cy="24" rx="30" ry="11"/>
+    <path d="M20 24v50c0 6 13.4 11 30 11s30-5 30-11V24"/>
+    <path d="M20 46c0 6 13.4 11 30 11s30-5 30-11" stroke-width="1.5" opacity="0.35"/>
+    <path d="M20 62c0 6 13.4 11 30 11s30-5 30-11" stroke-width="1.5" opacity="0.35"/>
+  </g>
+  <g class="loading-magnifier" stroke="var(--vscode-focusBorder)" stroke-width="2.8">
+    <circle cx="86" cy="60" r="20"/>
+    <line x1="100" y1="74" x2="118" y2="92" stroke-width="4" stroke-linecap="round"/>
+  </g>
+</svg>`;
+
+const LOADING_CSS = `
+  @keyframes searchAnim {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+    25% { transform: translate(-3px, -4px) rotate(-3deg); }
+    50% { transform: translate(4px, -2px) rotate(2deg); }
+    75% { transform: translate(-2px, 3px) rotate(-1deg); }
+  }
+  .loading-magnifier { transform-origin: 86px 60px; animation: searchAnim 2.5s ease-in-out infinite; }
+  .loading-content { position: relative; z-index: 1; text-align: center; }
+  .loading-phrase { font-size: 14px; color: var(--vscode-descriptionForeground); transition: opacity 0.3s ease; margin-top: 16px; min-height: 20px; }
+`;
+
 export class ResultPanelManager {
   private panels = new Map<string, vscode.WebviewPanel>();
   private messageDisposables = new Map<string, vscode.Disposable>();
   private _tempFileManager: any = null;
+  private _chartNotifier: ((panelKey: string, columns: QueryColumn[], rows: Record<string, unknown>[], query?: string) => void) | null = null;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   setTempFileManager(t: any) { this._tempFileManager = t; }
 
-  show(result: QueryResult, title?: string, opts?: ShowOptions) {
-    const panelTitle = title || 'Query Results';
-    const panelKey = panelTitle;
-    const isTableMode = !!(opts?.connectionId && opts?.tableName);
+  /** Set callback to notify chart panel of data changes */
+  setChartNotifier(fn: (panelKey: string, columns: QueryColumn[], rows: Record<string, unknown>[], query?: string) => void) {
+    this._chartNotifier = fn;
+  }
 
+  private getOrCreatePanel(title: string): vscode.WebviewPanel {
     const targetColumn = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
-
-    let panel = this.panels.get(panelKey);
+    let panel = this.panels.get(title);
     if (panel) {
       panel.reveal(targetColumn);
     } else {
       panel = vscode.window.createWebviewPanel(
         'viewstor.results',
-        panelTitle,
+        title,
         targetColumn,
         {
           enableScripts: true,
@@ -59,19 +89,39 @@ export class ResultPanelManager {
         },
       );
       panel.onDidDispose(() => {
-        this.panels.delete(panelKey);
-        this.messageDisposables.get(panelKey)?.dispose();
-        this.messageDisposables.delete(panelKey);
-        if (this._tempFileManager) this._tempFileManager.cleanupForPanel(panelKey);
+        this.panels.delete(title);
+        this.messageDisposables.get(title)?.dispose();
+        this.messageDisposables.delete(title);
+        if (this._tempFileManager) this._tempFileManager.cleanupForPanel(title);
       });
-      this.panels.set(panelKey, panel);
+      this.panels.set(title, panel);
       // Move results panel below the editor, then return focus to editor
       vscode.commands.executeCommand('workbench.action.moveEditorToBelowGroup')
         .then(() => vscode.commands.executeCommand('workbench.action.focusPreviousGroup'))
         .then(undefined, () => { /* command may not exist in all configurations */ });
     }
+    return panel;
+  }
 
-    panel.webview.html = buildResultHtml(result, opts);
+  /** Open panel immediately with animated loading screen (before data is fetched) */
+  showLoading(title: string, opts?: { color?: string }) {
+    const panel = this.getOrCreatePanel(title);
+    panel.webview.html = buildLoadingHtml(getLoadingPhrases(), opts?.color);
+  }
+
+  /** Close and dispose a panel by title */
+  closePanel(title: string) {
+    this.panels.get(title)?.dispose();
+  }
+
+  show(result: QueryResult, title?: string, opts?: ShowOptions) {
+    const panelTitle = title || 'Query Results';
+    const panelKey = panelTitle;
+    const isTableMode = !!(opts?.connectionId && opts?.tableName);
+    const panel = this.getOrCreatePanel(panelTitle);
+
+    const phrases = getLoadingPhrases();
+    panel.webview.html = buildResultHtml(result, { ...opts, loadingPhrases: phrases });
 
     this.messageDisposables.get(panelKey)?.dispose();
 
@@ -162,6 +212,20 @@ export class ResultPanelManager {
         case 'rerunLastQuery':
           vscode.commands.executeCommand('viewstor.runQuery');
           break;
+        case 'visualize':
+          vscode.commands.executeCommand('viewstor.visualizeResults', {
+            columns: msg.columns,
+            rows: msg.rows,
+            query: ctx.query,
+            connectionId: ctx.connectionId,
+            databaseName: ctx.databaseName,
+            databaseType: ctx.databaseType,
+            color: ctx.color,
+            tableName: ctx.tableName,
+            schema: ctx.schema,
+            resultPanelKey: panelKey,
+          });
+          break;
       }
     });
     this.messageDisposables.set(panelKey, disposable);
@@ -169,6 +233,13 @@ export class ResultPanelManager {
 
   postMessage(panelKey: string, message: unknown) {
     this.panels.get(panelKey)?.webview.postMessage(message);
+    // Notify chart panel when result data changes
+    const msg = message as Record<string, unknown>;
+    if (msg.type === 'updateData' && this._chartNotifier) {
+      const columns = msg.columns as QueryColumn[];
+      const rows = msg.rows as Record<string, unknown>[];
+      this._chartNotifier(panelKey, columns, rows);
+    }
   }
 }
 
@@ -180,7 +251,57 @@ function safeJsonForScript(data: unknown): string {
   return JSON.stringify(data).replace(/<\//g, '<\\/').replace(/<!--/g, '<\\!--');
 }
 
-function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
+function getLoadingPhrases(): string[] {
+  return [
+    vscode.l10n.t('Searching high and low...'),
+    vscode.l10n.t('Looking under every stone...'),
+    vscode.l10n.t('Rummaging through the shelves...'),
+    vscode.l10n.t('Checking every nook and cranny...'),
+    vscode.l10n.t('Shaking the data tree...'),
+  ];
+}
+
+/** @internal Exported for testing */
+export function buildLoadingHtml(phrases: string[], color?: string): string {
+  const colorBorder = color ? `border-top: 2px solid ${color}; background: color-mix(in srgb, ${color} 15%, var(--vscode-editor-background));` : '';
+  return `<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: var(--vscode-font-family); padding:0; margin:0; display:flex; align-items:center; justify-content:center; height:100vh; background:var(--vscode-editor-background); ${colorBorder} }
+  ${LOADING_CSS}
+</style>
+</head>
+<body>
+  <div class="loading-content">
+    ${LOADING_SVG}
+    <div id="loadingPhrase" class="loading-phrase">${esc(phrases[0] || '')}</div>
+  </div>
+<script>
+(function() {
+  var phrases = ${safeJsonForScript(phrases)};
+  var idx = 0;
+  if (phrases.length > 1) {
+    setInterval(function() {
+      var el = document.getElementById('loadingPhrase');
+      if (!el) return;
+      el.style.opacity = '0';
+      setTimeout(function() {
+        idx = (idx + 1) % phrases.length;
+        el.textContent = phrases[idx];
+        el.style.opacity = '1';
+      }, 300);
+    }, 5000);
+  }
+})();
+</script>
+</body>
+</html>`;
+}
+
+/** @internal Exported for testing */
+export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
 
   const colorBg = opts?.color ? `background: color-mix(in srgb, ${opts.color} 15%, var(--vscode-editor-background));` : '';
   const colorBorder = opts?.color ? `border-top: 2px solid ${opts.color}; ${colorBg}` : '';
@@ -238,7 +359,9 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   .search-input:focus { border-color:var(--vscode-focusBorder); }
   .search-count { font-size:11px; min-width:30px; }
   td.editing { padding:0; }
-  .loading-overlay { position:absolute; inset:0; background:var(--vscode-editor-background); opacity:0.7; z-index:10; display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--vscode-descriptionForeground); }
+  .loading-overlay { position:absolute; inset:0; z-index:10; display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--vscode-descriptionForeground); }
+  .loading-overlay::before { content:''; position:absolute; inset:0; background:var(--vscode-editor-background); opacity:0.75; }
+  ${LOADING_CSS}
   td.editing input, td.editing select { width:100%; padding:4px 8px; border:2px solid var(--vscode-focusBorder); background:var(--vscode-input-background); color:var(--vscode-input-foreground); font-family:inherit; font-size:inherit; outline:none; }
   td.modified { border-left:3px solid var(--vscode-inputValidation-warningBorder); }
   tr.new-row { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
@@ -281,6 +404,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     <span id="searchCount" class="search-count"></span>
     <span style="flex:1"></span>
     <button id="exportBtn">Export</button>
+    <button id="visualizeBtn" title="Visualize as chart">📊</button>
     <button id="addRowBtn" class="hidden">+ Row</button>
     <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
     <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
@@ -302,9 +426,10 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   </div>` : ''}
   <div class="container">
     <div id="loadingOverlay" class="loading-overlay hidden">
-      <div style="text-align:center;">
-        <div>Loading...</div>
-        <button id="cancelQuery" style="margin-top:8px;" class="btn-primary">Cancel</button>
+      <div class="loading-content">
+        ${LOADING_SVG}
+        <div id="loadingPhrase" class="loading-phrase">${esc((opts?.loadingPhrases || [])[0] || '')}</div>
+        <button id="cancelQuery" style="margin-top:12px;" class="btn-primary">Cancel</button>
       </div>
     </div>
     <table>
@@ -362,6 +487,9 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   let totalPages = Math.max(1, Math.ceil(TOTAL_ROW_COUNT / pageSize));
 
   let sortColumns = ${safeJsonForScript(opts?.orderBy || [])};
+  var _loadingPhrases = ${safeJsonForScript(opts?.loadingPhrases || [])};
+  var _phraseIdx = 0;
+  var _phraseInterval = null;
 
   let selectedCells = new Set();
   let anchorCell = null;
@@ -451,6 +579,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   var _outOfQueryRows = [];     // inserted rows not found in requeried data
   var _outOfQueryPkSet = new Set(); // PK keys for O(1) lookup
   let originalRows = JSON.parse(JSON.stringify(pageRows));
+  const undoStack = []; // { type: 'edit', rowIdx, colName, oldVal } | { type: 'addRow', rowIdx } | { type: 'deleteRow', rowIdx, row, originalRow, newRowEntry? }
 
   // Build columnInfo lookup: { colName → { nullable, defaultValue } }
   var colInfoMap = {};
@@ -875,6 +1004,23 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       e.preventDefault();
       copySelection('tsv');
     }
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ' && !e.shiftKey) {
+      // Skip undo when editing a cell or typing in query input
+      var active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return;
+      e.preventDefault();
+      performUndo();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyV' && !e.shiftKey) {
+      var active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return;
+      if (IS_READONLY || selectedCells.size === 0) return;
+      e.preventDefault();
+      navigator.clipboard.readText().then(function(text) {
+        if (!text) return;
+        performPaste(text);
+      }).catch(function() {});
+    }
   });
 
   // --- Sorting ---
@@ -1013,7 +1159,13 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     td.classList.remove('editing');
     td.classList.remove('invalid-cell');
     const oldVal = originalRows[rowIdx][col.name];
+    const prevVal = pageRows[rowIdx][col.name];
     if (jsonTypes.has(col.dataType) && typeof newVal === 'string') { try { newVal = JSON.parse(newVal); } catch {} }
+    const newStr = typeof newVal === 'object' && newVal !== null ? JSON.stringify(newVal) : String(newVal);
+    const prevStr = typeof prevVal === 'object' && prevVal !== null ? JSON.stringify(prevVal) : String(prevVal);
+    if (newStr !== prevStr) {
+      undoStack.push({ type: 'edit', rowIdx, colName: col.name, oldVal: prevVal });
+    }
     pageRows[rowIdx][col.name] = newVal;
 
     // Track edits for new rows separately
@@ -1028,9 +1180,9 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
       return;
     }
 
-    const newStr = typeof newVal === 'object' && newVal !== null ? JSON.stringify(newVal) : String(newVal);
+    const valStr = typeof newVal === 'object' && newVal !== null ? JSON.stringify(newVal) : String(newVal);
     const oldStr = typeof oldVal === 'object' && oldVal !== null ? JSON.stringify(oldVal) : String(oldVal);
-    if (newStr !== oldStr) {
+    if (valStr !== oldStr) {
       const pkValues = {};
       const pkTypes = {};
       pkColumns.forEach(pk => {
@@ -1056,6 +1208,109 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     td.classList.remove('editing');
     td.innerHTML = formatCell(pageRows[rowIdx][col.name], col);
     reattachCell(td, columns.indexOf(col), rowIdx);
+  }
+
+  function performUndo() {
+    if (undoStack.length === 0) return;
+    var action = undoStack.pop();
+
+    if (action.type === 'edit') {
+      var ri = action.rowIdx;
+      var colName = action.colName;
+      pageRows[ri][colName] = action.oldVal;
+
+      // Update pendingEdits / pendingNewRows
+      if (pendingNewRows.has(ri.toString())) {
+        var nr = pendingNewRows.get(ri.toString());
+        nr.values[colName] = action.oldVal;
+        nr.editedCols.delete(colName);
+      } else {
+        var origVal = originalRows[ri][colName];
+        var origStr = typeof origVal === 'object' && origVal !== null ? JSON.stringify(origVal) : String(origVal);
+        var restoredStr = typeof action.oldVal === 'object' && action.oldVal !== null ? JSON.stringify(action.oldVal) : String(action.oldVal);
+        if (origStr === restoredStr) {
+          // Back to original — remove from pendingEdits
+          var edit = pendingEdits.get(ri.toString());
+          if (edit) { delete edit.changes[colName]; delete edit.columnTypes[colName]; if (Object.keys(edit.changes).length === 0) pendingEdits.delete(ri.toString()); }
+        } else {
+          // Still differs from original — update pendingEdits
+          if (pendingEdits.has(ri.toString())) {
+            pendingEdits.get(ri.toString()).changes[colName] = action.oldVal;
+          }
+        }
+      }
+      renderPage();
+      updateSaveButtons();
+    } else if (action.type === 'addRow') {
+      var ri = action.rowIdx;
+      pendingNewRows.delete(ri.toString());
+      pageRows.splice(ri, 1);
+      originalRows.splice(ri, 1);
+      renderPage();
+      updateSaveButtons();
+    }
+  }
+
+  function performPaste(text) {
+    var lines = text.replace(/\\r\\n$/, '').replace(/\\n$/, '').split(/\\r?\\n/);
+    var grid = lines.map(function(line) { return line.split('\\t'); });
+    if (grid.length === 0) return;
+
+    var cells = [...selectedCells].map(function(k) { var parts = k.split(':').map(Number); return { r: parts[0], c: parts[1] }; });
+    var rowIdxs = [...new Set(cells.map(function(c) { return c.r; }))].sort(function(a, b) { return a - b; });
+    var colIdxs = [...new Set(cells.map(function(c) { return c.c; }))].sort(function(a, b) { return a - b; });
+    var isSingle = grid.length === 1 && grid[0].length === 1;
+
+    for (var ri = 0; ri < rowIdxs.length; ri++) {
+      var rowIdx = rowIdxs[ri];
+      if (pkColumns.length === 0 && !pendingNewRows.has(rowIdx.toString())) continue;
+      for (var ci = 0; ci < colIdxs.length; ci++) {
+        var colIdx = colIdxs[ci];
+        if (!selectedCells.has(cellKey(rowIdx, colIdx))) continue;
+        if (colIdx >= columns.length) continue;
+
+        var clipRow = isSingle ? 0 : ri % grid.length;
+        var clipCol = isSingle ? 0 : ci % (grid[clipRow] ? grid[clipRow].length : 1);
+        var rawVal = grid[clipRow] && grid[clipRow][clipCol] != null ? grid[clipRow][clipCol] : '';
+        var newVal = (rawVal === '' || rawVal.toUpperCase() === 'NULL') ? null : rawVal;
+
+        var col = columns[colIdx];
+        var prevVal = pageRows[rowIdx][col.name];
+        var prevStr = typeof prevVal === 'object' && prevVal !== null ? JSON.stringify(prevVal) : String(prevVal);
+        var newStr = newVal === null ? 'null' : String(newVal);
+        if (prevStr !== newStr) {
+          undoStack.push({ type: 'edit', rowIdx: rowIdx, colName: col.name, oldVal: prevVal });
+        }
+        pageRows[rowIdx][col.name] = newVal;
+
+        // Update tracking structures
+        if (pendingNewRows.has(rowIdx.toString())) {
+          var nr = pendingNewRows.get(rowIdx.toString());
+          nr.values[col.name] = newVal;
+          nr.editedCols.add(col.name);
+        } else {
+          var origVal = originalRows[rowIdx][col.name];
+          var origStr = typeof origVal === 'object' && origVal !== null ? JSON.stringify(origVal) : String(origVal);
+          if (newStr !== origStr) {
+            var pkValues = {};
+            var pkTypes = {};
+            pkColumns.forEach(function(pk) {
+              pkValues[pk] = originalRows[rowIdx][pk];
+              var pkCol = columns.find(function(c) { return c.name === pk; });
+              if (pkCol) pkTypes[pk] = pkCol.dataType;
+            });
+            if (!pendingEdits.has(rowIdx.toString())) pendingEdits.set(rowIdx.toString(), { rowIdx: rowIdx, changes: {}, columnTypes: {}, pkValues: pkValues, pkTypes: pkTypes });
+            pendingEdits.get(rowIdx.toString()).changes[col.name] = newVal;
+            pendingEdits.get(rowIdx.toString()).columnTypes[col.name] = col.dataType;
+          } else {
+            var edit = pendingEdits.get(rowIdx.toString());
+            if (edit) { delete edit.changes[col.name]; if (Object.keys(edit.changes).length === 0) pendingEdits.delete(rowIdx.toString()); }
+          }
+        }
+      }
+    }
+    renderPage();
+    updateSaveButtons();
   }
 
   function reattachCell(td, colIdx, rowIdx) {
@@ -1145,6 +1400,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     vscode.postMessage({ type: 'saveAll', inserts: newRowInserts, edits: editsList });
     pendingNewRows.clear();
     pendingEdits.clear();
+    undoStack.length = 0;
     for (let i = 0; i < pageRows.length; i++) originalRows[i] = JSON.parse(JSON.stringify(pageRows[i]));
     document.querySelectorAll('td.modified').forEach(td => td.classList.remove('modified'));
     renderPage();
@@ -1159,6 +1415,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     newRowIndices.forEach(function(idx) { pageRows.splice(idx, 1); originalRows.splice(idx, 1); });
     pendingNewRows.clear();
     pendingEdits.clear();
+    undoStack.length = 0;
     document.querySelectorAll('td.invalid-cell').forEach(function(td) { td.classList.remove('invalid-cell'); });
     for (let i = 0; i < pageRows.length; i++) pageRows[i] = JSON.parse(JSON.stringify(originalRows[i]));
     renderPage();
@@ -1185,6 +1442,7 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     originalRows.push(JSON.parse(JSON.stringify(newRow)));
     var rowIdx = pageRows.length - 1;
     pendingNewRows.set(rowIdx.toString(), { values: newRow, editedCols: new Set() });
+    undoStack.push({ type: 'addRow', rowIdx });
     renderPage();
     updateSaveButtons();
     // Scroll to the new row
@@ -1241,6 +1499,9 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
     }
   });
   document.getElementById('exportBtn').addEventListener('click', showExportPopup);
+  document.getElementById('visualizeBtn').addEventListener('click', () => {
+    vscode.postMessage({ type: 'visualize', columns, rows: pageRows });
+  });
   document.getElementById('exportClose').addEventListener('click', closeExportPopup);
   document.getElementById('exportConfirm').addEventListener('click', () => {
     const fmt = document.getElementById('exportFormat').value;
@@ -1292,8 +1553,28 @@ function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
   document.getElementById('footerSaveBtn').addEventListener('click', () => document.getElementById('saveBtn').click());
   document.getElementById('footerDiscardBtn').addEventListener('click', () => document.getElementById('discardBtn').click());
 
-  function showLoading() { document.getElementById('loadingOverlay').classList.remove('hidden'); }
-  function hideLoading() { document.getElementById('loadingOverlay').classList.add('hidden'); }
+  function showLoading() {
+    _phraseIdx = 0;
+    var el = document.getElementById('loadingPhrase');
+    if (el && _loadingPhrases.length > 0) el.textContent = _loadingPhrases[0];
+    document.getElementById('loadingOverlay').classList.remove('hidden');
+    if (_loadingPhrases.length > 1 && !_phraseInterval) {
+      _phraseInterval = setInterval(function() {
+        var pe = document.getElementById('loadingPhrase');
+        if (!pe) return;
+        pe.style.opacity = '0';
+        setTimeout(function() {
+          _phraseIdx = (_phraseIdx + 1) % _loadingPhrases.length;
+          pe.textContent = _loadingPhrases[_phraseIdx];
+          pe.style.opacity = '1';
+        }, 300);
+      }, 5000);
+    }
+  }
+  function hideLoading() {
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    if (_phraseInterval) { clearInterval(_phraseInterval); _phraseInterval = null; }
+  }
 
   // Query bar — run custom query
   var customExportQuery = '';

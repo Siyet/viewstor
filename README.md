@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>PostgreSQL + Redis + ClickHouse in one extension.<br>Free. Open source. No paywalls.</b>
+  <b>PostgreSQL + Redis + ClickHouse + SQLite in one extension.<br>Free. Open source. No paywalls.</b>
 </p>
 
 ---
@@ -24,19 +24,21 @@
 
 Database extensions for VS Code are either locked to one database, or freemium with crippled free tiers (limited connections, no export, closed source). Switching between DBeaver and VS Code breaks flow. DataGrip costs money.
 
-Viewstor is a free, open-source extension that covers PostgreSQL, Redis, and ClickHouse in a single tool — with features you won't find elsewhere:
+Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHouse, and SQLite in a single tool — with features you won't find elsewhere:
 
 | | Viewstor | Database Client | SQLTools | DBCode |
 |---|---|---|---|---|
 | **Price** | Free forever | Freemium | Free | Freemium |
 | **Open source** | AGPL-3.0 | Closed (since v4.7) | MIT | Closed |
-| **PG + Redis + CH** | All free | Free tier limits | No Redis | Redis/CH paid |
+| **PG + Redis + CH + SQLite** | All free | Free tier limits | No Redis | Redis/CH paid |
 | **Safe mode** | Block / Warn / Off | No | No | No |
 | **Copilot Chat participant** | `@viewstor` | No | No | No |
 | **MCP for AI agents** | Built-in, free | No | No | Paid tier |
 | **Import from DBeaver/DataGrip/pgAdmin** | Yes | No | No | No |
 | **Index hints** | Yes | No | No | No |
+| **Chart visualization + Grafana export** | 12 chart types, free | No | No | No |
 | **Color-coded folders** | Nested, inherited | No | No | No |
+| **Localization** | 12 languages | English only | English only | English only |
 
 ## Get Started
 
@@ -63,15 +65,15 @@ Passwords are excluded for security — you'll enter them on first connect. See 
 
 ### Safe Mode
 
-Production databases deserve guardrails. Safe mode runs `EXPLAIN` before every `SELECT` and catches sequential scans on large tables:
+Production databases deserve guardrails. Safe mode runs `EXPLAIN` before every `SELECT` and catches full table scans:
 
 | Mode | Behavior |
 |---|---|
-| **Block** | Blocks queries with Seq Scan. Shows EXPLAIN plan |
+| **Block** | Blocks queries with full scans. Shows EXPLAIN plan |
 | **Warn** | Warning with "Run Anyway" / "See EXPLAIN" / "Cancel" |
 | **Off** | No checks |
 
-Set globally in settings or per connection. Auto-adds `LIMIT` to SELECTs that don't have one.
+Supports PostgreSQL (`Seq Scan`), SQLite (`SCAN TABLE` via `EXPLAIN QUERY PLAN`), and ClickHouse. Set globally in settings or per connection. Auto-adds `LIMIT` to SELECTs that don't have one.
 
 ### Read-only Mode
 
@@ -117,6 +119,30 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 - Right-click cells → Copy as CSV / TSV / Markdown / JSON
 - `Ctrl+C` copies selected cells as TSV
 
+### Chart Visualization
+
+Visualize query results as interactive charts — powered by [Apache ECharts](https://echarts.apache.org/):
+
+- **12 chart types** — line, bar, scatter, pie, heatmap, radar, funnel, gauge, boxplot, candlestick, treemap, sunburst
+- Click the **chart button** in the Result Panel toolbar to open the chart panel
+- **Config sidebar** — axis mapping, aggregation, group by, area fill, legend
+- **Auto-detection** — suggests the best chart type based on column types (time → line, categorical → pie, etc.)
+- **Grafana export** — compatible chart types (line, bar, scatter, pie, gauge, heatmap) can be exported as Grafana dashboard JSON: copy to clipboard, save as `.json`, or push directly via Grafana HTTP API
+
+**Multi-source charts** — overlay data from multiple queries on one chart:
+
+1. Execute and **pin** queries you want to combine (pin icon in Query History)
+2. Open a chart from any result set
+3. Click **+ Data Source** in the chart toolbar, pick a pinned query
+4. Choose merge mode:
+   - **Separate series** — each source rendered as independent series (different X values are fine)
+   - **Join by column** — rows matched by a key column (like SQL LEFT JOIN), additional Y columns merged into the primary dataset
+5. Select which numeric columns to include, set a label — done
+
+Example: pin `SELECT ts, cpu FROM metrics` and `SELECT ts, mem FROM metrics`, open chart from CPU, add Memory as data source with join on `ts` — both metrics on the same time axis.
+
+Configure `viewstor.grafanaUrl` and `viewstor.grafanaApiKey` in settings to enable Grafana push.
+
 ### Copilot Chat (`@viewstor`)
 
 Ask questions about your database in natural language:
@@ -124,8 +150,9 @@ Ask questions about your database in natural language:
 - `@viewstor describe the users table`
 - `@viewstor write a query to find orders without payments`
 - `@viewstor what indexes are missing for this query?`
+- `@viewstor /chart show request latency over the last hour grouped by endpoint`
 
-Schema context is injected automatically from the active connection. Slash commands: `/schema`, `/query`, `/describe`. Requires GitHub Copilot.
+Schema context is injected automatically from the active connection. Slash commands: `/schema`, `/query`, `/describe`, `/chart`. Requires GitHub Copilot.
 
 ### AI Agent Integration (MCP)
 
@@ -140,6 +167,10 @@ Two MCP interfaces — pick the one that fits your workflow:
 | `viewstor.mcp.executeQuery` | Run SQL (read-only enforced) |
 | `viewstor.mcp.getTableData` | Fetch rows with limit |
 | `viewstor.mcp.getTableInfo` | Column metadata, PKs, nullability |
+| `viewstor.mcp.visualize` | Execute query and open chart panel |
+| `viewstor.mcp.exportGrafana` | Generate Grafana dashboard JSON |
+| `viewstor.mcp.openQuery` | Open SQL editor with query text (optionally execute) |
+| `viewstor.mcp.openTableData` | Open table data view with optional custom query |
 
 **Standalone MCP server** (for Claude Code, Cline — CLI agents running outside VS Code):
 
@@ -160,7 +191,7 @@ Or add manually:
 }
 ```
 
-7 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
+9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
 
 All MCP interfaces auto-connect and respect read-only mode.
 
@@ -171,6 +202,7 @@ All MCP interfaces auto-connect and respect read-only mode.
 - JSON/JSONB cell editor with **syntax highlighting** (double-click to open)
 - PostgreSQL arrays displayed with `{curly braces}`
 - Redis — inspect strings, lists, sets, sorted sets, hashes
+- SQLite — open `.sqlite`/`.db` files directly, file-based connection (no server needed)
 
 ## Keyboard Shortcuts
 
@@ -191,6 +223,7 @@ All shortcuts use physical key codes — work on any keyboard layout.
 | PostgreSQL | TCP | [pg](https://www.npmjs.com/package/pg) |
 | Redis | TCP | [ioredis](https://www.npmjs.com/package/ioredis) |
 | ClickHouse | HTTP | [@clickhouse/client](https://www.npmjs.com/package/@clickhouse/client) |
+| SQLite | File | [better-sqlite3](https://www.npmjs.com/package/better-sqlite3) |
 
 ## Development
 

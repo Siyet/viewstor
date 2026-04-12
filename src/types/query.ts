@@ -7,6 +7,8 @@ export interface QueryResult {
   executionTimeMs: number;
   truncated?: boolean;
   error?: string;
+  /** The SQL statement that produced this result (set by getTableData) */
+  query?: string;
 }
 
 export interface QueryColumn {

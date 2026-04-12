@@ -4,6 +4,7 @@ import { ConnectionTreeProvider, ConnectionTreeItem } from '../views/connectionT
 import { QueryHistoryProvider } from '../views/queryHistory';
 import { QueryEditorProvider, QueryDocumentProvider } from '../editors/queryEditor';
 import { ResultPanelManager } from '../views/resultPanel';
+import { ChartPanelManager } from '../chart/chartPanel';
 import { ConnectionFormPanel } from '../views/connectionForm';
 import { FolderFormPanel } from '../views/folderForm';
 import { SortColumn, QueryResult, QueryColumn, QueryHistoryEntry } from '../types/query';
@@ -20,6 +21,7 @@ interface CommandContext {
   queryHistoryProvider: QueryHistoryProvider;
   queryEditorProvider: QueryEditorProvider;
   resultPanelManager: ResultPanelManager;
+  chartPanelManager: ChartPanelManager;
   connectionFormPanel: ConnectionFormPanel;
   folderFormPanel: FolderFormPanel;
   outputChannel: vscode.LogOutputChannel;
@@ -181,7 +183,7 @@ function logQueryToOutput(sql: string, resultText: string, isError: boolean) {
 }
 
 export function registerCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
-  const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, connectionFormPanel, folderFormPanel, outputChannel, tempFileManager, queryFileManager } = ctx;
+  const { connectionManager, connectionTreeProvider, queryHistoryProvider, queryEditorProvider, resultPanelManager, chartPanelManager, connectionFormPanel, folderFormPanel, outputChannel, tempFileManager, queryFileManager } = ctx;
   _outputChannel = outputChannel;
 
   // Register CodeLens provider for query results
@@ -436,21 +438,31 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
         }
       }
 
-      // Safe mode: EXPLAIN check for seq scans (PostgreSQL only)
-      if (safeMode !== 'off' && state?.config.type === 'postgresql' && finalQuery.trim().toUpperCase().startsWith('SELECT')) {
+      // Safe mode: EXPLAIN check for full table scans (PostgreSQL, SQLite, ClickHouse)
+      const dbType = state?.config.type;
+      const isSafeModeDB = dbType === 'postgresql' || dbType === 'sqlite' || dbType === 'clickhouse';
+      if (safeMode !== 'off' && isSafeModeDB && finalQuery.trim().toUpperCase().startsWith('SELECT')) {
         try {
-          const explainResult = await driver.execute('EXPLAIN ' + finalQuery);
+          const explainCmd = dbType === 'sqlite' ? 'EXPLAIN QUERY PLAN ' : 'EXPLAIN ';
+          const explainResult = await driver.execute(explainCmd + finalQuery);
           const plan = explainResult.rows.map(r => Object.values(r).join(' ')).join('\n');
-          // Skip warning when LIMIT is small — Seq Scan with a small LIMIT is harmless
+          // Skip warning when LIMIT is small — full scan with a small LIMIT is harmless
           const limitMatch = finalQuery.match(/\bLIMIT\s+(\d+)/i);
           const limitValue = limitMatch ? parseInt(limitMatch[1], 10) : Infinity;
-          dbg('safeMode', 'seqScan:', plan.includes('Seq Scan'), 'limit:', limitValue, 'mode:', safeMode);
-          if (plan.includes('Seq Scan') && limitValue > 1000) {
-            const seqMatch = plan.match(/Seq Scan on (\w+)/);
-            const tableName = seqMatch ? seqMatch[1] : 'unknown';
+          // Detect full table scans per database type
+          const hasFullScan = dbType === 'postgresql' ? plan.includes('Seq Scan')
+            : dbType === 'sqlite' ? plan.includes('SCAN TABLE')
+            : dbType === 'clickhouse' ? plan.includes('Full') : false;
+          const scanMatch = dbType === 'postgresql' ? plan.match(/Seq Scan on (\w+)/)
+            : dbType === 'sqlite' ? plan.match(/SCAN TABLE (\w+)/)
+            : null;
+          dbg('safeMode', 'fullScan:', hasFullScan, 'limit:', limitValue, 'mode:', safeMode, 'db:', dbType);
+          if (hasFullScan && limitValue > 1000) {
+            const tableName = scanMatch ? scanMatch[1] : 'unknown';
 
             // Create a diagnostic with the EXPLAIN plan attached for AI agents
-            const message = vscode.l10n.t('Seq Scan on "{0}" — may be slow on large tables.', tableName);
+            const scanLabel = dbType === 'sqlite' ? 'SCAN TABLE' : dbType === 'clickhouse' ? 'Full Scan' : 'Seq Scan';
+            const message = vscode.l10n.t('{0} on "{1}" — may be slow on large tables.', scanLabel, tableName);
 
             if (safeMode === 'block') {
               const seeExplainBtn = vscode.l10n.t('See EXPLAIN');
@@ -525,6 +537,11 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
               } catch { /* table info unavailable — skip */ }
             }
 
+            // Match pageSize to actual row count so the table displays all returned rows
+            const queryLimitMatch = finalQuery.match(/\bLIMIT\s+(\d+)/i);
+            const queryPageSize = queryLimitMatch
+              ? Math.min(parseInt(queryLimitMatch[1], 10), 1000)
+              : Math.min(result.rowCount, 1000);
             resultPanelManager.show(result, `Results #${queryResultCounter} — ${state?.config.name || 'Query'}`, {
               color, readonly,
               connectionId: queryPkColumns ? connectionId : undefined,
@@ -532,9 +549,11 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
               schema: querySchema,
               pkColumns: queryPkColumns,
               databaseName: queryPkColumns ? databaseName : undefined,
+              databaseType: state?.config.type,
               columnInfo: queryColumnInfo,
               query: finalQuery,
               queryMode: true,
+              pageSize: queryPageSize,
             });
             const resultMsg = `${result.rowCount} rows, ${result.executionTimeMs} ms`;
             showQueryResult(editor, queryStartLine,resultMsg, false);
@@ -630,10 +649,16 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
     vscode.commands.registerCommand('viewstor.showTableData', async (item?: ConnectionTreeItem) => {
       if (!item?.connectionId || !item.schemaObject) return;
 
+      // Compute title and color synchronously — open panel instantly with loading animation
+      const state = connectionManager.get(item.connectionId);
+      const title = `${item.schemaObject.name} — ${state?.config.name}`;
+      const color = connectionManager.getConnectionColor(item.connectionId);
+      resultPanelManager.showLoading(title, { color });
+
       const driver = item.databaseName
         ? await connectionManager.getDriverForDatabase(item.connectionId, item.databaseName)
         : connectionManager.getDriver(item.connectionId);
-      if (!driver) return;
+      if (!driver) { resultPanelManager.closePanel(title); return; }
 
       const pageSize = 100;
 
@@ -654,17 +679,14 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           }
         }
 
-        const result = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Loading {0}...', item.schemaObject.name) },
-          () => driver.getTableData(item.schemaObject!.name, item.schemaObject!.schema, pageSize, 0),
-        );
+        const result = await driver.getTableData(item.schemaObject!.name, item.schemaObject!.schema, pageSize, 0);
         if (result.error) {
+          if (result.query) logQueryToOutput(result.query, `Error: ${result.error.split('\n')[0]}`, true);
+          resultPanelManager.closePanel(title);
           logAndShowError(vscode.l10n.t('Failed to load data: {0}', result.error));
           return;
         }
-        const state = connectionManager.get(item.connectionId);
-        const title = `${item.schemaObject.name} — ${state?.config.name}`;
-        const color = connectionManager.getConnectionColor(item.connectionId);
+        if (result.query) logQueryToOutput(result.query, `${result.rowCount} rows, ${result.executionTimeMs} ms`, false);
         const readonly = connectionManager.isConnectionReadonly(item.connectionId);
         const columnInfoForWebview = tableInfo.columns.map(c => ({
           name: c.name, nullable: c.nullable, defaultValue: c.defaultValue,
@@ -675,9 +697,11 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           schema: item.schemaObject.schema,
           pkColumns, color, readonly, pageSize, currentPage: 0, totalRowCount, isEstimatedCount,
           databaseName: item.databaseName,
+          databaseType: state?.config.type,
           columnInfo: columnInfoForWebview,
         });
       } catch (err) {
+        resultPanelManager.closePanel(title);
         logAndShowError(vscode.l10n.t('Failed to load data: {0}', err instanceof Error ? err.message : String(err)));
       }
     }),
@@ -707,10 +731,12 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           () => driver.getTableData(tableName, schema, pageSize, offset, orderBy),
         );
         if (result.error) {
+          if (result.query) logQueryToOutput(result.query, `Error: ${result.error.split('\n')[0]}`, true);
           logAndShowError(vscode.l10n.t('Failed to load data: {0}', result.error));
           resultPanelManager.postMessage(explicitPanelKey || `${tableName} — ${connectionManager.get(connectionId)?.config.name}`, { type: 'hideLoading' });
           return;
         }
+        if (result.query) logQueryToOutput(result.query, `${result.rowCount} rows, ${result.executionTimeMs} ms`, false);
         const state = connectionManager.get(connectionId);
         const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
         resultPanelManager.postMessage(panelKey, {
@@ -984,8 +1010,10 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           const shortQ = displayQuery.length > 255 ? displayQuery.substring(0, 255) + '...' : displayQuery;
           const enhanced = await enhanceColumnError(result.error, displayQuery, driver);
           logAndShowError(`${enhanced}\n\n---\n${shortQ}`);
+          logQueryToOutput(displayQuery, `Error: ${result.error.split('\n')[0]}`, true);
           return;
         }
+        logQueryToOutput(displayQuery, `${result.rowCount} rows, ${result.executionTimeMs} ms`, false);
         const state = connectionManager.get(connectionId);
         const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
         resultPanelManager.postMessage(panelKey, {
@@ -1373,7 +1401,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
           rows: entry.cachedResult.rows,
           rowCount: entry.cachedResult.rows.length,
           executionTimeMs: entry.executionTimeMs,
-        }, title, { color, readonly });
+        }, title, { color, readonly, databaseType: state.config.type });
       }
     }),
 
@@ -1426,6 +1454,135 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       );
       if (confirm !== confirmBtn) return;
       await queryHistoryProvider.clear();
+    }),
+
+    vscode.commands.registerCommand('viewstor.visualizeResults', (data?: {
+      columns: QueryColumn[];
+      rows: Record<string, unknown>[];
+      query?: string;
+      connectionId?: string;
+      databaseName?: string;
+      databaseType?: string;
+      color?: string;
+      tableName?: string;
+      schema?: string;
+      resultPanelKey?: string;
+    }) => {
+      if (!data?.columns || !data?.rows) {
+        vscode.window.showWarningMessage(vscode.l10n.t('No data to visualize.'));
+        return;
+      }
+      const result: QueryResult = {
+        columns: data.columns,
+        rows: data.rows,
+        rowCount: data.rows.length,
+        executionTimeMs: 0,
+      };
+      const state = data.connectionId ? connectionManager.get(data.connectionId) : undefined;
+      const chartTitle = data.tableName
+        ? `Chart — ${data.tableName}`
+        : `Chart — ${state?.config.name || 'Query'}`;
+      chartPanelManager.show(result, chartTitle, {
+        connectionId: data.connectionId,
+        databaseName: data.databaseName,
+        databaseType: data.databaseType || state?.config.type,
+        query: data.query,
+        color: data.color,
+        tableName: data.tableName,
+        schema: data.schema,
+        resultPanelKey: data.resultPanelKey,
+      });
+    }),
+
+    vscode.commands.registerCommand('viewstor.exportGrafana', () => {
+      vscode.window.showInformationMessage(
+        vscode.l10n.t('Open a chart panel and use the Export to Grafana button.'),
+      );
+    }),
+
+    // --- Internal commands for MCP agent UI integration ---
+
+    vscode.commands.registerCommand('viewstor._openQueryFromMcp', async (
+      connectionId: string, query: string, databaseName?: string,
+    ) => {
+      await queryEditorProvider.openNewQuery(connectionId, databaseName);
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        // Insert query text after the metadata header line
+        const lastLine = editor.document.lineCount - 1;
+        const lastChar = editor.document.lineAt(lastLine).text.length;
+        await editor.edit(editBuilder => {
+          editBuilder.insert(new vscode.Position(lastLine, lastChar), query);
+        });
+      }
+    }),
+
+    vscode.commands.registerCommand('viewstor._openTableDataFromMcp', async (
+      connectionId: string, tableName: string, schema?: string,
+      databaseName?: string, customQuery?: string, execute?: boolean,
+    ) => {
+      const driver = databaseName
+        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : connectionManager.getDriver(connectionId);
+      if (!driver) return;
+
+      const state = connectionManager.get(connectionId);
+      const title = `${tableName} — ${state?.config.name}`;
+      const color = connectionManager.getConnectionColor(connectionId);
+      const readonly = connectionManager.isConnectionReadonly(connectionId);
+      const pageSize = 100;
+
+      resultPanelManager.showLoading(title, { color });
+
+      try {
+        const tableInfo = await driver.getTableInfo(tableName, schema);
+        const pkColumns = tableInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
+
+        let totalRowCount: number | undefined;
+        let isEstimatedCount = false;
+        if (driver.getEstimatedRowCount) {
+          totalRowCount = await driver.getEstimatedRowCount(tableName, schema);
+          if (totalRowCount !== undefined && totalRowCount < 10000 && driver.getTableRowCount) {
+            totalRowCount = await driver.getTableRowCount(tableName, schema);
+          } else {
+            isEstimatedCount = true;
+          }
+        }
+
+        const result = await driver.getTableData(tableName, schema, pageSize, 0);
+        if (result.error) {
+          resultPanelManager.closePanel(title);
+          return;
+        }
+
+        const columnInfoForWebview = tableInfo.columns.map(c => ({
+          name: c.name, nullable: c.nullable, defaultValue: c.defaultValue,
+        }));
+        resultPanelManager.show(result, title, {
+          connectionId,
+          tableName,
+          schema,
+          pkColumns, color, readonly, pageSize, currentPage: 0, totalRowCount, isEstimatedCount,
+          databaseName,
+          databaseType: state?.config.type,
+          columnInfo: columnInfoForWebview,
+          query: customQuery,
+        });
+
+        // Execute custom query after panel is shown
+        if (customQuery && execute) {
+          // Sync pageSize with LIMIT in the custom query so results aren't truncated
+          const limitMatch = customQuery.match(/LIMIT\s+(\d+)/i);
+          const queryPageSize = limitMatch ? Math.min(parseInt(limitMatch[1], 10), 1000) : pageSize;
+          await new Promise(resolve => setTimeout(resolve, 200));
+          await vscode.commands.executeCommand(
+            'viewstor._runCustomTableQuery',
+            connectionId, tableName, schema, customQuery, queryPageSize, databaseName, title,
+          );
+        }
+      } catch (err) {
+        resultPanelManager.closePanel(title);
+      }
     }),
   );
 }

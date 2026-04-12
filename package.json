@@ -2,7 +2,7 @@
   "name": "viewstor",
   "displayName": "Viewstor",
   "description": "%extension.description%",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "publisher": "Siyet",
   "license": "AGPL-3.0",
   "icon": "resources/icon.png",
@@ -22,6 +22,7 @@
     "postgresql",
     "redis",
     "clickhouse",
+    "sqlite",
     "sql",
     "query",
     "schema"
@@ -32,18 +33,20 @@
     "viewstor-mcp": "./dist/mcp-server.js"
   },
   "scripts": {
-    "vscode:prepublish": "npm run copy-nls && npm run build",
+    "vscode:prepublish": "npm run copy-nls && npm run sqlite:electron && npm run build",
     "postinstall": "npm run copy-nls",
     "copy-nls": "node -e \"fs=require('fs');p=require('path');d='l10n/nls';fs.readdirSync(d).filter(f=>f.startsWith('package.nls')).forEach(f=>fs.copyFileSync(p.join(d,f),f))\"",
-    "build": "npm run copy-nls && webpack --mode production",
-    "watch": "npm run copy-nls && webpack --mode development --watch",
-    "dev": "npm run copy-nls && webpack --mode development",
+    "build": "npm run copy-nls && npm run sqlite:electron && webpack --mode production",
+    "watch": "npm run copy-nls && npm run sqlite:electron && webpack --mode development --watch",
+    "dev": "npm run copy-nls && npm run sqlite:electron && webpack --mode development",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
-    "test": "vitest run",
+    "sqlite:electron": "node scripts/sqlite-rebuild.js electron",
+    "sqlite:node": "node scripts/sqlite-rebuild.js node",
+    "test": "node scripts/sqlite-rebuild.js node && vitest run",
     "test:watch": "vitest",
     "test:single": "vitest run --reporter=verbose",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e": "node scripts/sqlite-rebuild.js node && vitest run --config vitest.e2e.config.ts",
     "test:e2e:watch": "vitest --config vitest.e2e.config.ts",
     "compile-tests": "tsc -p tsconfig.test.json",
     "compile-vscode-tests": "tsc -p tsconfig.vscode-test.json",
@@ -51,6 +54,36 @@
     "package": "vsce package"
   },
   "contributes": {
+    "icons": {
+      "viewstor-postgresql": {
+        "description": "PostgreSQL",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E002"
+        }
+      },
+      "viewstor-redis": {
+        "description": "Redis",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E003"
+        }
+      },
+      "viewstor-clickhouse": {
+        "description": "ClickHouse",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E001"
+        }
+      },
+      "viewstor-sqlite": {
+        "description": "SQLite",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E004"
+        }
+      }
+    },
     "mcpServerDefinitionProviders": [
       {
         "id": "viewstor.mcpServer",
@@ -76,6 +109,10 @@
           {
             "name": "describe",
             "description": "%chat.command.describe%"
+          },
+          {
+            "name": "chart",
+            "description": "%chat.command.chart%"
           }
         ]
       }
@@ -274,6 +311,17 @@
         "title": "%command.unpinHistoryEntry%",
         "category": "Viewstor",
         "icon": "$(pinned)"
+      },
+      {
+        "command": "viewstor.visualizeResults",
+        "title": "%command.visualizeResults%",
+        "category": "Viewstor",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "viewstor.exportGrafana",
+        "title": "%command.exportGrafana%",
+        "category": "Viewstor"
       }
     ],
     "menus": {
@@ -474,6 +522,16 @@
           "minimum": 10,
           "maximum": 1000,
           "description": "%config.queryHistoryLimit.description%"
+        },
+        "viewstor.grafanaUrl": {
+          "type": "string",
+          "default": "",
+          "description": "%config.grafanaUrl.description%"
+        },
+        "viewstor.grafanaApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "%config.grafanaApiKey.description%"
         }
       }
     },
@@ -500,6 +558,7 @@
   "devDependencies": {
     "@clickhouse/client": "^0.2.0",
     "@modelcontextprotocol/sdk": "^1.28.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/glob": "^8.1.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.0",
@@ -511,6 +570,7 @@
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.22.0",
+    "better-sqlite3": "^12.8.0",
     "copy-webpack-plugin": "^12.0.0",
     "css-loader": "^6.10.0",
     "eslint": "^8.56.0",
@@ -519,6 +579,7 @@
     "mocha": "^11.7.5",
     "pg": "^8.11.0",
     "style-loader": "^3.3.4",
+    "svgtofont": "^6.5.1",
     "testcontainers": "^11.13.0",
     "ts-loader": "^9.5.0",
     "typescript": "^5.3.0",
@@ -527,6 +588,8 @@
     "webpack-cli": "^5.1.0"
   },
   "dependencies": {
+    "better-sqlite3": "^11.9.1",
+    "echarts": "^5.6.0",
     "ssh2": "^1.17.0"
   }
 }

@@ -3,6 +3,7 @@ import { DatabaseDriver } from '../types/driver';
 import { PostgresDriver } from './postgres';
 import { RedisDriver } from './redis';
 import { ClickHouseDriver } from './clickhouse';
+import { SqliteDriver } from './sqlite';
 
 export function createDriver(type: DatabaseType): DatabaseDriver {
   switch (type) {
@@ -12,6 +13,8 @@ export function createDriver(type: DatabaseType): DatabaseDriver {
       return new RedisDriver();
     case 'clickhouse':
       return new ClickHouseDriver();
+    case 'sqlite':
+      return new SqliteDriver();
     default:
       throw new Error(`Unsupported database type: ${type}`);
   }

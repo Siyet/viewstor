@@ -64,6 +64,75 @@ export function registerChatParticipant(
       return;
     }
 
+    if (command === 'chart') {
+      // Forward to LLM to generate SQL + chart config, then visualize
+      const chartMessages: vscode.LanguageModelChatMessage[] = [
+        vscode.LanguageModelChatMessage.User(buildChartPrompt(state.config.type, state.config.database, schemaContext)),
+        vscode.LanguageModelChatMessage.User(request.prompt),
+      ];
+
+      try {
+        const models = await vscode.lm.selectChatModels({ family: 'gpt-4o' });
+        const model = models[0] || (await vscode.lm.selectChatModels())[0];
+        if (!model) {
+          stream.markdown(vscode.l10n.t('No language model available. Make sure GitHub Copilot is installed and signed in.'));
+          return;
+        }
+        const response = await model.sendRequest(chartMessages, {}, token);
+        let fullResponse = '';
+        for await (const chunk of response.text) {
+          fullResponse += chunk;
+        }
+
+        // Extract SQL from response
+        const sqlMatch = fullResponse.match(/```sql\n([\s\S]*?)\n```/);
+        if (!sqlMatch) {
+          stream.markdown(fullResponse);
+          return;
+        }
+
+        const query = sqlMatch[1].trim();
+        stream.markdown(`**Query:**\n\`\`\`sql\n${query}\n\`\`\`\n\n`);
+
+        // Parse optional JSON chart config from LLM response
+        const jsonMatch = fullResponse.match(/```json\n([\s\S]*?)\n```/);
+        let chartMeta: { chartType?: string; xColumn?: string; yColumns?: string[] } = {};
+        if (jsonMatch) {
+          try { chartMeta = JSON.parse(jsonMatch[1]); } catch { /* ignore parse errors */ }
+        }
+
+        // Execute the query
+        try {
+          const result = await driver.execute(query);
+          if (result.error) {
+            stream.markdown(vscode.l10n.t('Query failed: {0}', result.error));
+            return;
+          }
+          stream.markdown(vscode.l10n.t('Query returned {0} rows. Opening chart...', String(result.rowCount)));
+
+          // Open chart panel with axis config from LLM
+          const vizData: Record<string, unknown> = {
+            columns: result.columns,
+            rows: result.rows,
+            query,
+            connectionId,
+            databaseName: state.config.database,
+            databaseType: state.config.type,
+          };
+          vscode.commands.executeCommand('viewstor.visualizeResults', vizData);
+        } catch (err) {
+          stream.markdown(vscode.l10n.t('Query failed: {0}', err instanceof Error ? err.message : String(err)));
+        }
+      } catch (err) {
+        if (err instanceof vscode.LanguageModelError) {
+          stream.markdown(vscode.l10n.t('Language model error: {0}', err.message));
+        } else {
+          throw err;
+        }
+      }
+      return;
+    }
+
     // Default: forward to LLM with schema context as system prompt
     const messages: vscode.LanguageModelChatMessage[] = [
       vscode.LanguageModelChatMessage.User(buildSystemPrompt(state.config.type, state.config.database, schemaContext, state.config.readonly)),
@@ -185,6 +254,35 @@ function buildSystemPrompt(dbType: string, database: string | undefined, schemaC
     'Answer questions about the schema, write SQL queries, explain relationships, and suggest optimizations.',
     'Always use the exact table and column names from the schema below.',
     'Format SQL in code blocks with ```sql syntax.',
+    '',
+    schemaContext || 'No schema loaded.',
+  ].filter(Boolean).join('\n');
+}
+
+function buildChartPrompt(dbType: string, database: string | undefined, schemaContext: string): string {
+  return [
+    `You are a data visualization assistant for a ${dbType} database${database ? ` "${database}"` : ''}.`,
+    'Your job is to generate a SQL query that returns data ready for chart visualization.',
+    '',
+    'RULES:',
+    '- For "how many X per period" questions, use GROUP BY with date_trunc() (PostgreSQL) or toStartOf*() (ClickHouse) and COUNT(*).',
+    '- Always include a time/category column for the X axis and numeric columns (COUNT, SUM, AVG, etc.) for the Y axis.',
+    '- ORDER BY the time/category column.',
+    '- Do NOT use LIMIT unless the user explicitly asks for it.',
+    '- Format the SQL in a ```sql code block.',
+    '',
+    'After the SQL block, on a new line write a JSON config block:',
+    '```json',
+    '{ "chartType": "line", "xColumn": "period", "yColumns": ["count"] }',
+    '```',
+    '',
+    'Example for "show quotes per month":',
+    '```sql',
+    'SELECT date_trunc(\'month\', created_at) AS period, COUNT(*) AS count FROM quotes GROUP BY 1 ORDER BY 1',
+    '```',
+    '```json',
+    '{ "chartType": "line", "xColumn": "period", "yColumns": ["count"] }',
+    '```',
     '',
     schemaContext || 'No schema loaded.',
   ].filter(Boolean).join('\n');

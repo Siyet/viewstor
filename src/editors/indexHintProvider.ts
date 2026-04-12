@@ -28,12 +28,13 @@ export class IndexHintProvider {
 
           const connId = this.queryEditorProvider.getConnectionIdFromUri(document.uri);
           if (!connId) return [];
+          const dbName = this.queryEditorProvider.getDatabaseNameFromUri(document.uri);
 
           const explainAction = new vscode.CodeAction(vscode.l10n.t('See EXPLAIN plan'), vscode.CodeActionKind.QuickFix);
           explainAction.command = {
             command: 'viewstor._showExplain',
             title: vscode.l10n.t('See EXPLAIN plan'),
-            arguments: [connId, document.getText()],
+            arguments: [connId, document.getText(), dbName],
           };
           explainAction.diagnostics = viewstorDiags;
           explainAction.isPreferred = false;
@@ -44,8 +45,13 @@ export class IndexHintProvider {
 
     // Register the EXPLAIN command
     context.subscriptions.push(
-      vscode.commands.registerCommand('viewstor._showExplain', async (connectionId: string, query: string) => {
-        const driver = this.connectionManager.getDriver(connectionId);
+      vscode.commands.registerCommand('viewstor._showExplain', async (connectionId: string, query: string, databaseName?: string) => {
+        let driver;
+        try {
+          driver = databaseName
+            ? await this.connectionManager.getDriverForDatabase(connectionId, databaseName)
+            : this.connectionManager.getDriver(connectionId);
+        } catch { return; }
         if (!driver) return;
         try {
           const result = await driver.execute('EXPLAIN ' + query.trim().replace(/;+\s*$/, ''));
@@ -75,7 +81,16 @@ export class IndexHintProvider {
       return;
     }
 
-    const driver = this.connectionManager.getDriver(connectionId);
+    const databaseName = this.queryEditorProvider.getDatabaseNameFromUri(document.uri);
+    let driver;
+    try {
+      driver = databaseName
+        ? await this.connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : this.connectionManager.getDriver(connectionId);
+    } catch {
+      this.diagnosticCollection.delete(document.uri);
+      return;
+    }
     if (!driver?.getIndexedColumns) {
       this.diagnosticCollection.delete(document.uri);
       return;

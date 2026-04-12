@@ -1,5 +1,5 @@
 {
-  "extension.description": "Ferramenta de gerenciamento de bancos de dados para VS Code — explorar esquemas, executar consultas e inspecionar dados no PostgreSQL, Redis e ClickHouse.",
+  "extension.description": "Ferramenta de gerenciamento de bancos de dados para VS Code — explorar esquemas, executar consultas e inspecionar dados no PostgreSQL, Redis, ClickHouse e SQLite.",
   "view.connections.name": "Conexões",
   "view.queryHistory.name": "Histórico de consultas",
   "command.addConnection": "Adicionar conexão",
@@ -43,5 +43,10 @@
   "command.renameHistoryEntry": "Renomear consulta",
   "config.queryHistoryLimit.description": "Número máximo de entradas no histórico. Entradas fixadas nunca são removidas.",
   "command.setupMcp": "Configurar servidor MCP",
-  "command.getStarted": "Primeiros passos"
+  "command.getStarted": "Primeiros passos",
+  "command.visualizeResults": "Visualizar como gráfico",
+  "command.exportGrafana": "Exportar para painel do Grafana",
+  "config.grafanaUrl.description": "URL do servidor Grafana para envio direto de painéis (ex.: https://grafana.example.com).",
+  "config.grafanaApiKey.description": "Chave de API do Grafana para enviar painéis. Crie uma chave com a função Editor.",
+  "chat.command.chart": "Gerar uma visualização de gráfico a partir de uma consulta"
 }

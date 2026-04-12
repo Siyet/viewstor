@@ -2,6 +2,20 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] — 2026-04-12
+
+### Added
+- **SQLite driver** — open `.sqlite`/`.db` files directly, file-based connection (no server needed). Schema browser, DDL, autocomplete, index hints, safe mode (`EXPLAIN QUERY PLAN` + `SCAN TABLE` detection), and all standard driver features. Native module managed via `prebuild-install` with Electron/Node dual-build caching ([#11](https://github.com/Siyet/viewstor/issues/11))
+- **Chart visualization** — visualize query results as interactive charts (line, bar, scatter, pie, heatmap, radar, funnel, gauge, boxplot, candlestick, treemap, sunburst) powered by Apache ECharts. Per-table chart panels, config sidebar with axis mapping, server-side aggregation with DB-specific time bucketing (`strftime` for SQLite, `toStartOf*` for ClickHouse, `date_trunc` for PostgreSQL), auto-sync with Result Panel ([#31](https://github.com/Siyet/viewstor/issues/31))
+- **`/chart` Copilot Chat command** — generate SQL + chart visualization from natural language description ([#31](https://github.com/Siyet/viewstor/issues/31))
+- **MCP chart tools** — `build_chart` and `export_grafana_dashboard` for standalone MCP server; `viewstor.mcp.visualize` and `viewstor.mcp.exportGrafana` for VS Code MCP commands ([#31](https://github.com/Siyet/viewstor/issues/31))
+- **MCP UI commands** — `viewstor.mcp.openQuery` opens SQL editor with query text (optionally executes), `viewstor.mcp.openTableData` opens table data view with optional custom query ([#11](https://github.com/Siyet/viewstor/issues/11))
+- **Multi-source charts** — add pinned queries as additional data sources to a chart, with join-by-column or separate-series merge modes ([#31](https://github.com/Siyet/viewstor/issues/31))
+- **Safe mode for SQLite and ClickHouse** — full table scan detection for all SQL databases, not just PostgreSQL ([#11](https://github.com/Siyet/viewstor/issues/11))
+
+### Changed
+- Query result page size now matches LIMIT from executed query instead of fixed 100
+
 ## [0.2.7] — 2026-04-06
 
 ### Added

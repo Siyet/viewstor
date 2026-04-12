@@ -1,5 +1,5 @@
 {
-  "extension.description": "VS Code 用データベース管理ツール — PostgreSQL、Redis、ClickHouse のスキーマ閲覧、クエリ実行、データ確認ができます。",
+  "extension.description": "VS Code 用データベース管理ツール — PostgreSQL、Redis、ClickHouse、SQLite のスキーマ閲覧、クエリ実行、データ確認ができます。",
   "view.connections.name": "接続",
   "view.queryHistory.name": "クエリ履歴",
   "command.addConnection": "接続を追加",
@@ -43,5 +43,10 @@
   "command.renameHistoryEntry": "クエリの名前変更",
   "config.queryHistoryLimit.description": "クエリ履歴の最大エントリ数。固定されたエントリは削除されません。",
   "command.setupMcp": "MCPサーバーをセットアップ",
-  "command.getStarted": "はじめに"
+  "command.getStarted": "はじめに",
+  "command.visualizeResults": "チャートで表示",
+  "command.exportGrafana": "Grafanaダッシュボードにエクスポート",
+  "config.grafanaUrl.description": "ダッシュボードを直接プッシュするためのGrafanaサーバーURL（例: https://grafana.example.com）。",
+  "config.grafanaApiKey.description": "ダッシュボードをプッシュするためのGrafana APIキー。Editorロールでキーを作成してください。",
+  "chat.command.chart": "クエリからチャートを生成"
 }

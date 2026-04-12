@@ -201,6 +201,7 @@ export class ConnectionFormPanel {
         <option value="postgresql" ${c?.type === 'postgresql' ? 'selected' : ''}>PostgreSQL</option>
         <option value="redis" ${c?.type === 'redis' ? 'selected' : ''}>Redis</option>
         <option value="clickhouse" ${c?.type === 'clickhouse' ? 'selected' : ''}>ClickHouse</option>
+        <option value="sqlite" ${c?.type === 'sqlite' ? 'selected' : ''}>SQLite</option>
       </select>
     </div>
 
@@ -258,6 +259,14 @@ export class ConnectionFormPanel {
     <div id="redisDbField" class="form-group hidden">
       <label for="redisDb">Database Number (0-15)</label>
       <input type="number" id="redisDb" min="0" max="15" value="${c?.type === 'redis' && c?.database ? esc(c.database) : '0'}" />
+    </div>
+
+    <div id="sqliteFileField" class="form-group hidden">
+      <label for="sqliteFile">Database File</label>
+      <input type="text" id="sqliteFile" placeholder="/path/to/database.sqlite" value="${c?.type === 'sqlite' ? esc(c?.database) : ''}" />
+      <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-top:4px;line-height:1.4;">
+        Path to an existing .sqlite/.db file, or a new file to create. Use <code>:memory:</code> for in-memory database.
+      </div>
     </div>
 
     <div class="form-group checkbox-group">

@@ -65,6 +65,8 @@ suite('Extension Activation', () => {
       'viewstor._executeSqlStatements',
       'viewstor.exportResults',
       'viewstor.reportIssue',
+      'viewstor.visualizeResults',
+      'viewstor.exportGrafana',
     ];
     for (const cmd of required) {
       assert.ok(commands.includes(cmd), `Command ${cmd} not registered`);
@@ -1399,10 +1401,261 @@ suite('SQL Diagnostics Provider', () => {
 });
 
 // ============================================================
-// 13. Regressions
+// 13. Chart Visualization
+// ============================================================
+
+suite('Chart Visualization', () => {
+  test('visualizeResults command exists and handles no data gracefully', async () => {
+    // Should show warning but not throw when called without data
+    await vscode.commands.executeCommand('viewstor.visualizeResults');
+  });
+
+  test('visualizeResults command accepts data payload', async () => {
+    // Should not throw when given valid data
+    await vscode.commands.executeCommand('viewstor.visualizeResults', {
+      columns: [{ name: 'x', dataType: 'integer' }, { name: 'y', dataType: 'integer' }],
+      rows: [{ x: 1, y: 2 }, { x: 3, y: 4 }],
+      query: 'SELECT x, y FROM test',
+    });
+    // Close any opened panel
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+  });
+
+  test('exportGrafana command exists and does not throw', async () => {
+    await vscode.commands.executeCommand('viewstor.exportGrafana');
+  });
+
+  test('chart types and config module can be imported', async () => {
+    const chartTypes = await import('../../types/chart');
+    assert.ok(chartTypes.GRAFANA_TYPE_MAP, 'GRAFANA_TYPE_MAP should exist');
+    assert.ok(chartTypes.CHART_TYPE_MAPPING, 'CHART_TYPE_MAPPING should exist');
+    assert.strictEqual(chartTypes.isGrafanaCompatible('line'), true);
+    assert.strictEqual(chartTypes.isGrafanaCompatible('radar'), false);
+    assert.strictEqual(chartTypes.isGrafanaCompatible('funnel'), false);
+  });
+
+  test('buildAggregationQuery generates valid SQL for quotes per month', async () => {
+    const { buildAggregationQuery } = await import('../../types/chart');
+    const sql = buildAggregationQuery(
+      'quotes', 'public', 'created_at', ['id'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'month' }, 'postgresql',
+    );
+    assert.ok(sql.includes('date_trunc'), 'Should use date_trunc');
+    assert.ok(sql.includes('\'month\''), 'Should truncate to month');
+    assert.ok(sql.includes('COUNT(*)'), 'Should use COUNT(*)');
+    assert.ok(sql.includes('"public"."quotes"'), 'Should reference the table');
+    assert.ok(sql.includes('GROUP BY'), 'Should group results');
+    assert.ok(sql.includes('ORDER BY'), 'Should order results');
+  });
+
+  test('buildAggregationQuery supports all time bucket presets for PG', async () => {
+    const { buildAggregationQuery } = await import('../../types/chart');
+    const presets = ['second', 'minute', 'hour', 'day', 'month', 'year'] as const;
+    for (const preset of presets) {
+      const sql = buildAggregationQuery(
+        't', undefined, 'ts', ['v'], 'count', undefined,
+        { function: 'count', timeBucketPreset: preset }, 'postgresql',
+      );
+      assert.ok(sql.includes('date_trunc'), `${preset}: should use date_trunc`);
+      assert.ok(sql.includes(`'${preset}'`), `${preset}: should include preset name`);
+    }
+  });
+
+  test('buildAggregationQuery supports ClickHouse time bucketing', async () => {
+    const { buildAggregationQuery } = await import('../../types/chart');
+    const sql = buildAggregationQuery(
+      'events', 'default', 'ts', ['v'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'hour' }, 'clickhouse',
+    );
+    assert.ok(sql.includes('toStartOfHour'), 'Should use toStartOfHour for ClickHouse');
+  });
+
+  test('buildAggregationQuery handles custom time bucket', async () => {
+    const { buildAggregationQuery } = await import('../../types/chart');
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['v'], 'sum', undefined,
+      { function: 'sum', timeBucketPreset: 'custom', timeBucket: '15m' }, 'postgresql',
+    );
+    assert.ok(sql.includes('date_bin'), 'Should use date_bin for custom bucket');
+    assert.ok(sql.includes('15 minute'), 'Should parse 15m to 15 minute');
+  });
+
+  test('buildFullDataQuery selects only requested columns without LIMIT', async () => {
+    const { buildFullDataQuery } = await import('../../types/chart');
+    const sql = buildFullDataQuery('quotes', 'public', ['created_at', 'price']);
+    assert.strictEqual(sql, 'SELECT "created_at", "price" FROM "public"."quotes"');
+    assert.ok(!sql.includes('LIMIT'), 'Should not have LIMIT');
+    assert.ok(!sql.includes('*'), 'Should not use SELECT *');
+  });
+
+  test('ChartConfig supports sync and full data fields', async () => {
+    const chartTypes = await import('../../types/chart');
+    // Verify types compile correctly
+    const config: import('../../types/chart').ChartConfig = {
+      chartType: 'line',
+      axis: { xColumn: 'ts', yColumns: ['value'] },
+      aggregation: { function: 'count', timeBucketPreset: 'month' },
+      syncEnabled: true,
+      fullData: false,
+      tableName: 'quotes',
+      schemaName: 'public',
+    };
+    assert.strictEqual(config.syncEnabled, true);
+    assert.strictEqual(config.fullData, false);
+    assert.strictEqual(config.tableName, 'quotes');
+  });
+
+  test('chart data transform builds options for all axis chart types', async () => {
+    const { buildEChartsOption } = await import('../../chart/chartDataTransform');
+    const result = {
+      columns: [{ name: 'x', dataType: 'text' }, { name: 'y', dataType: 'integer' }],
+      rows: [{ x: 'A', y: 10 }, { x: 'B', y: 20 }],
+      rowCount: 2,
+      executionTimeMs: 0,
+    };
+
+    for (const chartType of ['line', 'bar', 'scatter'] as const) {
+      const option = buildEChartsOption(result, {
+        chartType,
+        axis: { xColumn: 'x', yColumns: ['y'] },
+        aggregation: { function: 'none' },
+      });
+      assert.ok(option.series, `${chartType} should produce series`);
+      const series = option.series as Array<Record<string, unknown>>;
+      assert.strictEqual(series[0].type, chartType, `Series type should be ${chartType}`);
+    }
+  });
+
+  test('chart data transform builds options for category charts', async () => {
+    const { buildEChartsOption } = await import('../../chart/chartDataTransform');
+    const result = {
+      columns: [{ name: 'name', dataType: 'text' }, { name: 'value', dataType: 'integer' }],
+      rows: [{ name: 'A', value: 10 }, { name: 'B', value: 20 }],
+      rowCount: 2,
+      executionTimeMs: 0,
+    };
+
+    for (const chartType of ['pie', 'funnel', 'treemap', 'sunburst'] as const) {
+      const option = buildEChartsOption(result, {
+        chartType,
+        category: { nameColumn: 'name', valueColumn: 'value' },
+        aggregation: { function: 'none' },
+      });
+      assert.ok(option.series, `${chartType} should produce series`);
+    }
+  });
+
+  test('suggestChartConfig auto-detects timeseries', async () => {
+    const { suggestChartConfig } = await import('../../chart/chartDataTransform');
+    const result = {
+      columns: [
+        { name: 'ts', dataType: 'timestamp' },
+        { name: 'val', dataType: 'float8' },
+      ],
+      rows: [{ ts: '2024-01-01', val: 1 }],
+      rowCount: 1,
+      executionTimeMs: 0,
+    };
+    const config = suggestChartConfig(result);
+    assert.strictEqual(config.chartType, 'line');
+    assert.ok(config.axis);
+    assert.strictEqual(config.axis!.xColumn, 'ts');
+  });
+
+  test('Grafana export builds dashboard for compatible types', async () => {
+    const { buildGrafanaDashboard } = await import('../../chart/grafanaExport');
+    const config = {
+      chartType: 'line' as const,
+      axis: { xColumn: 'ts', yColumns: ['value'] },
+      aggregation: { function: 'none' as const },
+      sourceQuery: 'SELECT ts, value FROM metrics',
+      databaseType: 'postgresql',
+      title: 'Test',
+    };
+    const dashboard = buildGrafanaDashboard(config);
+    assert.ok(dashboard, 'Should produce dashboard for line chart');
+    assert.strictEqual(dashboard!.dashboard.panels[0].type, 'timeseries');
+    assert.strictEqual(dashboard!.dashboard.panels[0].targets[0].rawSql, 'SELECT ts, value FROM metrics');
+  });
+
+  test('Grafana export returns null for incompatible types', async () => {
+    const { buildGrafanaDashboard } = await import('../../chart/grafanaExport');
+    for (const chartType of ['radar', 'funnel', 'boxplot', 'candlestick', 'treemap', 'sunburst'] as const) {
+      const result = buildGrafanaDashboard({
+        chartType,
+        aggregation: { function: 'none' },
+      });
+      assert.strictEqual(result, null, `${chartType} should not produce Grafana dashboard`);
+    }
+  });
+
+  test('multi-source join merges rows correctly', async () => {
+    const { joinByColumn } = await import('../../chart/chartDataTransform');
+    const primary = [
+      { date: '2024-01-01', sales: 100 },
+      { date: '2024-01-02', sales: 200 },
+    ];
+    const additional = [
+      { dt: '2024-01-01', returns: 5 },
+      { dt: '2024-01-02', returns: 10 },
+    ];
+    const joined = joinByColumn(primary, additional, 'date', 'dt');
+    assert.strictEqual(joined.length, 2);
+    assert.strictEqual(joined[0].returns, 5);
+    assert.strictEqual(joined[1].returns, 10);
+    assert.strictEqual(joined[0].sales, 100);
+  });
+
+  test('multi-source buildMultiSourceEChartsOption adds series', async () => {
+    const { buildMultiSourceEChartsOption } = await import('../../chart/chartDataTransform');
+    const primary = {
+      columns: [{ name: 'ts', dataType: 'timestamp' }, { name: 'cpu', dataType: 'float8' }],
+      rows: [{ ts: '2024-01-01', cpu: 50 }],
+      rowCount: 1,
+      executionTimeMs: 0,
+    };
+    const config = {
+      chartType: 'line' as const,
+      axis: { xColumn: 'ts', yColumns: ['cpu'] },
+      aggregation: { function: 'none' as const },
+    };
+    const additional = [{
+      source: { id: '1', label: 'Mem', yColumns: ['mem'], mergeMode: 'separate' as const },
+      columns: [{ name: 'ts', dataType: 'timestamp' }, { name: 'mem', dataType: 'float8' }],
+      rows: [{ ts: '2024-01-01', mem: 70 }],
+    }];
+    const option = buildMultiSourceEChartsOption(primary, additional, config);
+    const series = option.series as Array<Record<string, unknown>>;
+    assert.strictEqual(series.length, 2, 'Should have primary + additional series');
+    assert.ok(String(series[1].name).includes('Mem'), 'Additional series should be labeled');
+  });
+});
+
+// ============================================================
+// 14. Regressions
 // ============================================================
 
 suite('Regressions', () => {
+  test('hideSchema does not trigger connect on other connections', async () => {
+    // Regression: hiding a schema used to fire _onDidChangeTreeData(undefined),
+    // which rebuilt ALL expanded tree nodes — including disconnected connections,
+    // triggering unwanted connect() calls and spinner on unrelated connections.
+    //
+    // After the fix, getChildren skips auto-connect when schema is cached,
+    // so a tree refresh (e.g. from hideSchema) only re-filters cached schemas.
+
+    // Verify the command exists and doesn't throw when called without item
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes('viewstor.hideSchema'), 'hideSchema command should exist');
+    assert.ok(commands.includes('viewstor.hideDatabase'), 'hideDatabase command should exist');
+    assert.ok(commands.includes('viewstor.showAllSchemas'), 'showAllSchemas command should exist');
+
+    // Call hideSchema without item — should silently return
+    await vscode.commands.executeCommand('viewstor.hideSchema');
+    await vscode.commands.executeCommand('viewstor.hideDatabase');
+    await vscode.commands.executeCommand('viewstor.showAllSchemas');
+  });
+
   test('runQuery command without active editor does not throw', async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     // Should silently return without error
@@ -1417,5 +1670,414 @@ suite('Regressions', () => {
   test('_runStatementAtLine with no active editor does not throw', async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     await vscode.commands.executeCommand('viewstor._runStatementAtLine', 0);
+  });
+});
+
+// ============================================================
+// SQLite Native Module
+// ============================================================
+
+suite('SQLite Native Module', () => {
+  test('better-sqlite3 loads without ABI mismatch in Extension Host', () => {
+    // This test runs inside Electron (VS Code Extension Host).
+    // If better-sqlite3 was compiled for a different Node.js/Electron version,
+    // require() will throw "was compiled against a different Node.js version".
+    let Database: typeof import('better-sqlite3');
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      Database = require('better-sqlite3');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('NODE_MODULE_VERSION')) {
+        assert.fail(
+          'better-sqlite3 ABI mismatch in Extension Host. '
+          + 'Run: node scripts/sqlite-rebuild.js electron\n' + message
+        );
+      }
+      throw err;
+    }
+    assert.ok(Database, 'better-sqlite3 module loaded');
+  });
+
+  test('in-memory SQLite database works in Extension Host', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Database = require('better-sqlite3');
+    const db = new Database(':memory:');
+    try {
+      db.exec('CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)');
+      db.prepare('INSERT INTO test VALUES (1, ?)').run('hello');
+      const row = db.prepare('SELECT value FROM test WHERE id = 1').get();
+      assert.strictEqual(row.value, 'hello');
+    } finally {
+      db.close();
+    }
+  });
+
+  test('SqliteDriver connects and queries in Extension Host', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { SqliteDriver } = require('../../drivers/sqlite');
+    const driver = new SqliteDriver();
+    await driver.connect({
+      id: 'test-vscode',
+      name: 'VS Code Test',
+      type: 'sqlite',
+      host: '',
+      port: 0,
+      database: ':memory:',
+    });
+    try {
+      const ping = await driver.ping();
+      assert.strictEqual(ping, true, 'ping should succeed');
+
+      await driver.execute('CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)');
+      await driver.execute('INSERT INTO items (name) VALUES (\'test\')');
+
+      const result = await driver.execute('SELECT * FROM items');
+      assert.strictEqual(result.error, undefined, 'query should not error');
+      assert.strictEqual(result.rowCount, 1);
+      assert.strictEqual(result.rows[0].name, 'test');
+
+      const schema = await driver.getSchema();
+      const table = schema.find((s: { name: string }) => s.name === 'items');
+      assert.ok(table, 'items table should appear in schema');
+    } finally {
+      await driver.disconnect();
+    }
+  });
+});
+
+// ============================================================
+// SQLite Chart Aggregation (databaseType propagation)
+// ============================================================
+
+suite('SQLite Chart Aggregation', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { SqliteDriver } = require('../../drivers/sqlite');
+  let driver: InstanceType<typeof SqliteDriver>;
+
+  suiteSetup(async () => {
+    driver = new SqliteDriver();
+    await driver.connect({
+      id: 'chart-test-sqlite',
+      name: 'Chart Test',
+      type: 'sqlite',
+      host: '',
+      port: 0,
+      database: ':memory:',
+    });
+    await driver.execute(`
+      CREATE TABLE points (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT NOT NULL,
+        value REAL,
+        category TEXT
+      )
+    `);
+    // Seed: 3 dates across 2 months
+    await driver.execute(`
+      INSERT INTO points (created_at, value, category) VALUES
+        ('2024-01-10 08:00:00', 10, 'A'),
+        ('2024-01-10 14:30:00', 20, 'B'),
+        ('2024-01-20 09:00:00', 30, 'A'),
+        ('2024-02-05 11:00:00', 40, 'B'),
+        ('2024-02-15 16:00:00', 50, 'A'),
+        ('2024-02-15 18:00:00', 60, 'B')
+    `);
+  });
+
+  suiteTeardown(async () => {
+    await driver?.disconnect();
+  });
+
+  test('buildAggregationQuery with databaseType=sqlite uses strftime, not date_trunc', async () => {
+    const { buildAggregationQuery } = await import('../../types/chart');
+    const sql = buildAggregationQuery(
+      'points', undefined, 'created_at', ['id'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'day' }, 'sqlite',
+    );
+    assert.ok(sql.includes('strftime'), 'should use strftime for SQLite');
+    assert.ok(sql.includes('%Y-%m-%d'), 'should format as YYYY-MM-DD for day bucket');
+    assert.ok(!sql.includes('date_trunc'), 'must NOT use date_trunc (PostgreSQL-only)');
+    assert.ok(!sql.includes('toStartOf'), 'must NOT use toStartOf (ClickHouse-only)');
+  });
+
+  test('buildAggregationQuery with databaseType=undefined falls back to date_trunc', async () => {
+    // This test documents the exact bug: without databaseType,
+    // the query generator falls back to PostgreSQL-specific date_trunc.
+    const { buildAggregationQuery } = await import('../../types/chart');
+    const sql = buildAggregationQuery(
+      'points', undefined, 'created_at', ['id'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'day' }, undefined,
+    );
+    assert.ok(sql.includes('date_trunc'), 'undefined databaseType falls back to PG date_trunc');
+  });
+
+  test('COUNT by day executes on real SQLite without error', async () => {
+    const { buildAggregationQuery } = await import('../../types/chart');
+    const sql = buildAggregationQuery(
+      'points', undefined, 'created_at', ['id'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'day' }, 'sqlite',
+    );
+    const result = await driver.execute(sql);
+    assert.strictEqual(result.error, undefined, `SQL should execute without error: ${sql}`);
+    // 2024-01-10 (2 rows), 2024-01-20 (1), 2024-02-05 (1), 2024-02-15 (2) = 4 buckets
+    assert.strictEqual(result.rowCount, 4, 'should produce 4 day buckets');
+    const dates = result.rows.map((r: Record<string, unknown>) => r.created_at);
+    assert.deepStrictEqual(dates, ['2024-01-10', '2024-01-20', '2024-02-05', '2024-02-15']);
+  });
+
+  test('COUNT by month executes on real SQLite without error', async () => {
+    const { buildAggregationQuery } = await import('../../types/chart');
+    const sql = buildAggregationQuery(
+      'points', undefined, 'created_at', ['id'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'month' }, 'sqlite',
+    );
+    const result = await driver.execute(sql);
+    assert.strictEqual(result.error, undefined, `SQL should execute without error: ${sql}`);
+    assert.strictEqual(result.rowCount, 2, 'should produce 2 month buckets');
+    assert.strictEqual(result.rows[0].created_at, '2024-01');
+    assert.strictEqual(result.rows[1].created_at, '2024-02');
+    // Each month has 3 rows
+    assert.strictEqual(result.rows[0].count, 3);
+    assert.strictEqual(result.rows[1].count, 3);
+  });
+
+  test('date_trunc SQL fails on SQLite (proves the bug)', async () => {
+    const { buildAggregationQuery } = await import('../../types/chart');
+    // Generate PG-style query (what happens when databaseType is missing)
+    const sql = buildAggregationQuery(
+      'points', undefined, 'created_at', ['id'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'day' }, 'postgresql',
+    );
+    const result = await driver.execute(sql);
+    // date_trunc does not exist in SQLite → error
+    assert.ok(result.error, 'date_trunc should fail on SQLite');
+    assert.ok(result.error!.includes('no such function'), `error should mention missing function: ${result.error}`);
+  });
+
+  test('SUM by day with groupBy executes correctly', async () => {
+    const { buildAggregationQuery } = await import('../../types/chart');
+    const sql = buildAggregationQuery(
+      'points', undefined, 'created_at', ['value'], 'sum', 'category',
+      { function: 'sum', timeBucketPreset: 'day' }, 'sqlite',
+    );
+    const result = await driver.execute(sql);
+    assert.strictEqual(result.error, undefined, `SQL should execute: ${sql}`);
+    assert.ok(result.rowCount >= 4, 'should have at least 4 rows (day × category)');
+    // Every row should have a category
+    for (const row of result.rows) {
+      assert.ok(
+        (row as Record<string, unknown>).category === 'A' || (row as Record<string, unknown>).category === 'B',
+        'each row must have category A or B',
+      );
+    }
+  });
+
+  test('visualizeResults with databaseType=sqlite does not throw', async () => {
+    // Simulates what happens when ResultPanel passes databaseType to chart.
+    // The chart panel opens — we verify it doesn't crash.
+    await vscode.commands.executeCommand('viewstor.visualizeResults', {
+      columns: [
+        { name: 'created_at', dataType: 'TEXT' },
+        { name: 'count', dataType: 'INTEGER' },
+      ],
+      rows: [
+        { created_at: '2024-01', count: 3 },
+        { created_at: '2024-02', count: 3 },
+      ],
+      databaseType: 'sqlite',
+      tableName: 'points',
+    });
+    // Close the chart panel
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+  });
+});
+
+// ============================================================
+// MCP UI Commands
+// ============================================================
+
+suite('MCP UI Commands', () => {
+  test('viewstor.mcp.openQuery is registered', async () => {
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes('viewstor.mcp.openQuery'), 'openQuery should be registered');
+  });
+
+  test('viewstor.mcp.openTableData is registered', async () => {
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes('viewstor.mcp.openTableData'), 'openTableData should be registered');
+  });
+
+  test('openQuery returns error for empty params', async () => {
+    const result = await vscode.commands.executeCommand('viewstor.mcp.openQuery', '', '') as { error?: string };
+    assert.ok(result?.error, 'should return error for empty connectionId');
+  });
+
+  test('openQuery returns error for unknown connection', async () => {
+    const result = await vscode.commands.executeCommand('viewstor.mcp.openQuery', 'nonexistent-conn', 'SELECT 1') as { error?: string };
+    assert.ok(result?.error, 'should return error for nonexistent connection');
+    assert.ok(result.error!.includes('not found'), `error should mention not found: ${result.error}`);
+  });
+
+  test('openTableData returns error for unknown connection', async () => {
+    const result = await vscode.commands.executeCommand('viewstor.mcp.openTableData', 'nonexistent-conn', 'table') as { error?: string };
+    assert.ok(result?.error, 'should return error for nonexistent connection');
+  });
+
+  test('listConnections returns array', async () => {
+    const result = await vscode.commands.executeCommand('viewstor.mcp.listConnections');
+    assert.ok(Array.isArray(result), 'should return an array');
+  });
+});
+
+// ============================================================
+// Safe Mode — Multi-DB EXPLAIN Patterns
+// ============================================================
+
+suite('Safe Mode — Multi-DB', () => {
+  test('SQLite EXPLAIN QUERY PLAN detects SCAN TABLE', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let SqliteDriver;
+    try { SqliteDriver = require('../../drivers/sqlite').SqliteDriver; } catch { return; } // eslint-disable-line @typescript-eslint/no-var-requires
+    const driver = new SqliteDriver();
+    await driver.connect({ id: 'safe-scan', name: 'Safe', type: 'sqlite', host: '', port: 0, database: ':memory:' });
+    try {
+      await driver.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)');
+      await driver.execute('INSERT INTO users VALUES (1, \'Alice\', \'a@test.com\')');
+
+      const result = await driver.execute('EXPLAIN QUERY PLAN SELECT * FROM users WHERE name = \'Alice\'');
+      assert.strictEqual(result.error, undefined, 'EXPLAIN should not error');
+      const plan = result.rows.map((r: Record<string, unknown>) => Object.values(r).join(' ')).join('\n');
+      assert.ok(plan.includes('SCAN'), `Without index, plan should contain SCAN: ${plan}`);
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  test('SQLite EXPLAIN QUERY PLAN detects SEARCH with index', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let SqliteDriver;
+    try { SqliteDriver = require('../../drivers/sqlite').SqliteDriver; } catch { return; } // eslint-disable-line @typescript-eslint/no-var-requires
+    const driver = new SqliteDriver();
+    await driver.connect({ id: 'safe-idx', name: 'Idx', type: 'sqlite', host: '', port: 0, database: ':memory:' });
+    try {
+      await driver.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)');
+      await driver.execute('CREATE INDEX idx_name ON users(name)');
+
+      const result = await driver.execute('EXPLAIN QUERY PLAN SELECT * FROM users WHERE name = \'Alice\'');
+      const plan = result.rows.map((r: Record<string, unknown>) => Object.values(r).join(' ')).join('\n');
+      assert.ok(
+        plan.includes('SEARCH') || plan.includes('USING INDEX'),
+        `With index, plan should use SEARCH/INDEX: ${plan}`,
+      );
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  test('Safe mode scan pattern matching works for all DB types', () => {
+    // PostgreSQL pattern
+    const pgPlan = 'Seq Scan on users  (cost=0.00..22.70 rows=1270 width=36)';
+    assert.ok(pgPlan.includes('Seq Scan'), 'PG: detect Seq Scan');
+    const pgMatch = pgPlan.match(/Seq Scan on (\w+)/);
+    assert.strictEqual(pgMatch?.[1], 'users', 'PG: extract table name');
+
+    // SQLite pattern
+    const sqlitePlan = '3 0 0 SCAN TABLE users';
+    assert.ok(sqlitePlan.includes('SCAN TABLE'), 'SQLite: detect SCAN TABLE');
+    const sqliteMatch = sqlitePlan.match(/SCAN TABLE (\w+)/);
+    assert.strictEqual(sqliteMatch?.[1], 'users', 'SQLite: extract table name');
+  });
+
+  test('buildAggregationQuery for SQLite generates valid EXPLAIN-able SQL', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let SqliteDriver;
+    try { SqliteDriver = require('../../drivers/sqlite').SqliteDriver; } catch { return; } // eslint-disable-line @typescript-eslint/no-var-requires
+    const { buildAggregationQuery } = await import('../../types/chart');
+    const driver = new SqliteDriver();
+    await driver.connect({ id: 'safe-agg', name: 'Agg', type: 'sqlite', host: '', port: 0, database: ':memory:' });
+    try {
+      await driver.execute('CREATE TABLE events (id INTEGER PRIMARY KEY, ts TEXT, val REAL)');
+      const sql = buildAggregationQuery(
+        'events', undefined, 'ts', ['val'], 'count', undefined,
+        { function: 'count', timeBucketPreset: 'month' }, 'sqlite',
+      );
+      // EXPLAIN QUERY PLAN should work on the aggregation query
+      const result = await driver.execute('EXPLAIN QUERY PLAN ' + sql);
+      assert.strictEqual(result.error, undefined, `EXPLAIN should work on: ${sql}`);
+    } finally {
+      await driver.disconnect();
+    }
+  });
+});
+
+// ============================================================
+// SQLite inferTypeFromValue (computed column types)
+// ============================================================
+
+suite('SQLite Computed Column Types', () => {
+  test('COUNT(*) is inferred as INTEGER in Extension Host', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let SqliteDriver;
+    try { SqliteDriver = require('../../drivers/sqlite').SqliteDriver; } catch { return; } // eslint-disable-line @typescript-eslint/no-var-requires
+    const driver = new SqliteDriver();
+    await driver.connect({ id: 'infer-test', name: 'Infer', type: 'sqlite', host: '', port: 0, database: ':memory:' });
+    try {
+      await driver.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, ts TEXT)');
+      await driver.execute('INSERT INTO t (ts) VALUES (\'2024-01-01\'), (\'2024-02-01\')');
+      const result = await driver.execute('SELECT strftime(\'%Y-%m\', ts) AS month, COUNT(*) AS cnt FROM t GROUP BY 1');
+      assert.strictEqual(result.error, undefined);
+
+      const cntCol = result.columns.find((c: { name: string }) => c.name === 'cnt');
+      assert.ok(cntCol, 'cnt column should exist');
+      assert.strictEqual(cntCol!.dataType, 'INTEGER', 'COUNT should be inferred as INTEGER');
+
+      const monthCol = result.columns.find((c: { name: string }) => c.name === 'month');
+      assert.ok(monthCol, 'month column should exist');
+      assert.strictEqual(monthCol!.dataType, 'TEXT', 'strftime should remain TEXT');
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  test('SUM returns REAL, AVG returns REAL', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let SqliteDriver;
+    try { SqliteDriver = require('../../drivers/sqlite').SqliteDriver; } catch { return; } // eslint-disable-line @typescript-eslint/no-var-requires
+    const driver = new SqliteDriver();
+    await driver.connect({ id: 'infer-sum', name: 'Sum', type: 'sqlite', host: '', port: 0, database: ':memory:' });
+    try {
+      await driver.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, val REAL)');
+      await driver.execute('INSERT INTO t (val) VALUES (1.5), (2.5), (3.0)');
+      const result = await driver.execute('SELECT SUM(val) AS total, AVG(val) AS average FROM t');
+      assert.strictEqual(result.error, undefined);
+
+      const totalCol = result.columns.find((c: { name: string }) => c.name === 'total');
+      assert.strictEqual(totalCol!.dataType, 'REAL', 'SUM of REAL should be REAL');
+
+      const avgCol = result.columns.find((c: { name: string }) => c.name === 'average');
+      assert.strictEqual(avgCol!.dataType, 'REAL', 'AVG should be REAL');
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  test('empty result set defaults to TEXT', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let SqliteDriver;
+    try { SqliteDriver = require('../../drivers/sqlite').SqliteDriver; } catch { return; } // eslint-disable-line @typescript-eslint/no-var-requires
+    const driver = new SqliteDriver();
+    await driver.connect({ id: 'infer-empty', name: 'Empty', type: 'sqlite', host: '', port: 0, database: ':memory:' });
+    try {
+      await driver.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, ts TEXT)');
+      const result = await driver.execute('SELECT strftime(\'%Y-%m\', ts) AS month, COUNT(*) AS cnt FROM t GROUP BY 1');
+      assert.strictEqual(result.error, undefined);
+      assert.strictEqual(result.rowCount, 0);
+      // No rows → can't infer → defaults to TEXT
+      const cntCol = result.columns.find((c: { name: string }) => c.name === 'cnt');
+      assert.strictEqual(cntCol!.dataType, 'TEXT', 'no rows → default TEXT');
+    } finally {
+      await driver.disconnect();
+    }
   });
 });

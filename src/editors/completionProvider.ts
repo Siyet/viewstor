@@ -35,10 +35,11 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     position: vscode.Position,
   ): Promise<vscode.CompletionItem[]> {
     const connectionId = this.queryEditorProvider.getConnectionIdFromUri(document.uri);
-    dbg('completion', 'uri:', document.uri.toString(), 'connectionId:', connectionId);
+    const databaseName = this.queryEditorProvider.getDatabaseNameFromUri(document.uri);
+    dbg('completion', 'uri:', document.uri.toString(), 'connectionId:', connectionId, 'database:', databaseName);
     if (!connectionId) return [];
 
-    const dbItems = await this.getDbItems(connectionId);
+    const dbItems = await this.getDbItems(connectionId, databaseName);
     dbg('completion', 'dbItems:', dbItems.length);
     const fullText = document.getText();
     const lineText = document.lineAt(position).text.substring(0, position.character);
@@ -132,21 +133,29 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
     return results;
   }
 
-  private async getDbItems(connectionId: string): Promise<DriverCompletion[]> {
-    if (this.cache.has(connectionId)) return this.cache.get(connectionId)!;
+  private async getDbItems(connectionId: string, databaseName?: string): Promise<DriverCompletion[]> {
+    const cacheKey = databaseName ? `${connectionId}:${databaseName}` : connectionId;
+    if (this.cache.has(cacheKey)) return this.cache.get(cacheKey)!;
 
-    const driver = this.connectionManager.getDriver(connectionId);
+    let driver;
+    try {
+      driver = databaseName
+        ? await this.connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : this.connectionManager.getDriver(connectionId);
+    } catch {
+      return [];
+    }
     dbg('completion', 'getDbItems driver:', !!driver, 'hasGetCompletions:', !!driver?.getCompletions);
     if (!driver?.getCompletions) return [];
 
     try {
       const items = await driver.getCompletions();
-      this.cache.set(connectionId, items);
-      const oldTimer = this.cacheTimers.get(connectionId);
+      this.cache.set(cacheKey, items);
+      const oldTimer = this.cacheTimers.get(cacheKey);
       if (oldTimer) clearTimeout(oldTimer);
-      this.cacheTimers.set(connectionId, setTimeout(() => {
-        this.cache.delete(connectionId);
-        this.cacheTimers.delete(connectionId);
+      this.cacheTimers.set(cacheKey, setTimeout(() => {
+        this.cache.delete(cacheKey);
+        this.cacheTimers.delete(cacheKey);
       }, 60000));
       return items;
     } catch {
@@ -156,9 +165,14 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
 
   clearCache(connectionId?: string) {
     if (connectionId) {
-      this.cache.delete(connectionId);
-      const timer = this.cacheTimers.get(connectionId);
-      if (timer) { clearTimeout(timer); this.cacheTimers.delete(connectionId); }
+      // Clear exact key and any database-scoped keys (connectionId:database)
+      for (const key of [...this.cache.keys()]) {
+        if (key === connectionId || key.startsWith(connectionId + ':')) {
+          this.cache.delete(key);
+          const timer = this.cacheTimers.get(key);
+          if (timer) { clearTimeout(timer); this.cacheTimers.delete(key); }
+        }
+      }
     } else {
       this.cache.clear();
       for (const timer of this.cacheTimers.values()) clearTimeout(timer);

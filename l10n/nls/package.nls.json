@@ -1,5 +1,5 @@
 {
-  "extension.description": "Database management tool for VS Code — browse schemas, run queries, and inspect data across PostgreSQL, Redis, and ClickHouse.",
+  "extension.description": "Database management tool for VS Code — browse schemas, run queries, and inspect data across PostgreSQL, Redis, ClickHouse, and SQLite.",
   "view.connections.name": "Connections",
   "view.queryHistory.name": "Query History",
   "command.addConnection": "Add Connection",
@@ -43,5 +43,10 @@
   "command.pinHistoryEntry": "Pin Query",
   "command.unpinHistoryEntry": "Unpin Query",
   "command.renameHistoryEntry": "Rename Query",
-  "config.queryHistoryLimit.description": "Maximum number of query history entries to keep. Pinned entries are never evicted."
+  "config.queryHistoryLimit.description": "Maximum number of query history entries to keep. Pinned entries are never evicted.",
+  "command.visualizeResults": "Visualize as Chart",
+  "command.exportGrafana": "Export to Grafana Dashboard",
+  "config.grafanaUrl.description": "Grafana server URL for direct dashboard push (e.g., https://grafana.example.com).",
+  "config.grafanaApiKey.description": "Grafana API key for pushing dashboards. Create a key with Editor role.",
+  "chat.command.chart": "Generate a chart visualization from a query"
 }
