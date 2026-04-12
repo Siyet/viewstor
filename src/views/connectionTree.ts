@@ -40,10 +40,14 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     if (element.connectionId && element.itemType === 'connection') {
       const state = this.connectionManager.get(element.connectionId);
       if (state && !state.connected) {
-        try {
-          await this.connectionManager.connect(element.connectionId);
-        } catch {
-          return [new ConnectionTreeItem(vscode.l10n.t('Connection failed'), vscode.TreeItemCollapsibleState.None)];
+        // If schema is already cached (e.g. during a tree refresh after hideSchema),
+        // skip auto-connect and use the cached schema instead of triggering I/O.
+        if (!this.schemaCache.has(element.connectionId)) {
+          try {
+            await this.connectionManager.connect(element.connectionId);
+          } catch {
+            return [new ConnectionTreeItem(vscode.l10n.t('Connection failed'), vscode.TreeItemCollapsibleState.None)];
+          }
         }
       }
 
@@ -70,7 +74,22 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
 
       // Single-DB: load schema (cached)
       const driver = this.connectionManager.getDriver(element.connectionId);
-      if (!driver) return [];
+      if (!driver) {
+        // Disconnected but schema is cached — use cache (e.g. after hideSchema refresh)
+        const cached = this.schemaCache.get(element.connectionId!);
+        if (cached) {
+          const schema = this.filterSchema(cached, element.connectionId!);
+          if (schema.length === 1 && schema[0].type === 'database' && schema[0].children) {
+            let children = schema[0].children;
+            if (children.length === 1 && children[0].type === 'schema' && children[0].children) {
+              children = children[0].children;
+            }
+            return this.createSchemaItems(children, element.connectionId!);
+          }
+          return this.createSchemaItems(schema, element.connectionId!);
+        }
+        return [];
+      }
       try {
         let rawSchema = this.schemaCache.get(element.connectionId!);
         if (!rawSchema) {
@@ -224,7 +243,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     item.itemType = 'connection';
     item.contextValue = connected ? 'connection-connected' : 'connection-disconnected';
     const iconColor = colorToThemeColor(this.connectionManager.getConnectionColor(config.id));
-    item.iconPath = new vscode.ThemeIcon(connected ? 'plug' : 'circle-outline', iconColor);
+    item.iconPath = new vscode.ThemeIcon(`viewstor-${config.type}`, iconColor);
     item.description = connected
       ? (config.type === 'sqlite' ? (config.database || ':memory:') : `${config.host}:${config.port}`)
       : '';

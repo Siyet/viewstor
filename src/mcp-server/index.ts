@@ -8,7 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { ConnectionStore } from './connectionStore';
 import { SchemaObject } from '../types/schema';
-import { ChartConfig, EChartsChartType, isGrafanaCompatible } from '../types/chart';
+import { ChartConfig, EChartsChartType, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
 
@@ -80,21 +80,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'add_connection',
-      description: 'Add a new database connection',
+      description: 'Add a new database connection. For SQLite: set type="sqlite", database="/path/to/file.db" (or ":memory:"), host and port are ignored.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           name: { type: 'string', description: 'Display name' },
-          type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse'], description: 'Database type' },
-          host: { type: 'string', description: 'Host' },
-          port: { type: 'number', description: 'Port' },
+          type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite'], description: 'Database type' },
+          host: { type: 'string', description: 'Host (ignored for SQLite)' },
+          port: { type: 'number', description: 'Port (ignored for SQLite)' },
           username: { type: 'string', description: 'Username' },
           password: { type: 'string', description: 'Password' },
-          database: { type: 'string', description: 'Database name' },
+          database: { type: 'string', description: 'Database name, or file path for SQLite (e.g. "/tmp/test.db", ":memory:")' },
           ssl: { type: 'boolean', description: 'Use SSL' },
           readonly: { type: 'boolean', description: 'Read-only mode' },
         },
-        required: ['name', 'type', 'host', 'port'],
+        required: ['name', 'type'],
       },
     },
     {
@@ -104,20 +104,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'build_chart',
-      description: 'Execute a query and return an ECharts option JSON for visualization. Returns auto-suggested config if none provided.',
+      description: 'Build a chart from database data. Can either execute a raw SQL query, or auto-generate an aggregation query from table + columns + aggregation function. Use this when the user asks to "show on a chart", "visualize", "plot" data. Example: to show "quotes per month", pass tableName="quotes", xColumn="created_at", aggregation="count", timeBucket="month".',
       inputSchema: {
         type: 'object' as const,
         properties: {
           connectionId: { type: 'string', description: 'Connection ID' },
-          query: { type: 'string', description: 'SQL query to execute' },
+          query: { type: 'string', description: 'Raw SQL query. If tableName + aggregation are provided, this is auto-generated and can be omitted.' },
+          tableName: { type: 'string', description: 'Table name for server-side aggregation (e.g. "quotes")' },
+          schema: { type: 'string', description: 'Schema name (e.g. "public")' },
           chartType: { type: 'string', description: 'Chart type: line, bar, scatter, pie, radar, heatmap, funnel, gauge, boxplot, candlestick, treemap, sunburst' },
-          xColumn: { type: 'string', description: 'X axis column name (for axis charts)' },
-          yColumns: { type: 'array', items: { type: 'string' }, description: 'Y axis column names (for axis charts)' },
-          groupByColumn: { type: 'string', description: 'Group by column name' },
+          xColumn: { type: 'string', description: 'X axis column (for time series, use the timestamp column)' },
+          yColumns: { type: 'array', items: { type: 'string' }, description: 'Y axis columns (for count aggregation, any column works)' },
+          groupByColumn: { type: 'string', description: 'Split into series by this column' },
+          aggregation: { type: 'string', enum: ['none', 'count', 'sum', 'avg', 'min', 'max'], description: 'Aggregation function. Use "count" for "how many per period" questions.' },
+          timeBucket: { type: 'string', enum: ['second', 'minute', 'hour', 'day', 'month', 'year'], description: 'Time bucket for grouping timestamps (e.g. "month" for monthly aggregation)' },
           nameColumn: { type: 'string', description: 'Name column (for pie/funnel/treemap)' },
           valueColumn: { type: 'string', description: 'Value column (for pie/funnel/gauge)' },
+          title: { type: 'string', description: 'Chart title' },
         },
-        required: ['connectionId', 'query'],
+        required: ['connectionId'],
       },
     },
     {
@@ -242,21 +247,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'build_chart': {
-        const { connectionId, query, chartType, xColumn, yColumns, groupByColumn, nameColumn, valueColumn } = args as {
-          connectionId: string; query: string; chartType?: string;
-          xColumn?: string; yColumns?: string[]; groupByColumn?: string;
-          nameColumn?: string; valueColumn?: string;
+        const { connectionId, query, tableName: chartTable, schema: chartSchema, chartType,
+          xColumn, yColumns, groupByColumn, nameColumn, valueColumn,
+          aggregation: aggFunc, timeBucket, title: chartTitle } = args as {
+          connectionId: string; query?: string; tableName?: string; schema?: string;
+          chartType?: string; xColumn?: string; yColumns?: string[];
+          groupByColumn?: string; nameColumn?: string; valueColumn?: string;
+          aggregation?: string; timeBucket?: string; title?: string;
         };
+
+        // Build SQL: either from raw query, or auto-generate from table + aggregation
+        let effectiveQuery: string;
+        if (chartTable && xColumn && aggFunc && aggFunc !== 'none') {
+          const conn = store.get(connectionId);
+          effectiveQuery = buildAggregationQuery(
+            chartTable, chartSchema, xColumn, yColumns || ['*'],
+            aggFunc as ChartConfig['aggregation']['function'],
+            groupByColumn,
+            {
+              function: aggFunc as ChartConfig['aggregation']['function'],
+              timeBucketPreset: timeBucket as ChartConfig['aggregation']['timeBucketPreset'],
+            },
+            conn?.type,
+          );
+        } else if (query) {
+          effectiveQuery = query;
+        } else if (chartTable) {
+          // No aggregation, no query — just SELECT from table
+          effectiveQuery = chartSchema
+            ? `SELECT * FROM "${chartSchema}"."${chartTable}" LIMIT 1000`
+            : `SELECT * FROM "${chartTable}" LIMIT 1000`;
+        } else {
+          return errorResponse('Provide either "query" or "tableName" parameter');
+        }
+
         const chartDriver = await store.ensureDriver(connectionId);
-        const chartResult = await chartDriver.execute(query);
+        const chartResult = await chartDriver.execute(effectiveQuery);
         if (chartResult.error) return errorResponse(chartResult.error);
 
         const suggested = suggestChartConfig(chartResult);
         const config: ChartConfig = {
           chartType: (chartType as EChartsChartType) || suggested.chartType || 'bar',
-          aggregation: suggested.aggregation || { function: 'none' },
-          sourceQuery: query,
+          aggregation: {
+            function: (aggFunc as ChartConfig['aggregation']['function']) || suggested.aggregation?.function || 'none',
+            timeBucketPreset: timeBucket as ChartConfig['aggregation']['timeBucketPreset'],
+          },
+          sourceQuery: effectiveQuery,
           connectionId,
+          title: chartTitle,
         };
 
         if (xColumn && yColumns) {
@@ -270,7 +308,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const option = buildEChartsOption(chartResult, config);
-        return jsonResponse({ config, option, rowCount: chartResult.rowCount });
+        return jsonResponse({ config, option, sql: effectiveQuery, rowCount: chartResult.rowCount });
       }
 
       case 'export_grafana_dashboard': {

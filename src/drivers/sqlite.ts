@@ -10,11 +10,23 @@ export class SqliteDriver implements DatabaseDriver {
 
   async connect(config: ConnectionConfig): Promise<void> {
     const filePath = config.database || ':memory:';
-    this.db = new Database(filePath, {
-      readonly: config.readonly || false,
-    });
-    // Enable WAL for better concurrency and foreign keys by default
-    this.db.pragma('journal_mode = WAL');
+    try {
+      this.db = new Database(filePath, {
+        readonly: config.readonly || false,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('NODE_MODULE_VERSION')) {
+        throw new Error(
+          'SQLite native module was compiled for a different Node.js version. '
+          + 'Run: node scripts/sqlite-rebuild.js electron',
+        );
+      }
+      throw err;
+    }
+    // Enable WAL and foreign keys — skip WAL on readonly (it's a write operation)
+    if (!config.readonly) {
+      this.db.pragma('journal_mode = WAL');
+    }
     this.db.pragma('foreign_keys = ON');
   }
 
@@ -39,9 +51,10 @@ export class SqliteDriver implements DatabaseDriver {
         const rows = stmt.all() as Record<string, unknown>[];
         const executionTimeMs = Date.now() - start;
 
+        const firstRow = rows.length > 0 ? rows[0] : undefined;
         const columns: QueryColumn[] = stmt.columns().map(col => ({
           name: col.name,
-          dataType: col.type || 'TEXT',
+          dataType: col.type || inferTypeFromValue(firstRow?.[col.name]),
         }));
 
         const truncated = rows.length > MAX_RESULT_ROWS;
@@ -192,6 +205,7 @@ export class SqliteDriver implements DatabaseDriver {
     }
     sql += ` LIMIT ${limit} OFFSET ${offset}`;
     const result = await this.execute(sql);
+    result.query = sql;
 
     // Enrich columns with nullable info
     if (!result.error && result.columns.length > 0) {
@@ -282,6 +296,18 @@ export class SqliteDriver implements DatabaseDriver {
       return 0;
     }
   }
+}
+
+/**
+ * Infer SQLite column type from the first row's value.
+ * SQLite returns null type for computed columns (COUNT, strftime, etc.).
+ * Without this, the chart webview can't detect numeric Y-axis columns.
+ */
+function inferTypeFromValue(value: unknown): string {
+  if (value === null || value === undefined) return 'TEXT';
+  if (typeof value === 'number') return Number.isInteger(value) ? 'INTEGER' : 'REAL';
+  if (typeof value === 'bigint') return 'INTEGER';
+  return 'TEXT';
 }
 
 function formatRowCount(count: number): string {

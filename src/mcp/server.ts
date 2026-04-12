@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
-import { ChartConfig, isGrafanaCompatible } from '../types/chart';
+import { ChartConfig, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
 
 /**
@@ -14,6 +14,8 @@ import { buildGrafanaDashboard } from '../chart/grafanaExport';
  * - viewstor.mcp.executeQuery
  * - viewstor.mcp.getTableData
  * - viewstor.mcp.getTableInfo
+ * - viewstor.mcp.openQuery      (UI: opens SQL editor with query text)
+ * - viewstor.mcp.openTableData  (UI: opens table data view, optionally with custom query)
  */
 export function registerMcpCommands(context: vscode.ExtensionContext, connectionManager: ConnectionManager) {
   context.subscriptions.push(
@@ -140,7 +142,22 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
         return { error: err instanceof Error ? err.message : String(err) };
       }
     }),
-    vscode.commands.registerCommand('viewstor.mcp.visualize', async (connectionId: string, query: string, _chartConfig?: Partial<ChartConfig>) => {
+    vscode.commands.registerCommand('viewstor.mcp.visualize', async (
+      connectionId: string,
+      query: string,
+      chartConfig?: {
+        chartType?: string;
+        xColumn?: string;
+        yColumns?: string[];
+        groupByColumn?: string;
+        aggregation?: string;
+        timeBucket?: string;
+        tableName?: string;
+        schema?: string;
+        title?: string;
+        areaFill?: boolean;
+      },
+    ) => {
       let driver = connectionManager.getDriver(connectionId);
       if (!driver) {
         try {
@@ -153,23 +170,108 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       if (!driver) return { error: 'Driver not available' };
 
       try {
-        const result = await driver.execute(query);
+        // If aggregation or timeBucket specified and tableName available, build server-side query
+        let effectiveQuery = query;
+        if (chartConfig?.tableName && chartConfig?.xColumn && chartConfig?.aggregation && chartConfig.aggregation !== 'none') {
+          const state = connectionManager.get(connectionId);
+          effectiveQuery = buildAggregationQuery(
+            chartConfig.tableName,
+            chartConfig.schema,
+            chartConfig.xColumn,
+            chartConfig.yColumns || ['*'],
+            chartConfig.aggregation as ChartConfig['aggregation']['function'],
+            chartConfig.groupByColumn,
+            {
+              function: chartConfig.aggregation as ChartConfig['aggregation']['function'],
+              timeBucketPreset: chartConfig.timeBucket as ChartConfig['aggregation']['timeBucketPreset'],
+            },
+            state?.config.type,
+          );
+        }
+
+        const result = await driver.execute(effectiveQuery);
         if (result.error) return { error: result.error };
 
         const state = connectionManager.get(connectionId);
         vscode.commands.executeCommand('viewstor.visualizeResults', {
           columns: result.columns,
           rows: result.rows,
-          query,
+          query: effectiveQuery,
           connectionId,
           databaseName: state?.config.database,
           databaseType: state?.config.type,
+          tableName: chartConfig?.tableName,
+          schema: chartConfig?.schema,
         });
 
-        return { rowCount: result.rowCount, message: 'Chart panel opened' };
+        return {
+          rowCount: result.rowCount,
+          sql: effectiveQuery,
+          message: 'Chart panel opened',
+          columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
+        };
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };
       }
+    }),
+
+    // --- UI commands: open editors and result panels from AI agents ---
+
+    vscode.commands.registerCommand('viewstor.mcp.openQuery', async (
+      connectionId: string,
+      query: string,
+      options?: { databaseName?: string; execute?: boolean },
+    ) => {
+      if (!connectionId || !query) return { error: 'connectionId and query are required' };
+      const state = connectionManager.get(connectionId);
+      if (!state) return { error: `Connection "${connectionId}" not found` };
+
+      // Auto-connect
+      if (!state.connected) {
+        try { await connectionManager.connect(connectionId); }
+        catch (err) { return { error: `Connection failed: ${err instanceof Error ? err.message : err}` }; }
+      }
+
+      // Open SQL editor with query text
+      await vscode.commands.executeCommand('viewstor._openQueryFromMcp', connectionId, query, options?.databaseName);
+
+      // Optionally execute immediately
+      if (options?.execute) {
+        // Wait for editor to open, then trigger run
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await vscode.commands.executeCommand('viewstor.runQuery');
+      }
+
+      return { success: true, message: options?.execute ? 'Query editor opened and executed' : 'Query editor opened' };
+    }),
+
+    vscode.commands.registerCommand('viewstor.mcp.openTableData', async (
+      connectionId: string,
+      tableName: string,
+      options?: { schema?: string; databaseName?: string; query?: string; execute?: boolean },
+    ) => {
+      if (!connectionId || !tableName) return { error: 'connectionId and tableName are required' };
+      const state = connectionManager.get(connectionId);
+      if (!state) return { error: `Connection "${connectionId}" not found` };
+
+      // Auto-connect
+      if (!state.connected) {
+        try { await connectionManager.connect(connectionId); }
+        catch (err) { return { error: `Connection failed: ${err instanceof Error ? err.message : err}` }; }
+      }
+
+      // Open table data view
+      await vscode.commands.executeCommand(
+        'viewstor._openTableDataFromMcp',
+        connectionId, tableName, options?.schema, options?.databaseName, options?.query, options?.execute,
+      );
+
+      return {
+        success: true,
+        message: options?.query
+          ? `Table "${tableName}" opened with custom query`
+          : `Table "${tableName}" opened`,
+      };
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.exportGrafana', async (connectionId: string, query: string, chartConfig: ChartConfig) => {

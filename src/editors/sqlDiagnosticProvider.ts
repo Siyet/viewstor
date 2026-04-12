@@ -42,13 +42,14 @@ export class SqlDiagnosticProvider {
 
   private async checkDocument(document: vscode.TextDocument) {
     const connectionId = this.queryEditorProvider.getConnectionIdFromUri(document.uri);
-    dbg('sqlDiag', 'checkDocument uri:', document.uri.fsPath, 'connectionId:', connectionId);
+    const databaseName = this.queryEditorProvider.getDatabaseNameFromUri(document.uri);
+    dbg('sqlDiag', 'checkDocument uri:', document.uri.fsPath, 'connectionId:', connectionId, 'database:', databaseName);
     if (!connectionId) {
       this.diagnosticCollection.delete(document.uri);
       return;
     }
 
-    const items = await this.getSchemaItems(connectionId);
+    const items = await this.getSchemaItems(connectionId, databaseName);
     dbg('sqlDiag', 'schemaItems:', items.length);
     if (items.length === 0) {
       this.diagnosticCollection.delete(document.uri);
@@ -127,20 +128,28 @@ export class SqlDiagnosticProvider {
     this.diagnosticCollection.set(document.uri, diagnostics);
   }
 
-  private async getSchemaItems(connectionId: string): Promise<DriverCompletion[]> {
-    if (this.schemaCache.has(connectionId)) return this.schemaCache.get(connectionId)!;
+  private async getSchemaItems(connectionId: string, databaseName?: string): Promise<DriverCompletion[]> {
+    const cacheKey = databaseName ? `${connectionId}:${databaseName}` : connectionId;
+    if (this.schemaCache.has(cacheKey)) return this.schemaCache.get(cacheKey)!;
 
-    const driver = this.connectionManager.getDriver(connectionId);
+    let driver;
+    try {
+      driver = databaseName
+        ? await this.connectionManager.getDriverForDatabase(connectionId, databaseName)
+        : this.connectionManager.getDriver(connectionId);
+    } catch {
+      return [];
+    }
     if (!driver?.getCompletions) return [];
 
     try {
       const items = await driver.getCompletions();
-      this.schemaCache.set(connectionId, items);
-      const oldTimer = this.cacheTimers.get(connectionId);
+      this.schemaCache.set(cacheKey, items);
+      const oldTimer = this.cacheTimers.get(cacheKey);
       if (oldTimer) clearTimeout(oldTimer);
-      this.cacheTimers.set(connectionId, setTimeout(() => {
-        this.schemaCache.delete(connectionId);
-        this.cacheTimers.delete(connectionId);
+      this.cacheTimers.set(cacheKey, setTimeout(() => {
+        this.schemaCache.delete(cacheKey);
+        this.cacheTimers.delete(cacheKey);
       }, 60000));
       return items;
     } catch {

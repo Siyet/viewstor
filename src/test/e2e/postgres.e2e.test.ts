@@ -740,4 +740,338 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
     // Cleanup: need to disconnect all before dropping DB
     await driver.execute('DROP DATABASE testdb2');
   });
+
+  it('multi-database: getCompletions returns schema for the connected database only', async () => {
+    // Create a second database with a unique table
+    await driver.execute('CREATE DATABASE testdb_completions');
+
+    const driver2 = new PostgresDriver();
+    const config2 = { ...config, database: 'testdb_completions' };
+    await driver2.connect(config2);
+    await driver2.execute('CREATE TABLE completions_only_table (id SERIAL PRIMARY KEY, value TEXT)');
+
+    // Completions on the second database should include the unique table
+    const completions2 = await driver2.getCompletions!();
+    const labels2 = completions2.map(c => c.label);
+    expect(labels2).toContain('completions_only_table');
+
+    // Completions on the main database should NOT include it
+    const completions1 = await driver.getCompletions!();
+    const labels1 = completions1.map(c => c.label);
+    expect(labels1).not.toContain('completions_only_table');
+
+    // Main DB tables should not leak into second DB
+    expect(labels2).not.toContain('users');
+    expect(labels2).not.toContain('orders');
+
+    // Columns of the unique table should be in completions
+    const colCompletions = completions2.filter(
+      c => c.kind === 'column' && c.parent === 'completions_only_table'
+    );
+    expect(colCompletions.map(c => c.label)).toEqual(
+      expect.arrayContaining(['id', 'value'])
+    );
+
+    await driver2.disconnect();
+    await driver.execute('DROP DATABASE testdb_completions');
+  });
+
+  it('multi-database: getIndexedColumns works on second database', async () => {
+    await driver.execute('CREATE DATABASE testdb_indexes');
+
+    const driver2 = new PostgresDriver();
+    const config2 = { ...config, database: 'testdb_indexes' };
+    await driver2.connect(config2);
+    await driver2.execute('CREATE TABLE idx_test (id SERIAL PRIMARY KEY, email TEXT, status TEXT)');
+    await driver2.execute('CREATE INDEX idx_test_email ON idx_test (email)');
+
+    const indexed = await driver2.getIndexedColumns!('idx_test', 'public');
+    expect(indexed.has('id')).toBe(true);
+    expect(indexed.has('email')).toBe(true);
+    expect(indexed.has('status')).toBe(false);
+
+    await driver2.disconnect();
+    await driver.execute('DROP DATABASE testdb_indexes');
+  });
+
+  // --- showTableData pipeline: getTableInfo + getEstimatedRowCount + getTableData ---
+
+  describe('showTableData pipeline', () => {
+    it('full pipeline: getTableInfo → getEstimatedRowCount → getTableData succeeds', async () => {
+      // This mirrors the exact sequence that viewstor.showTableData command executes
+      const tableInfo = await driver.getTableInfo('users', 'public');
+      expect(tableInfo.columns.length).toBeGreaterThan(0);
+      const pkColumns = tableInfo.columns.filter(col => col.isPrimaryKey).map(col => col.name);
+      expect(pkColumns).toContain('id');
+
+      // Estimated count
+      const estimated = await driver.getEstimatedRowCount!('users', 'public');
+      expect(estimated).toBeDefined();
+      expect(typeof estimated).toBe('number');
+
+      // Exact count for small tables
+      const exact = await driver.getTableRowCount!('users', 'public');
+      expect(exact).toBeGreaterThanOrEqual(2);
+
+      // Fetch page
+      const result = await driver.getTableData('users', 'public', 100, 0);
+      expect(result.error).toBeUndefined();
+      expect(result.columns.length).toBeGreaterThan(0);
+      expect(result.rows.length).toBeGreaterThanOrEqual(2);
+      expect(result.rows[0].id).toBeDefined();
+      expect(result.rows[0].name).toBeDefined();
+    });
+
+    it('getTableData result has correct column metadata', async () => {
+      const result = await driver.getTableData('users', 'public', 100, 0);
+      expect(result.columns.length).toBeGreaterThan(0);
+      for (const col of result.columns) {
+        expect(col.name).toBeTruthy();
+        expect(col.dataType).toBeTruthy();
+      }
+      const idCol = result.columns.find(col => col.name === 'id');
+      expect(idCol).toBeDefined();
+      expect(idCol!.dataType).toMatch(/int/i);
+    });
+
+    it('getTableData result rows have all columns', async () => {
+      const result = await driver.getTableData('users', 'public', 100, 0);
+      const colNames = result.columns.map(col => col.name);
+      for (const row of result.rows) {
+        for (const colName of colNames) {
+          expect(colName in row).toBe(true);
+        }
+      }
+    });
+
+    it('pipeline works for table with nullable/json columns', async () => {
+      const tableInfo = await driver.getTableInfo('settings', 'public');
+      expect(tableInfo.columns.length).toBeGreaterThan(0);
+
+      const result = await driver.getTableData('settings', 'public', 100, 0);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBeGreaterThan(0);
+
+      // Verify no column is missing from rows
+      for (const col of result.columns) {
+        expect(col.name in result.rows[0]).toBe(true);
+      }
+    });
+
+    it('pipeline works for table with pagination', async () => {
+      // Page 1
+      const page1 = await driver.getTableData('users', 'public', 1, 0);
+      expect(page1.error).toBeUndefined();
+      expect(page1.rows.length).toBe(1);
+
+      // Page 2
+      const page2 = await driver.getTableData('users', 'public', 1, 1);
+      expect(page2.error).toBeUndefined();
+      expect(page2.rows.length).toBe(1);
+
+      // Different rows
+      expect(page1.rows[0].id).not.toBe(page2.rows[0].id);
+    });
+
+    it('getTableData result can be JSON-serialized (for webview)', async () => {
+      const result = await driver.getTableData('users', 'public', 100, 0);
+      // This is exactly what buildResultHtml does: safeJsonForScript(result.columns/rows)
+      expect(() => JSON.stringify(result.columns)).not.toThrow();
+      expect(() => JSON.stringify(result.rows)).not.toThrow();
+
+      // Roundtrip check
+      const parsed = JSON.parse(JSON.stringify(result.rows));
+      expect(parsed.length).toBe(result.rows.length);
+    });
+
+    it('pipeline works for empty table', async () => {
+      await driver.execute('CREATE TABLE empty_pipeline_test (id SERIAL PRIMARY KEY, value TEXT)');
+
+      const tableInfo = await driver.getTableInfo('empty_pipeline_test', 'public');
+      expect(tableInfo.columns.length).toBeGreaterThan(0);
+
+      const result = await driver.getTableData('empty_pipeline_test', 'public', 100, 0);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBe(0);
+      expect(result.columns.length).toBeGreaterThan(0);
+
+      await driver.execute('DROP TABLE empty_pipeline_test');
+    });
+  });
+
+  // --- Chart aggregation: buildAggregationQuery → driver.execute ---
+
+  describe('chart aggregation queries on real DB', () => {
+    beforeAll(async () => {
+      // Seed time-based data for aggregation tests
+      await driver.execute(`
+        CREATE TABLE IF NOT EXISTS chart_events (
+          id SERIAL PRIMARY KEY,
+          event_type VARCHAR(50),
+          amount NUMERIC(10,2),
+          created_at TIMESTAMP NOT NULL
+        )
+      `);
+      await driver.execute(`
+        INSERT INTO chart_events (event_type, amount, created_at) VALUES
+          ('purchase', 100, '2024-01-15 10:00:00'),
+          ('purchase', 200, '2024-01-20 14:00:00'),
+          ('refund',    50, '2024-01-25 09:00:00'),
+          ('purchase', 150, '2024-02-10 11:00:00'),
+          ('purchase', 300, '2024-02-20 16:00:00'),
+          ('refund',    75, '2024-02-28 08:00:00'),
+          ('purchase', 250, '2024-03-05 12:00:00')
+      `);
+    });
+
+    afterAll(async () => {
+      await driver.execute('DROP TABLE IF EXISTS chart_events');
+    });
+
+    it('COUNT per month executes and returns correct structure', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'chart_events', 'public', 'created_at', ['id'], 'count', undefined,
+        { function: 'count', timeBucketPreset: 'month' }, 'postgresql',
+      );
+
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBe(3); // Jan, Feb, Mar
+      expect(result.columns.length).toBeGreaterThanOrEqual(2);
+
+      // Verify rows are ordered by time
+      const timestamps = result.rows.map(r => new Date(r.created_at as string).getTime());
+      for (let idx = 1; idx < timestamps.length; idx++) {
+        expect(timestamps[idx]).toBeGreaterThanOrEqual(timestamps[idx - 1]);
+      }
+    });
+
+    it('SUM per month returns numeric aggregation', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'chart_events', 'public', 'created_at', ['amount'], 'sum', undefined,
+        { function: 'sum', timeBucketPreset: 'month' }, 'postgresql',
+      );
+
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBe(3);
+      // Jan: 100 + 200 + 50 = 350
+      const janRow = result.rows[0];
+      expect(Number(janRow.amount)).toBeCloseTo(350, 0);
+    });
+
+    it('AVG per month returns averages', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'chart_events', 'public', 'created_at', ['amount'], 'avg', undefined,
+        { function: 'avg', timeBucketPreset: 'month' }, 'postgresql',
+      );
+
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBe(3);
+    });
+
+    it('COUNT with GROUP BY event_type', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'chart_events', 'public', 'created_at', ['id'], 'count', 'event_type',
+        { function: 'count', timeBucketPreset: 'month' }, 'postgresql',
+      );
+
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      // Should have more rows than without groupBy (purchase + refund per month)
+      expect(result.rows.length).toBeGreaterThan(3);
+      // Each row should have event_type
+      for (const row of result.rows) {
+        expect(row.event_type).toBeDefined();
+        expect(['purchase', 'refund']).toContain(row.event_type);
+      }
+    });
+
+    it('COUNT per day returns more granular data', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'chart_events', 'public', 'created_at', ['id'], 'count', undefined,
+        { function: 'count', timeBucketPreset: 'day' }, 'postgresql',
+      );
+
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      // 7 events on 7 different days
+      expect(result.rows.length).toBe(7);
+    });
+
+    it('COUNT per year aggregates everything', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'chart_events', 'public', 'created_at', ['id'], 'count', undefined,
+        { function: 'count', timeBucketPreset: 'year' }, 'postgresql',
+      );
+
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBe(1); // All in 2024
+    });
+
+    it('buildFullDataQuery returns all rows without LIMIT', async () => {
+      const { buildFullDataQuery } = await import('../../types/chart');
+      const sql = buildFullDataQuery('chart_events', 'public', ['created_at', 'amount']);
+
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.rows.length).toBe(7);
+      expect(result.columns.length).toBe(2);
+      expect(result.columns.map(c => c.name).sort()).toEqual(['amount', 'created_at']);
+    });
+
+    it('aggregation result can be fed to buildEChartsOption', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const { buildEChartsOption } = await import('../../chart/chartDataTransform');
+      const sql = buildAggregationQuery(
+        'chart_events', 'public', 'created_at', ['id'], 'count', undefined,
+        { function: 'count', timeBucketPreset: 'month' }, 'postgresql',
+      );
+
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+
+      const option = buildEChartsOption(result, {
+        chartType: 'line',
+        axis: { xColumn: 'created_at', yColumns: [result.columns[1].name] },
+        aggregation: { function: 'count', timeBucketPreset: 'month' },
+      });
+
+      const series = option.series as Array<Record<string, unknown>>;
+      expect(series.length).toBe(1);
+      expect(series[0].type).toBe('line');
+      expect((series[0].data as unknown[]).length).toBe(3);
+    });
+
+    it('MIN/MAX aggregation works', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+
+      const minSql = buildAggregationQuery(
+        'chart_events', 'public', 'created_at', ['amount'], 'min', undefined,
+        { function: 'min', timeBucketPreset: 'month' }, 'postgresql',
+      );
+      const minResult = await driver.execute(minSql);
+      expect(minResult.error).toBeUndefined();
+      expect(minResult.rows.length).toBe(3);
+      // Jan min: 50 (refund)
+      expect(Number(minResult.rows[0].amount)).toBe(50);
+
+      const maxSql = buildAggregationQuery(
+        'chart_events', 'public', 'created_at', ['amount'], 'max', undefined,
+        { function: 'max', timeBucketPreset: 'month' }, 'postgresql',
+      );
+      const maxResult = await driver.execute(maxSql);
+      expect(maxResult.error).toBeUndefined();
+      // Jan max: 200
+      expect(Number(maxResult.rows[0].amount)).toBe(200);
+    });
+  });
 });

@@ -4,13 +4,32 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-04-12
+
 ### Added
 - **SQLite driver** — open `.sqlite`/`.db` files directly from VS Code, file-based connection with no server needed. Schema browser, DDL, autocomplete, index hints, and all standard driver features ([#11](https://github.com/Siyet/viewstor/issues/11))
 - **Chart visualization** — visualize query results as interactive charts (line, bar, scatter, pie, heatmap, radar, funnel, gauge, boxplot, candlestick, treemap, sunburst) powered by Apache ECharts. Visualize button in Result Panel toolbar, config sidebar with axis mapping and aggregation ([#31](https://github.com/Siyet/viewstor/issues/31))
-- **Grafana export** — export compatible chart types (line, bar, scatter, pie, gauge, heatmap) as Grafana dashboard JSON: copy, save as file, or push via HTTP API with `viewstor.grafanaUrl` / `viewstor.grafanaApiKey` settings ([#31](https://github.com/Siyet/viewstor/issues/31))
 - **`/chart` Copilot Chat command** — generate SQL + chart visualization from natural language description ([#31](https://github.com/Siyet/viewstor/issues/31))
 - **MCP chart tools** — `build_chart` and `export_grafana_dashboard` for standalone MCP server; `viewstor.mcp.visualize` and `viewstor.mcp.exportGrafana` for VS Code MCP commands ([#31](https://github.com/Siyet/viewstor/issues/31))
+- **MCP UI commands** — `viewstor.mcp.openQuery` opens SQL editor with query text (optionally executes), `viewstor.mcp.openTableData` opens table data view with optional custom query ([#11](https://github.com/Siyet/viewstor/issues/11))
 - **Multi-source charts** — add pinned queries as additional data sources to a chart, with join-by-column or separate-series merge modes ([#31](https://github.com/Siyet/viewstor/issues/31))
+- **Safe mode for SQLite and ClickHouse** — `EXPLAIN QUERY PLAN` scan detection for SQLite, `EXPLAIN` for ClickHouse, in addition to PostgreSQL `Seq Scan` detection ([#11](https://github.com/Siyet/viewstor/issues/11))
+- **Chart sync with Result Panel** — auto-update chart when table data changes (pagination, sort, custom query). Toggle sync on/off, manual refresh button ([#31](https://github.com/Siyet/viewstor/issues/31))
+- **Server-side chart aggregation** — "Run on Server" button executes GROUP BY queries directly on the database, with time bucketing (strftime for SQLite, toStartOf for ClickHouse, date_trunc for PostgreSQL) ([#31](https://github.com/Siyet/viewstor/issues/31))
+
+### Fixed
+- **SQLite chart time bucketing** — server-side aggregation uses `strftime()` instead of PostgreSQL-only `date_trunc()` ([#11](https://github.com/Siyet/viewstor/issues/11))
+- **SQLite computed column types** — `COUNT(*)`, `SUM()`, `strftime()` return correct data types (`INTEGER`/`REAL`) instead of `TEXT` ([#11](https://github.com/Siyet/viewstor/issues/11))
+- **SQLite readonly WAL crash** — `PRAGMA journal_mode = WAL` skipped on readonly connections ([#11](https://github.com/Siyet/viewstor/issues/11))
+- **Chart config reset on Run on Server** — aggregation settings preserved after server-side query; Y-columns auto-selected when old columns no longer exist ([#31](https://github.com/Siyet/viewstor/issues/31))
+- **databaseType propagation** — chart panel receives correct database type via Result Panel, fixing wrong SQL dialect in charts and Grafana export ([#11](https://github.com/Siyet/viewstor/issues/11))
+- **Per-table chart panels** — each table data view gets its own chart panel ([#31](https://github.com/Siyet/viewstor/issues/31))
+- **LIMIT/pageSize sync** — query results display all returned rows instead of truncating to default 100 ([#11](https://github.com/Siyet/viewstor/issues/11))
+- **Duplicate COUNT columns** — `COUNT(*)` with multiple Y columns no longer produces duplicate aliases ([#31](https://github.com/Siyet/viewstor/issues/31))
+- **Native module management** — `sqlite-rebuild.js` uses `prebuild-install` instead of broken `electron-rebuild`, with ABI-aware caching and EBUSY tolerance ([#11](https://github.com/Siyet/viewstor/issues/11))
+
+### Changed
+- Grafana export button hidden pending full multi-DB support ([#50](https://github.com/Siyet/viewstor/issues/50))
 
 ## [0.2.7] — 2026-04-06
 

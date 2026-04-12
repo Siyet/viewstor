@@ -1,9 +1,21 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { QueryResult, QueryColumn, QueryHistoryEntry } from '../types/query';
-import { ChartConfig, ChartDataSource, isGrafanaCompatible } from '../types/chart';
+import {
+  ChartConfig, ChartDataSource, isGrafanaCompatible,
+  buildAggregationQuery, buildFullDataQuery,
+} from '../types/chart';
 import { buildEChartsOption, buildMultiSourceEChartsOption, ResolvedDataSource } from './chartDataTransform';
 import { buildGrafanaDashboard, pushToGrafana } from './grafanaExport';
+import { ConnectionManager } from '../connections/connectionManager';
+import { dbg } from '../utils/debug';
+
+let _outputChannel: { info(msg: string): void; error(msg: string): void } | undefined;
+
+/** Bind the output channel for chart query logging */
+export function setChartOutputChannel(channel: { info(msg: string): void; error(msg: string): void }) {
+  _outputChannel = channel;
+}
 
 export interface ChartShowOptions {
   connectionId?: string;
@@ -11,17 +23,36 @@ export interface ChartShowOptions {
   databaseType?: string;
   query?: string;
   color?: string;
+  tableName?: string;
+  schema?: string;
+  /** Key of the result panel this chart was opened from */
+  resultPanelKey?: string;
 }
 
-/** Minimal interface for accessing pinned queries — avoids importing full QueryHistoryProvider */
+/** Minimal interface for accessing pinned queries */
 export interface PinnedQueryProvider {
   getEntries(): QueryHistoryEntry[];
 }
 
+/** Per-chart state tracked by the manager */
+interface ChartState {
+  panel: vscode.WebviewPanel;
+  opts: ChartShowOptions;
+  /** Current columns (from last data update) */
+  columns: QueryColumn[];
+  /** Current rows (from last data update) */
+  rows: Record<string, unknown>[];
+  /** Whether auto-sync with result panel is active */
+  syncEnabled: boolean;
+  /** Disposable for message handler */
+  disposable: vscode.Disposable;
+}
+
 export class ChartPanelManager {
-  private panels = new Map<string, vscode.WebviewPanel>();
+  private charts = new Map<string, ChartState>();
   private grafanaJson = new Map<string, string>();
   private pinnedQueryProvider: PinnedQueryProvider | null = null;
+  private connectionManager: ConnectionManager | null = null;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -29,15 +60,22 @@ export class ChartPanelManager {
     this.pinnedQueryProvider = provider;
   }
 
+  setConnectionManager(mgr: ConnectionManager) {
+    this.connectionManager = mgr;
+  }
+
   show(result: QueryResult, title?: string, opts?: ChartShowOptions) {
     const panelTitle = title || 'Chart';
     const panelKey = `chart:${panelTitle}`;
 
-    let panel = this.panels.get(panelKey);
-    if (panel) {
-      panel.reveal();
+    let state = this.charts.get(panelKey);
+    if (state) {
+      state.panel.reveal();
+      state.opts = opts || {};
+      state.columns = result.columns;
+      state.rows = result.rows;
     } else {
-      panel = vscode.window.createWebviewPanel(
+      const panel = vscode.window.createWebviewPanel(
         'viewstor.chart',
         panelTitle,
         vscode.ViewColumn.Beside,
@@ -48,41 +86,74 @@ export class ChartPanelManager {
         },
       );
       panel.onDidDispose(() => {
-        this.panels.delete(panelKey);
+        const chartState = this.charts.get(panelKey);
+        if (chartState) chartState.disposable.dispose();
+        this.charts.delete(panelKey);
         this.grafanaJson.delete(panelKey);
       });
-      this.panels.set(panelKey, panel);
-    }
 
-    panel.webview.html = this.buildHtml(panel.webview, opts);
-
-    this.registerMessageHandler(panel, panelKey, result, opts);
-
-    // Send data after a tick so webview has time to initialize
-    setTimeout(() => {
-      panel!.webview.postMessage({
-        type: 'setData',
+      state = {
+        panel,
+        opts: opts || {},
         columns: result.columns,
         rows: result.rows,
+        syncEnabled: true,
+        disposable: new vscode.Disposable(() => {}),
+      };
+      this.charts.set(panelKey, state);
+    }
+
+    state.panel.webview.html = this.buildHtml(state.panel.webview, opts);
+    state.disposable.dispose();
+    state.disposable = this.registerMessageHandler(state, panelKey);
+
+    // Send initial data after webview initializes
+    const sendState = state;
+    setTimeout(() => {
+      sendState.panel.webview.postMessage({
+        type: 'setData',
+        columns: sendState.columns,
+        rows: sendState.rows,
+        syncEnabled: sendState.syncEnabled,
+        tableName: sendState.opts.tableName,
+        schema: sendState.opts.schema,
+        databaseType: sendState.opts.databaseType,
+        connectionId: sendState.opts.connectionId,
       });
     }, 100);
   }
 
-  private registerMessageHandler(
-    panel: vscode.WebviewPanel,
-    panelKey: string,
-    _result: QueryResult,
-    opts?: ChartShowOptions,
-  ) {
-    panel.webview.onDidReceiveMessage(async (msg) => {
+  /**
+   * Called by result panel when its data changes (page navigation, custom query, etc.)
+   * Only updates charts that are synced to this result panel.
+   */
+  notifyDataChanged(resultPanelKey: string, columns: QueryColumn[], rows: Record<string, unknown>[], query?: string) {
+    for (const [, state] of this.charts) {
+      if (!state.syncEnabled) continue;
+      if (state.opts.resultPanelKey !== resultPanelKey) continue;
+
+      state.columns = columns;
+      state.rows = rows;
+      if (query) state.opts.query = query;
+
+      state.panel.webview.postMessage({
+        type: 'syncData',
+        columns,
+        rows,
+      });
+    }
+  }
+
+  private registerMessageHandler(state: ChartState, panelKey: string): vscode.Disposable {
+    return state.panel.webview.onDidReceiveMessage(async (msg) => {
       switch (msg.type) {
         case 'buildOption': {
           const config: ChartConfig = {
             ...msg.config,
-            sourceQuery: opts?.query,
-            connectionId: opts?.connectionId,
-            databaseName: opts?.databaseName,
-            databaseType: opts?.databaseType,
+            sourceQuery: state.opts.query,
+            connectionId: state.opts.connectionId,
+            databaseName: state.opts.databaseName,
+            databaseType: state.opts.databaseType,
           };
           const primaryResult: QueryResult = {
             columns: msg.columns,
@@ -90,29 +161,45 @@ export class ChartPanelManager {
             rowCount: msg.rows.length,
             executionTimeMs: 0,
           };
-
-          // Resolve additional data sources
           const additionalSources = this.resolveDataSources(config.dataSources || []);
-
           const option = additionalSources.length > 0
             ? buildMultiSourceEChartsOption(primaryResult, additionalSources, config)
             : buildEChartsOption(primaryResult, config);
+          state.panel.webview.postMessage({ type: 'setOption', option });
+          break;
+        }
 
-          panel.webview.postMessage({ type: 'setOption', option });
+        case 'toggleSync': {
+          state.syncEnabled = !!msg.enabled;
+          break;
+        }
+
+        case 'refreshChart': {
+          // Manual refresh: re-fetch data from result panel's current state
+          state.panel.webview.postMessage({
+            type: 'syncData',
+            columns: state.columns,
+            rows: state.rows,
+          });
+          break;
+        }
+
+        case 'executeChartQuery': {
+          // Server-side aggregation or full data query
+          await this.executeChartQuery(state, panelKey, msg);
           break;
         }
 
         case 'requestPinnedQueries': {
           const pinned = this.getPinnedQueriesForWebview();
-          panel.webview.postMessage({ type: 'pinnedQueries', entries: pinned });
+          state.panel.webview.postMessage({ type: 'pinnedQueries', entries: pinned });
           break;
         }
 
         case 'requestDataSourceColumns': {
-          // Return columns + sample for a specific pinned query
           const entry = this.findPinnedEntry(msg.entryId);
           if (entry?.cachedResult) {
-            panel.webview.postMessage({
+            state.panel.webview.postMessage({
               type: 'dataSourceColumns',
               entryId: msg.entryId,
               columns: entry.cachedResult.columns,
@@ -122,26 +209,37 @@ export class ChartPanelManager {
         }
 
         case 'exportGrafana': {
+          // Rebuild aggregation SQL with current databaseType to ensure correct dialect
+          let exportQuery = state.opts.query || '';
+          const exportAxis = msg.config.axis;
+          if (state.opts.tableName && exportAxis && msg.config.aggregation?.function !== 'none') {
+            exportQuery = buildAggregationQuery(
+              state.opts.tableName,
+              state.opts.schema,
+              exportAxis.xColumn,
+              exportAxis.yColumns,
+              msg.config.aggregation.function,
+              exportAxis.groupByColumn,
+              msg.config.aggregation,
+              state.opts.databaseType,
+            );
+          }
           const config: ChartConfig = {
             ...msg.config,
-            sourceQuery: opts?.query,
-            connectionId: opts?.connectionId,
-            databaseName: opts?.databaseName,
-            databaseType: opts?.databaseType,
+            sourceQuery: exportQuery,
+            connectionId: state.opts.connectionId,
+            databaseName: state.opts.databaseName,
+            databaseType: state.opts.databaseType,
           };
           if (!isGrafanaCompatible(config.chartType)) {
-            vscode.window.showWarningMessage(
-              vscode.l10n.t('This chart type cannot be exported to Grafana.'),
-            );
+            vscode.window.showWarningMessage(vscode.l10n.t('This chart type cannot be exported to Grafana.'));
             return;
           }
-          const grafanaUrl = vscode.workspace.getConfiguration('viewstor').get<string>('grafanaUrl', '');
-          const datasourceUid = grafanaUrl ? undefined : undefined;
-          const dashboard = buildGrafanaDashboard(config, datasourceUid);
+          const dashboard = buildGrafanaDashboard(config);
           if (!dashboard) return;
           const json = JSON.stringify(dashboard, null, 2);
           this.grafanaJson.set(panelKey, json);
-          panel.webview.postMessage({ type: 'showGrafanaJson', json });
+          state.panel.webview.postMessage({ type: 'showGrafanaJson', json });
           break;
         }
 
@@ -194,6 +292,99 @@ export class ChartPanelManager {
     });
   }
 
+  /**
+   * Execute a server-side query for the chart (aggregation or full data).
+   * Sends the result back to the webview only (does not update result panel).
+   */
+  private async executeChartQuery(
+    state: ChartState,
+    _panelKey: string,
+    msg: { queryType: string; config: ChartConfig },
+  ) {
+    if (!this.connectionManager || !state.opts.connectionId) {
+      state.panel.webview.postMessage({ type: 'chartQueryError', error: 'No connection available' });
+      return;
+    }
+
+    try {
+      const driver = state.opts.databaseName
+        ? await this.connectionManager.getDriverForDatabase(state.opts.connectionId, state.opts.databaseName)
+        : this.connectionManager.getDriver(state.opts.connectionId);
+      if (!driver) {
+        state.panel.webview.postMessage({ type: 'chartQueryError', error: 'Driver not available' });
+        return;
+      }
+
+      let sql: string;
+      if (msg.queryType === 'fullData') {
+        // Full data mode: only selected columns, no LIMIT
+        const columns = msg.config.axis
+          ? [msg.config.axis.xColumn, ...msg.config.axis.yColumns, ...(msg.config.axis.groupByColumn ? [msg.config.axis.groupByColumn] : [])]
+          : state.columns.map(c => c.name);
+        sql = buildFullDataQuery(
+          state.opts.tableName || '',
+          state.opts.schema,
+          [...new Set(columns)],
+        );
+      } else {
+        // Server-side aggregation
+        const axis = msg.config.axis;
+        if (!axis) {
+          state.panel.webview.postMessage({ type: 'chartQueryError', error: 'No axis mapping for aggregation' });
+          return;
+        }
+        sql = buildAggregationQuery(
+          state.opts.tableName || '',
+          state.opts.schema,
+          axis.xColumn,
+          axis.yColumns,
+          msg.config.aggregation.function,
+          axis.groupByColumn,
+          msg.config.aggregation,
+          state.opts.databaseType,
+        );
+      }
+
+      state.opts.query = sql;
+      dbg('chartQuery', 'SQL:', sql);
+      if (_outputChannel) _outputChannel.info(`[chart] ${sql}`);
+
+      const result = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running chart query...') },
+        () => driver.execute(sql),
+      );
+
+      if (result.error) {
+        dbg('chartQuery', 'error:', result.error);
+        if (_outputChannel) _outputChannel.error(`[chart] ${result.error}`);
+        vscode.window.showErrorMessage(vscode.l10n.t('Chart query failed: {0}', result.error));
+        state.panel.webview.postMessage({ type: 'chartQueryError', error: result.error });
+        return;
+      }
+
+      state.columns = result.columns;
+      state.rows = result.rows;
+
+      state.panel.webview.postMessage({
+        type: 'chartQueryResult',
+        columns: result.columns,
+        rows: result.rows,
+        rowCount: result.rowCount,
+        executionTimeMs: result.executionTimeMs,
+        sql,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      dbg('chartQuery', 'exception:', message);
+      if (_outputChannel) _outputChannel.error(`[chart] ${message}`);
+      vscode.window.showErrorMessage(vscode.l10n.t('Chart query failed: {0}', message));
+      state.panel.webview.postMessage({
+        type: 'chartQueryError',
+        error: message,
+      });
+    }
+  }
+
   private getPinnedQueriesForWebview(): Array<{ id: string; label: string; query: string; rowCount: number; columns: QueryColumn[] }> {
     if (!this.pinnedQueryProvider) return [];
     return this.pinnedQueryProvider.getEntries()
@@ -215,16 +406,11 @@ export class ChartPanelManager {
   private resolveDataSources(dataSources: ChartDataSource[]): ResolvedDataSource[] {
     if (!this.pinnedQueryProvider || dataSources.length === 0) return [];
     const entries = this.pinnedQueryProvider.getEntries();
-
     const resolved: ResolvedDataSource[] = [];
     for (const source of dataSources) {
       const entry = entries.find(e => e.id === source.id);
       if (entry?.cachedResult) {
-        resolved.push({
-          source,
-          columns: entry.cachedResult.columns,
-          rows: entry.cachedResult.rows,
-        });
+        resolved.push({ source, columns: entry.cachedResult.columns, rows: entry.cachedResult.rows });
       }
     }
     return resolved;
@@ -235,8 +421,27 @@ export class ChartPanelManager {
     const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'chart-panel.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'chart-panel.css'));
-
     const colorBorder = opts?.color ? `border-top: 2px solid ${opts.color};` : '';
+
+    const tooltips = JSON.stringify({
+      xAxis: vscode.l10n.t('Column for horizontal axis. For timeseries charts, use a timestamp column.'),
+      yAxis: vscode.l10n.t('Numeric columns for vertical axis — the values to plot.'),
+      groupBy: vscode.l10n.t('Split data into separate series by this column (e.g. by region or status).'),
+      aggFunction: vscode.l10n.t('How to aggregate Y values: count rows, sum/avg/min/max of a column. Requires "Run on Server".'),
+      timeBucket: vscode.l10n.t('Group timestamps into intervals. Requires a time-type X axis. Auto-enables Full Data.'),
+      customBucket: vscode.l10n.t('Custom interval: 2h = 2 hours, 15m = 15 minutes, 3d = 3 days.'),
+      nameCol: vscode.l10n.t('Column with labels for chart segments (pie slices, funnel stages).'),
+      valueCol: vscode.l10n.t('Numeric column with values for each segment.'),
+      statValueCol: vscode.l10n.t('Numeric column to compute statistics from (boxplot quartiles, candlestick OHLC).'),
+      indicatorCols: vscode.l10n.t('Dimensions to compare — each becomes a radar axis.'),
+      gaugeValueCol: vscode.l10n.t('Single numeric metric to display on the gauge.'),
+      gaugeMin: vscode.l10n.t('Minimum value on the gauge scale.'),
+      gaugeMax: vscode.l10n.t('Maximum value on the gauge scale.'),
+      runOnServer: vscode.l10n.t('Execute aggregation query on the database — processes all data server-side.'),
+      sync: vscode.l10n.t('Auto-update chart when the linked table changes page, sort, or query.'),
+      fullData: vscode.l10n.t('Fetch all rows (no LIMIT) using only the columns needed for the chart.'),
+      fullDataAuto: vscode.l10n.t('Full Data enabled automatically — aggregation needs all rows, not just the current page.'),
+    }).replace(/<\//g, '<\\/');
 
     return `<!DOCTYPE html>
 <html>
@@ -244,7 +449,7 @@ export class ChartPanelManager {
 <meta charset="UTF-8">
 <link rel="stylesheet" href="${styleUri}">
 </head>
-<body>
+<body data-tooltips='${tooltips}'>
   <div class="toolbar" style="${esc(colorBorder)}">
     <label>Chart
       <select id="chartType">
@@ -265,6 +470,17 @@ export class ChartPanelManager {
 
     <div class="separator"></div>
 
+    <label class="toggle-label">
+      <input type="checkbox" id="syncToggle" checked> Sync
+    </label>
+    <button id="refreshBtn" class="hidden" title="Refresh data from table">&#8635;</button>
+
+    <label class="toggle-label">
+      <input type="checkbox" id="fullDataToggle"> Full Data
+    </label>
+
+    <div class="separator"></div>
+
     <label>
       <input type="checkbox" id="areaFill"> Area Fill
     </label>
@@ -275,19 +491,20 @@ export class ChartPanelManager {
     <div class="separator"></div>
 
     <label>Title
-      <input type="text" id="chartTitle" placeholder="Chart title..." style="width:160px">
+      <input type="text" id="chartTitle" placeholder="Chart title..." style="width:120px">
     </label>
 
     <div class="separator"></div>
 
-    <button id="addDataSourceBtn">+ Data Source</button>
-    <button id="exportGrafanaBtn" class="btn-primary">Export to Grafana</button>
+    <button id="addDataSourceBtn">+ Source</button>
+    <button id="exportGrafanaBtn" class="btn-primary" style="display:none">Export to Grafana</button>
   </div>
 
   <div class="main">
     <div class="config-sidebar" id="configSidebar"></div>
     <div class="chart-container">
       <div id="chart"></div>
+      <div id="chartStatus" class="chart-status"></div>
     </div>
   </div>
 

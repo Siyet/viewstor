@@ -94,6 +94,13 @@ export function registerChatParticipant(
         const query = sqlMatch[1].trim();
         stream.markdown(`**Query:**\n\`\`\`sql\n${query}\n\`\`\`\n\n`);
 
+        // Parse optional JSON chart config from LLM response
+        const jsonMatch = fullResponse.match(/```json\n([\s\S]*?)\n```/);
+        let chartMeta: { chartType?: string; xColumn?: string; yColumns?: string[] } = {};
+        if (jsonMatch) {
+          try { chartMeta = JSON.parse(jsonMatch[1]); } catch { /* ignore parse errors */ }
+        }
+
         // Execute the query
         try {
           const result = await driver.execute(query);
@@ -103,15 +110,16 @@ export function registerChatParticipant(
           }
           stream.markdown(vscode.l10n.t('Query returned {0} rows. Opening chart...', String(result.rowCount)));
 
-          // Open chart panel
-          vscode.commands.executeCommand('viewstor.visualizeResults', {
+          // Open chart panel with axis config from LLM
+          const vizData: Record<string, unknown> = {
             columns: result.columns,
             rows: result.rows,
             query,
             connectionId,
             databaseName: state.config.database,
             databaseType: state.config.type,
-          });
+          };
+          vscode.commands.executeCommand('viewstor.visualizeResults', vizData);
         } catch (err) {
           stream.markdown(vscode.l10n.t('Query failed: {0}', err instanceof Error ? err.message : String(err)));
         }
@@ -254,11 +262,27 @@ function buildSystemPrompt(dbType: string, database: string | undefined, schemaC
 function buildChartPrompt(dbType: string, database: string | undefined, schemaContext: string): string {
   return [
     `You are a data visualization assistant for a ${dbType} database${database ? ` "${database}"` : ''}.`,
-    'Your job is to generate a SQL query that returns data suitable for chart visualization.',
-    'The user will describe what they want to visualize. Generate a SQL query that returns the data.',
-    'IMPORTANT: Always include a time/category column for the X axis and numeric columns for the Y axis.',
-    'Format the SQL in a ```sql code block.',
-    'After the SQL, briefly explain what chart type would work best (line, bar, pie, scatter, etc).',
+    'Your job is to generate a SQL query that returns data ready for chart visualization.',
+    '',
+    'RULES:',
+    '- For "how many X per period" questions, use GROUP BY with date_trunc() (PostgreSQL) or toStartOf*() (ClickHouse) and COUNT(*).',
+    '- Always include a time/category column for the X axis and numeric columns (COUNT, SUM, AVG, etc.) for the Y axis.',
+    '- ORDER BY the time/category column.',
+    '- Do NOT use LIMIT unless the user explicitly asks for it.',
+    '- Format the SQL in a ```sql code block.',
+    '',
+    'After the SQL block, on a new line write a JSON config block:',
+    '```json',
+    '{ "chartType": "line", "xColumn": "period", "yColumns": ["count"] }',
+    '```',
+    '',
+    'Example for "show quotes per month":',
+    '```sql',
+    'SELECT date_trunc(\'month\', created_at) AS period, COUNT(*) AS count FROM quotes GROUP BY 1 ORDER BY 1',
+    '```',
+    '```json',
+    '{ "chartType": "line", "xColumn": "period", "yColumns": ["count"] }',
+    '```',
     '',
     schemaContext || 'No schema loaded.',
   ].filter(Boolean).join('\n');

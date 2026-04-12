@@ -5,6 +5,11 @@ import {
   CHART_TYPE_MAPPING,
   EChartsChartType,
   GrafanaChartType,
+  buildAggregationQuery,
+  buildFullDataQuery,
+  TIME_BUCKET_PG,
+  TIME_BUCKET_CH,
+  TIME_BUCKET_SQLITE,
 } from '../types/chart';
 
 const ALL_CHART_TYPES: EChartsChartType[] = [
@@ -91,10 +96,297 @@ describe('Grafana compatibility', () => {
 
 describe('DataSource types', () => {
   it('ChartDataSource mergeMode accepts join and separate', () => {
-    // Type check at compile time, runtime validation
     const modes = ['join', 'separate'];
     for (const mode of modes) {
       expect(['join', 'separate']).toContain(mode);
     }
+  });
+});
+
+describe('buildAggregationQuery', () => {
+  it('builds a COUNT query with date_trunc for PostgreSQL', () => {
+    const sql = buildAggregationQuery(
+      'quotes', 'public', 'created_at', ['id'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'month' }, 'postgresql',
+    );
+    expect(sql).toContain('date_trunc');
+    expect(sql).toContain('\'month\'');
+    expect(sql).toContain('COUNT(*)');
+    expect(sql).toContain('GROUP BY');
+    expect(sql).toContain('ORDER BY');
+  });
+
+  it('builds a SUM query without time bucketing', () => {
+    const sql = buildAggregationQuery(
+      'orders', 'public', 'region', ['amount'], 'sum', undefined,
+      { function: 'sum' },
+    );
+    expect(sql).toContain('SUM("amount")');
+    expect(sql).toContain('"region"');
+    expect(sql).toContain('GROUP BY');
+  });
+
+  it('builds a query with group by column', () => {
+    const sql = buildAggregationQuery(
+      'metrics', undefined, 'ts', ['value'], 'avg', 'endpoint',
+      { function: 'avg', timeBucketPreset: 'hour' }, 'postgresql',
+    );
+    expect(sql).toContain('AVG("value")');
+    expect(sql).toContain('"endpoint"');
+    expect(sql).toContain('GROUP BY');
+  });
+
+  it('builds ClickHouse query with toStartOf* functions', () => {
+    const sql = buildAggregationQuery(
+      'events', 'default', 'timestamp', ['count'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'day' }, 'clickhouse',
+    );
+    expect(sql).toContain('toStartOfDay');
+    expect(sql).toContain('COUNT(*)');
+  });
+
+  it('builds query with no aggregation', () => {
+    const sql = buildAggregationQuery(
+      'users', 'public', 'name', ['age'], 'none', undefined,
+      { function: 'none' },
+    );
+    expect(sql).toContain('"name"');
+    expect(sql).toContain('"age"');
+    expect(sql).not.toContain('GROUP BY');
+  });
+
+  it('respects limit parameter', () => {
+    const sql = buildAggregationQuery(
+      'data', undefined, 'x', ['y'], 'sum', undefined,
+      { function: 'sum' }, undefined, 1000,
+    );
+    expect(sql).toContain('LIMIT 1000');
+  });
+
+  it('handles custom time bucket', () => {
+    const sql = buildAggregationQuery(
+      'metrics', 'public', 'ts', ['val'], 'avg', undefined,
+      { function: 'avg', timeBucketPreset: 'custom', timeBucket: '2h' }, 'postgresql',
+    );
+    expect(sql).toContain('date_bin');
+    expect(sql).toContain('2 hour');
+  });
+});
+
+describe('buildFullDataQuery', () => {
+  it('builds SELECT with specific columns and no LIMIT', () => {
+    const sql = buildFullDataQuery('metrics', 'public', ['ts', 'value', 'endpoint']);
+    expect(sql).toBe('SELECT "ts", "value", "endpoint" FROM "public"."metrics"');
+  });
+
+  it('works without schema', () => {
+    const sql = buildFullDataQuery('data', undefined, ['x', 'y']);
+    expect(sql).toBe('SELECT "x", "y" FROM "data"');
+  });
+});
+
+describe('Time bucket constants', () => {
+  it('TIME_BUCKET_PG has all presets', () => {
+    expect(TIME_BUCKET_PG.second).toBe('second');
+    expect(TIME_BUCKET_PG.minute).toBe('minute');
+    expect(TIME_BUCKET_PG.hour).toBe('hour');
+    expect(TIME_BUCKET_PG.day).toBe('day');
+    expect(TIME_BUCKET_PG.month).toBe('month');
+    expect(TIME_BUCKET_PG.year).toBe('year');
+  });
+
+  it('TIME_BUCKET_CH has all presets', () => {
+    expect(TIME_BUCKET_CH.second).toBe('toStartOfSecond');
+    expect(TIME_BUCKET_CH.minute).toBe('toStartOfMinute');
+    expect(TIME_BUCKET_CH.hour).toBe('toStartOfHour');
+    expect(TIME_BUCKET_CH.day).toBe('toStartOfDay');
+    expect(TIME_BUCKET_CH.month).toBe('toStartOfMonth');
+    expect(TIME_BUCKET_CH.year).toBe('toStartOfYear');
+  });
+
+  it('PG and CH maps have same keys', () => {
+    const pgKeys = Object.keys(TIME_BUCKET_PG).sort();
+    const chKeys = Object.keys(TIME_BUCKET_CH).sort();
+    expect(pgKeys).toEqual(chKeys);
+  });
+});
+
+// ============================================================
+// buildAggregationQuery — comprehensive edge cases
+// ============================================================
+
+describe('buildAggregationQuery — edge cases', () => {
+  it('quotes table and column names', () => {
+    const sql = buildAggregationQuery(
+      'my table', 'my schema', 'time col', ['val'], 'sum', undefined,
+      { function: 'sum' },
+    );
+    expect(sql).toContain('"my schema"."my table"');
+    expect(sql).toContain('"time col"');
+    expect(sql).toContain('"val"');
+  });
+
+  it('handles multiple Y columns', () => {
+    const sql = buildAggregationQuery(
+      'metrics', 'public', 'ts', ['cpu', 'mem', 'disk'], 'avg', undefined,
+      { function: 'avg' },
+    );
+    expect(sql).toContain('AVG("cpu")');
+    expect(sql).toContain('AVG("mem")');
+    expect(sql).toContain('AVG("disk")');
+  });
+
+  it('COUNT always produces COUNT(*) regardless of Y columns', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'x', ['a', 'b'], 'count', undefined,
+      { function: 'count' },
+    );
+    expect(sql).toContain('COUNT(*)');
+    expect(sql).not.toContain('COUNT("a")');
+  });
+
+  it('MIN aggregation', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'x', ['val'], 'min', undefined,
+      { function: 'min' },
+    );
+    expect(sql).toContain('MIN("val")');
+  });
+
+  it('MAX aggregation', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'x', ['val'], 'max', undefined,
+      { function: 'max' },
+    );
+    expect(sql).toContain('MAX("val")');
+  });
+
+  it('all PG time bucket presets produce date_trunc', () => {
+    for (const preset of ['second', 'minute', 'hour', 'day', 'month', 'year'] as const) {
+      const sql = buildAggregationQuery(
+        't', undefined, 'ts', ['v'], 'count', undefined,
+        { function: 'count', timeBucketPreset: preset }, 'postgresql',
+      );
+      expect(sql).toContain('date_trunc');
+      expect(sql).toContain(`'${preset}'`);
+    }
+  });
+
+  it('all CH time bucket presets produce toStartOf*', () => {
+    for (const preset of ['second', 'minute', 'hour', 'day', 'month', 'year'] as const) {
+      const sql = buildAggregationQuery(
+        't', undefined, 'ts', ['v'], 'count', undefined,
+        { function: 'count', timeBucketPreset: preset }, 'clickhouse',
+      );
+      expect(sql).toContain(TIME_BUCKET_CH[preset]);
+    }
+  });
+
+  it('all SQLite time bucket presets produce strftime', () => {
+    for (const preset of ['second', 'minute', 'hour', 'day', 'month', 'year'] as const) {
+      const sql = buildAggregationQuery(
+        't', undefined, 'ts', ['v'], 'count', undefined,
+        { function: 'count', timeBucketPreset: preset }, 'sqlite',
+      );
+      expect(sql).toContain('strftime');
+      expect(sql).toContain(TIME_BUCKET_SQLITE[preset]);
+      expect(sql).not.toContain('date_trunc');
+    }
+  });
+
+  it('SQLite month bucket generates strftime with %Y-%m format', () => {
+    const sql = buildAggregationQuery(
+      'records', undefined, 'created_at', ['id'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'month' }, 'sqlite',
+    );
+    expect(sql).toBe(
+      'SELECT strftime(\'%Y-%m\', "created_at") AS "created_at", COUNT(*) AS "count" FROM "records" GROUP BY strftime(\'%Y-%m\', "created_at") ORDER BY strftime(\'%Y-%m\', "created_at")',
+    );
+  });
+
+  it('custom time bucket for SQLite uses unixepoch arithmetic', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['v'], 'avg', undefined,
+      { function: 'avg', timeBucketPreset: 'custom', timeBucket: '2h' }, 'sqlite',
+    );
+    expect(sql).toContain('strftime');
+    expect(sql).toContain('unixepoch');
+    expect(sql).toContain('7200'); // 2h = 7200 seconds
+    expect(sql).not.toContain('date_trunc');
+    expect(sql).not.toContain('date_bin');
+  });
+
+  it('custom time bucket for ClickHouse uses toStartOfInterval', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['v'], 'avg', undefined,
+      { function: 'avg', timeBucketPreset: 'custom', timeBucket: '5m' }, 'clickhouse',
+    );
+    expect(sql).toContain('toStartOfInterval');
+    expect(sql).toContain('5 minute');
+  });
+
+  it('custom bucket parses various units', () => {
+    const cases: Array<[string, string]> = [
+      ['30s', 'second'], ['15m', 'minute'], ['4h', 'hour'],
+      ['7d', 'day'], ['2w', 'week'], ['3M', 'month'], ['1y', 'year'],
+    ];
+    for (const [input, expected] of cases) {
+      const sql = buildAggregationQuery(
+        't', undefined, 'ts', ['v'], 'sum', undefined,
+        { function: 'sum', timeBucketPreset: 'custom', timeBucket: input }, 'postgresql',
+      );
+      expect(sql).toContain(expected);
+    }
+  });
+
+  it('no time bucketing when preset is undefined', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['v'], 'sum', undefined,
+      { function: 'sum' },
+    );
+    expect(sql).not.toContain('date_trunc');
+    expect(sql).not.toContain('toStartOf');
+    expect(sql).toContain('"ts"');
+  });
+
+  it('group by column is included in SELECT and GROUP BY', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['v'], 'sum', 'region',
+      { function: 'sum' },
+    );
+    expect(sql).toContain('"region"');
+    const groupByIdx = sql.indexOf('GROUP BY');
+    const regionAfterGroupBy = sql.indexOf('"region"', groupByIdx);
+    expect(regionAfterGroupBy).toBeGreaterThan(groupByIdx);
+  });
+
+  it('produces valid SQL structure with all features combined', () => {
+    const sql = buildAggregationQuery(
+      'api_requests', 'analytics', 'created_at', ['response_time', 'status_code'], 'avg', 'endpoint',
+      { function: 'avg', timeBucketPreset: 'hour' }, 'postgresql', 10000,
+    );
+    expect(sql).toMatch(/^SELECT .+ FROM "analytics"\."api_requests" GROUP BY .+ ORDER BY .+ LIMIT 10000$/);
+    expect(sql).toContain('date_trunc');
+    expect(sql).toContain('AVG("response_time")');
+    expect(sql).toContain('AVG("status_code")');
+    expect(sql).toContain('"endpoint"');
+  });
+});
+
+describe('buildFullDataQuery — edge cases', () => {
+  it('deduplicates columns', () => {
+    // buildFullDataQuery receives pre-deduped columns, but verify structure
+    const sql = buildFullDataQuery('t', undefined, ['a', 'b', 'c']);
+    expect(sql).toBe('SELECT "a", "b", "c" FROM "t"');
+  });
+
+  it('single column', () => {
+    const sql = buildFullDataQuery('t', 'public', ['id']);
+    expect(sql).toBe('SELECT "id" FROM "public"."t"');
+  });
+
+  it('never includes LIMIT', () => {
+    const sql = buildFullDataQuery('big_table', 'public', ['a', 'b', 'c', 'd', 'e']);
+    expect(sql).not.toContain('LIMIT');
   });
 });

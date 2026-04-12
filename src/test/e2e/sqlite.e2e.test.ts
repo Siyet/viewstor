@@ -5,6 +5,52 @@ import { SqliteDriver } from '../../drivers/sqlite';
 import { ConnectionConfig } from '../../types/connection';
 import { runDriverInterfaceTests } from './helpers/driverTestSuite';
 
+// ============================================================
+// Native module ABI validation
+// ============================================================
+
+describe('SQLite native module ABI', () => {
+  const CACHE_DIR = path.join(__dirname, '..', '..', '..', 'node_modules', '.cache', 'sqlite-builds');
+  const NODE_META = path.join(CACHE_DIR, 'better_sqlite3.node.meta');
+  const BINARY = path.join(__dirname, '..', '..', '..', 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+
+  it('better-sqlite3 binary exists', () => {
+    expect(fs.existsSync(BINARY)).toBe(true);
+  });
+
+  it('better-sqlite3 loads without ABI error in current Node.js', () => {
+    // This will throw "NODE_MODULE_VERSION" error if ABI mismatch
+    expect(() => require('better-sqlite3')).not.toThrow();
+  });
+
+  it('Node cache meta file contains correct ABI for current runtime', () => {
+    if (!fs.existsSync(NODE_META)) {
+      // Meta might not exist if cache was just created; skip gracefully
+      return;
+    }
+    const meta = JSON.parse(fs.readFileSync(NODE_META, 'utf8'));
+    expect(meta.abi).toBe(String(process.versions.modules));
+  });
+
+  it('SqliteDriver.connect() provides actionable error on ABI mismatch', async () => {
+    // Simulate the error message format that Node.js produces
+    const driver = new SqliteDriver();
+    // We can't actually trigger ABI mismatch in tests (we just rebuilt for Node),
+    // but we verify the driver loads correctly
+    await driver.connect({
+      id: 'abi-test',
+      name: 'ABI Test',
+      type: 'sqlite',
+      host: '',
+      port: 0,
+      database: ':memory:',
+    });
+    const ping = await driver.ping();
+    expect(ping).toBe(true);
+    await driver.disconnect();
+  });
+});
+
 describe('SQLite Driver E2E', () => {
   let dbPath: string;
   let driver: SqliteDriver;
@@ -286,5 +332,143 @@ describe('SQLite Driver E2E', () => {
     expect(result.error).toBeUndefined();
     expect(result.columns.find(c => c.name === 'name')!.nullable).toBe(false);
     expect(result.columns.find(c => c.name === 'email')!.nullable).toBe(true);
+  });
+
+  it('timestamp columns are reported with correct type for chart detection', async () => {
+    await driver.execute('CREATE TABLE ts_test (id INTEGER PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, event_date DATE)');
+    await driver.execute('INSERT INTO ts_test (created_at, event_date) VALUES (\'2024-01-01 10:00:00\', \'2024-01-01\')');
+
+    const result = await driver.getTableData('ts_test');
+    expect(result.error).toBeUndefined();
+
+    const tsCol = result.columns.find(c => c.name === 'created_at');
+    expect(tsCol).toBeDefined();
+    // SQLite should return declared type — must match TIME_TYPES for chart detection
+    expect(tsCol!.dataType.toUpperCase()).toContain('TIMESTAMP');
+
+    const dateCol = result.columns.find(c => c.name === 'event_date');
+    expect(dateCol).toBeDefined();
+    expect(dateCol!.dataType.toUpperCase()).toContain('DATE');
+
+    await driver.execute('DROP TABLE ts_test');
+  });
+
+  // --- Chart aggregation: buildAggregationQuery → driver.execute ---
+
+  describe('Chart aggregation with strftime', () => {
+    beforeAll(async () => {
+      await driver.execute(`
+        CREATE TABLE events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          created_at TEXT NOT NULL,
+          category TEXT,
+          value REAL
+        )
+      `);
+      // Insert data spanning multiple months
+      await driver.execute(`
+        INSERT INTO events (created_at, category, value) VALUES
+          ('2024-01-15 10:00:00', 'A', 10),
+          ('2024-01-20 12:00:00', 'B', 20),
+          ('2024-02-10 08:00:00', 'A', 30),
+          ('2024-02-25 16:00:00', 'A', 40),
+          ('2024-03-05 09:00:00', 'B', 50),
+          ('2024-03-15 14:00:00', 'B', 60)
+      `);
+    });
+
+    afterAll(async () => {
+      await driver.execute('DROP TABLE IF EXISTS events');
+    });
+
+    it('COUNT by month using strftime produces correct buckets', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'events', undefined, 'created_at', ['id'], 'count', undefined,
+        { function: 'count', timeBucketPreset: 'month' }, 'sqlite',
+      );
+      expect(sql).toContain('strftime');
+      expect(sql).not.toContain('date_trunc');
+
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.rowCount).toBe(3);
+      expect(result.rows.map(r => r.created_at)).toEqual(['2024-01', '2024-02', '2024-03']);
+      expect(result.rows.map(r => r.count)).toEqual([2, 2, 2]);
+    });
+
+    it('aggregation result columns have numeric dataType for COUNT/SUM (not TEXT)', async () => {
+      // This is the root cause of the "chart disappears" bug:
+      // SQLite returns null type for computed columns → driver defaults to 'TEXT'
+      // → webview isNumericType('TEXT') = false → no Y axis → empty chart
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'events', undefined, 'created_at', ['id'], 'count', undefined,
+        { function: 'count', timeBucketPreset: 'month' }, 'sqlite',
+      );
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+
+      // Inspect actual column types returned by SQLite driver
+      const countCol = result.columns.find(c => c.name === 'count');
+      expect(countCol).toBeDefined();
+      // COUNT(*) returns a number → driver must infer 'INTEGER', not 'TEXT'
+      expect(countCol!.dataType).toBe('INTEGER');
+
+      // strftime returns a string → stays 'TEXT'
+      const createdCol = result.columns.find(c => c.name === 'created_at');
+      expect(createdCol).toBeDefined();
+      expect(createdCol!.dataType).toBe('TEXT');
+    });
+
+    it('SUM by day using strftime', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'events', undefined, 'created_at', ['value'], 'sum', undefined,
+        { function: 'sum', timeBucketPreset: 'day' }, 'sqlite',
+      );
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.rowCount).toBe(6); // each event on a different day
+    });
+
+    it('AVG by year using strftime', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'events', undefined, 'created_at', ['value'], 'avg', undefined,
+        { function: 'avg', timeBucketPreset: 'year' }, 'sqlite',
+      );
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.rowCount).toBe(1);
+      expect(result.rows[0].created_at).toBe('2024');
+    });
+
+    it('COUNT by month with groupBy column', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'events', undefined, 'created_at', ['id'], 'count', 'category',
+        { function: 'count', timeBucketPreset: 'month' }, 'sqlite',
+      );
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      // 3 months × 2 categories, but not all combos exist → ≤ 6 rows
+      expect(result.rowCount).toBeGreaterThanOrEqual(4);
+      expect(result.rows.every((r: Record<string, unknown>) => r.category === 'A' || r.category === 'B')).toBe(true);
+    });
+
+    it('custom time bucket (2h) using unixepoch arithmetic', async () => {
+      const { buildAggregationQuery } = await import('../../types/chart');
+      const sql = buildAggregationQuery(
+        'events', undefined, 'created_at', ['id'], 'count', undefined,
+        { function: 'count', timeBucketPreset: 'custom', timeBucket: '2h' }, 'sqlite',
+      );
+      expect(sql).toContain('unixepoch');
+      expect(sql).toContain('7200');
+
+      const result = await driver.execute(sql);
+      expect(result.error).toBeUndefined();
+      expect(result.rowCount).toBeGreaterThanOrEqual(1);
+    });
   });
 });

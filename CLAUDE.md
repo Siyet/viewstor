@@ -81,7 +81,7 @@ Query mode → client-side data + export in-memory rows.
 ### Chart Panel
 `src/chart/chartPanel.ts` — ChartPanelManager, webview panel for chart visualization. Uses Apache ECharts (loaded from `dist/scripts/echarts.min.js`).
 
-`src/types/chart.ts` — EChartsChartType (12 types), GrafanaChartType (6 compatible), ChartConfig, AxisMapping, CategoryMapping, etc.
+`src/types/chart.ts` — EChartsChartType (12 types), GrafanaChartType (6 compatible), ChartConfig, AxisMapping, CategoryMapping, etc. `buildAggregationQuery()` generates DB-specific time bucketing: `date_trunc()` for PostgreSQL, `toStartOf*()` for ClickHouse, `strftime()` for SQLite. Custom buckets: `date_bin()` (PG), `toStartOfInterval()` (CH), `unixepoch` arithmetic (SQLite).
 
 `src/chart/chartDataTransform.ts` — pure functions: `buildEChartsOption()` transforms QueryResult + ChartConfig into ECharts option. `suggestChartConfig()` auto-detects best chart type from column types. Builder registry per chart type. No vscode dependency, fully unit-tested.
 
@@ -110,7 +110,7 @@ Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana pus
 `src/editors/indexHintProvider.ts` — DiagnosticProvider. Debounced 500ms. Parses WHERE/ORDER BY columns, queries `getIndexedColumns()`, shows Warning diagnostic. Handles aliases and multi-table queries. Only fires for connected SQL documents. Skips small tables (below configurable `indexHintThreshold`, default 100k rows).
 
 ### Safe Mode
-`src/commands/index.ts` — before executing SELECT queries, runs `EXPLAIN` to detect Seq Scans (PostgreSQL only). Three modes: `block` (prevents execution, shows EXPLAIN), `warn` (shows warning with Run Anyway/See EXPLAIN/Cancel), `off` (no checks). Configurable globally via `viewstor.safeMode` setting or per connection. Auto-adds `LIMIT` to SELECTs missing it.
+`src/commands/index.ts` — before executing SELECT queries, runs EXPLAIN to detect full table scans. Three modes: `block` (prevents execution, shows EXPLAIN), `warn` (shows warning with Run Anyway/See EXPLAIN/Cancel), `off` (no checks). Configurable globally via `viewstor.safeMode` setting or per connection. Auto-adds `LIMIT` to SELECTs missing it. Multi-DB support: PostgreSQL (`EXPLAIN` + `Seq Scan`), SQLite (`EXPLAIN QUERY PLAN` + `SCAN TABLE`), ClickHouse (`EXPLAIN` + `Full`).
 
 ### Tunnels
 `src/connections/tunnel.ts` — SSH tunnel via `ssh2` library (port forwarding). SOCKS5 proxy via raw socket negotiation. Used by PostgreSQL driver when `config.proxy` is set. Tunnel cleaned up on disconnect or connect failure.
@@ -127,6 +127,8 @@ Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana pus
 - `viewstor.mcp.getTableInfo` → column details with PK/nullable
 - `viewstor.mcp.visualize` → execute query and open chart panel
 - `viewstor.mcp.exportGrafana` → generate Grafana dashboard JSON
+- `viewstor.mcp.openQuery` → open SQL editor with query text (optionally execute)
+- `viewstor.mcp.openTableData` → open table data view with optional custom query
 
 All auto-connect. Returns structured JSON or `{ error }`.
 
@@ -171,4 +173,5 @@ Usage in Claude Code config:
 - PG arrays: `pgArrayToString()` renders `{curly braces}` instead of JSON `[brackets]`
 - ClickHouse getSchema uses batch queries to `system.tables` and `system.columns` (not per-table DESCRIBE)
 - ClickHouse execute uses `JSON` format (not `JSONEachRow`) to get column types from response metadata
-- SQLite: file-based connection (`config.database` = file path or `:memory:`), no host/port/auth. Uses `sqlite_master` + `PRAGMA table_info()` for schema. `getEstimatedRowCount()` falls back to exact `COUNT(*)`. WAL journal mode and foreign keys enabled on connect. Connection form shows file picker instead of host/port fields.
+- SQLite: file-based connection (`config.database` = file path or `:memory:`), no host/port/auth. Uses `sqlite_master` + `PRAGMA table_info()` for schema. `getEstimatedRowCount()` falls back to exact `COUNT(*)`. WAL journal mode enabled on connect (skipped for readonly). Foreign keys always enabled. Connection form shows file picker instead of host/port fields. `inferTypeFromValue()` detects column types for computed expressions (COUNT→INTEGER, SUM→REAL).
+- SQLite native module: `better-sqlite3` requires different prebuilds for Node.js (tests) and Electron (Extension Host). `scripts/sqlite-rebuild.js` manages dual builds with `prebuild-install` (NOT `electron-rebuild` which is broken). Cache in `node_modules/.cache/sqlite-builds/` with `.meta` files. `npm run dev/build/watch` auto-restores Electron binary; `npm test` switches to Node.js binary.

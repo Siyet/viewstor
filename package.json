@@ -2,7 +2,7 @@
   "name": "viewstor",
   "displayName": "Viewstor",
   "description": "%extension.description%",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "publisher": "Siyet",
   "license": "AGPL-3.0",
   "icon": "resources/icon.png",
@@ -33,18 +33,20 @@
     "viewstor-mcp": "./dist/mcp-server.js"
   },
   "scripts": {
-    "vscode:prepublish": "npm run copy-nls && npm run build",
+    "vscode:prepublish": "npm run copy-nls && npm run sqlite:electron && npm run build",
     "postinstall": "npm run copy-nls",
     "copy-nls": "node -e \"fs=require('fs');p=require('path');d='l10n/nls';fs.readdirSync(d).filter(f=>f.startsWith('package.nls')).forEach(f=>fs.copyFileSync(p.join(d,f),f))\"",
-    "build": "npm run copy-nls && webpack --mode production",
-    "watch": "npm run copy-nls && webpack --mode development --watch",
-    "dev": "npm run copy-nls && webpack --mode development",
+    "build": "npm run copy-nls && npm run sqlite:electron && webpack --mode production",
+    "watch": "npm run copy-nls && npm run sqlite:electron && webpack --mode development --watch",
+    "dev": "npm run copy-nls && npm run sqlite:electron && webpack --mode development",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
-    "test": "vitest run",
+    "sqlite:electron": "node scripts/sqlite-rebuild.js electron",
+    "sqlite:node": "node scripts/sqlite-rebuild.js node",
+    "test": "node scripts/sqlite-rebuild.js node && vitest run",
     "test:watch": "vitest",
     "test:single": "vitest run --reporter=verbose",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e": "node scripts/sqlite-rebuild.js node && vitest run --config vitest.e2e.config.ts",
     "test:e2e:watch": "vitest --config vitest.e2e.config.ts",
     "compile-tests": "tsc -p tsconfig.test.json",
     "compile-vscode-tests": "tsc -p tsconfig.vscode-test.json",
@@ -52,6 +54,36 @@
     "package": "vsce package"
   },
   "contributes": {
+    "icons": {
+      "viewstor-postgresql": {
+        "description": "PostgreSQL",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E002"
+        }
+      },
+      "viewstor-redis": {
+        "description": "Redis",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E003"
+        }
+      },
+      "viewstor-clickhouse": {
+        "description": "ClickHouse",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E001"
+        }
+      },
+      "viewstor-sqlite": {
+        "description": "SQLite",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E004"
+        }
+      }
+    },
     "mcpServerDefinitionProviders": [
       {
         "id": "viewstor.mcpServer",
@@ -547,6 +579,7 @@
     "mocha": "^11.7.5",
     "pg": "^8.11.0",
     "style-loader": "^3.3.4",
+    "svgtofont": "^6.5.1",
     "testcontainers": "^11.13.0",
     "ts-loader": "^9.5.0",
     "typescript": "^5.3.0",

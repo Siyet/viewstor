@@ -227,7 +227,9 @@ export class ClickHouseDriver implements DatabaseDriver {
       sql += ` ORDER BY ${clauses.join(', ')}`;
     }
     sql += ` LIMIT ${limit} OFFSET ${offset}`;
-    return this.execute(sql);
+    const result = await this.execute(sql);
+    result.query = sql;
+    return result;
   }
 
   async getCompletions(): Promise<CompletionItem[]> {

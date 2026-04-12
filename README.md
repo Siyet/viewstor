@@ -65,15 +65,15 @@ Passwords are excluded for security — you'll enter them on first connect. See 
 
 ### Safe Mode
 
-Production databases deserve guardrails. Safe mode runs `EXPLAIN` before every `SELECT` and catches sequential scans on large tables:
+Production databases deserve guardrails. Safe mode runs `EXPLAIN` before every `SELECT` and catches full table scans:
 
 | Mode | Behavior |
 |---|---|
-| **Block** | Blocks queries with Seq Scan. Shows EXPLAIN plan |
+| **Block** | Blocks queries with full scans. Shows EXPLAIN plan |
 | **Warn** | Warning with "Run Anyway" / "See EXPLAIN" / "Cancel" |
 | **Off** | No checks |
 
-Set globally in settings or per connection. Auto-adds `LIMIT` to SELECTs that don't have one.
+Supports PostgreSQL (`Seq Scan`), SQLite (`SCAN TABLE` via `EXPLAIN QUERY PLAN`), and ClickHouse. Set globally in settings or per connection. Auto-adds `LIMIT` to SELECTs that don't have one.
 
 ### Read-only Mode
 
@@ -169,6 +169,8 @@ Two MCP interfaces — pick the one that fits your workflow:
 | `viewstor.mcp.getTableInfo` | Column metadata, PKs, nullability |
 | `viewstor.mcp.visualize` | Execute query and open chart panel |
 | `viewstor.mcp.exportGrafana` | Generate Grafana dashboard JSON |
+| `viewstor.mcp.openQuery` | Open SQL editor with query text (optionally execute) |
+| `viewstor.mcp.openTableData` | Open table data view with optional custom query |
 
 **Standalone MCP server** (for Claude Code, Cline — CLI agents running outside VS Code):
 

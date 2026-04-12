@@ -517,6 +517,7 @@ export class PostgresDriver implements DatabaseDriver {
     }
     sql += ` LIMIT ${limit} OFFSET ${offset}`;
     const result = await this.execute(sql);
+    result.query = sql;
 
     // Enrich columns with enum values and nullable info
     if (!result.error && result.columns.length > 0) {

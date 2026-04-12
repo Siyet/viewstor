@@ -252,6 +252,75 @@ body {
   border-top: 1px solid var(--vscode-panel-border);
 }
 
+/* ---- Help tooltip icon ---- */
+.help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--vscode-badge-background, #4d4d4d);
+  color: var(--vscode-badge-foreground, #ccc);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: help;
+  vertical-align: middle;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.help-icon:hover {
+  background: var(--vscode-focusBorder);
+  color: var(--vscode-editor-background);
+}
+
+/* ---- Sync / status ---- */
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+}
+
+.hidden { display: none !important; }
+
+.chart-status {
+  position: absolute;
+  bottom: 8px;
+  left: 12px;
+  right: 12px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.chart-status.visible { opacity: 1; }
+.chart-status.error { color: var(--vscode-errorForeground); border-color: var(--vscode-inputValidation-errorBorder); }
+
+/* ---- Server-side button ---- */
+.sidebar-btn {
+  width: 100%;
+  padding: 5px 10px;
+  font-size: 12px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.sidebar-btn:hover { background: var(--vscode-button-hoverBackground); }
+
 /* ---- Data source items in sidebar ---- */
 .ds-item {
   border: 1px solid var(--vscode-panel-border);

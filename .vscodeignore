@@ -13,4 +13,6 @@ vitest.e2e.config.ts
 webpack.config.js
 package-lock.json
 CLAUDE.md
+scripts/**
+resources/icon-font-src/**
 tmp/**

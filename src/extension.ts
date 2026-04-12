@@ -15,7 +15,7 @@ import { SqlDiagnosticProvider } from './editors/sqlDiagnosticProvider';
 import { registerMcpCommands } from './mcp/server';
 import { registerCommands } from './commands';
 import { registerChatParticipant } from './chat/participant';
-import { ChartPanelManager } from './chart/chartPanel';
+import { ChartPanelManager, setChartOutputChannel } from './chart/chartPanel';
 import { TempFileManager } from './services/tempFileManager';
 import { QueryFileManager } from './services/queryFileManager';
 import { setDebugChannel, dbg } from './utils/debug';
@@ -41,9 +41,14 @@ export function activate(context: vscode.ExtensionContext) {
     const resultPanelManager = new ResultPanelManager(context);
     const chartPanelManager = new ChartPanelManager(context);
     chartPanelManager.setPinnedQueryProvider(queryHistoryProvider);
+    chartPanelManager.setConnectionManager(connectionManager);
+    setChartOutputChannel(outputChannel);
     tempFileManager = new TempFileManager(context, queryFileManager);
     tempFileManager.setPostMessage((key, msg) => resultPanelManager.postMessage(key, msg));
     resultPanelManager.setTempFileManager(tempFileManager);
+    resultPanelManager.setChartNotifier((panelKey, columns, rows, query) => {
+      chartPanelManager.notifyDataChanged(panelKey, columns, rows, query);
+    });
 
     // Wire up file rename handling (pin on save)
     queryFileManager.setOnQueryPinned((oldUri, newUri) => {
