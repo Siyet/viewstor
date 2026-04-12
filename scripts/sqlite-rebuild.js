@@ -160,8 +160,8 @@ fs.mkdirSync(CACHE_DIR, { recursive: true });
 if (target === 'electron') {
   const electronVersion = detectVSCodeElectronVersion();
   if (!electronVersion) {
-    console.error('Could not detect VS Code Electron version. Is VS Code installed?');
-    process.exit(1);
+    console.log('VS Code not found — skipping Electron prebuild (CI environment)');
+    process.exit(0);
   }
   console.log(`VS Code Electron: ${electronVersion}`);
 

@@ -9,5 +9,6 @@ export default defineConfig({
     environment: 'node',
     include: ['src/test/**/*.test.ts'],
     exclude: ['node_modules', 'dist', 'src/test/e2e/**', 'src/test/vscode/**'],
+    forceExit: true,
   },
 });
