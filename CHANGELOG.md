@@ -16,7 +16,6 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 - **Safe mode for SQLite and ClickHouse** — full table scan detection for all SQL databases, not just PostgreSQL ([#11](https://github.com/Siyet/viewstor/issues/11))
 
 ### Changed
-- Grafana export button hidden pending full multi-DB support ([#50](https://github.com/Siyet/viewstor/issues/50))
 - Query result page size now matches LIMIT from executed query instead of fixed 100
 
 ## [0.2.7] — 2026-04-06
