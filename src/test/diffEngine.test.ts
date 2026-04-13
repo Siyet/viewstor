@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stringifyCell, computeRowDiff, computeSchemaDiff, exportDiffAsCsv, exportDiffAsJson } from '../diff/diffEngine';
+import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, exportDiffAsCsv, exportDiffAsJson } from '../diff/diffEngine';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
 import { ColumnInfo } from '../types/schema';
 
@@ -291,6 +291,102 @@ describe('computeSchemaDiff', () => {
     expect(result.leftOnlyColumns).toHaveLength(0);
     expect(result.rightOnlyColumns).toHaveLength(0);
     expect(result.commonColumns).toHaveLength(0);
+  });
+});
+
+// --- computeObjectsDiff ---
+
+describe('computeObjectsDiff', () => {
+  it('identical indexes produce same status', () => {
+    const objects = {
+      indexes: [{ name: 'idx_name', columns: ['name'], unique: false, type: 'btree' }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const result = computeObjectsDiff(objects, objects);
+    expect(result.indexes).toHaveLength(1);
+    expect(result.indexes[0].status).toBe('same');
+  });
+
+  it('detects added index', () => {
+    const left = { indexes: [], constraints: [], triggers: [], sequences: [] };
+    const right = {
+      indexes: [{ name: 'idx_new', columns: ['email'], unique: true, type: 'btree' }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.indexes).toHaveLength(1);
+    expect(result.indexes[0].status).toBe('added');
+    expect(result.indexes[0].name).toBe('idx_new');
+  });
+
+  it('detects removed index', () => {
+    const left = {
+      indexes: [{ name: 'idx_old', columns: ['name'], unique: false }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const right = { indexes: [], constraints: [], triggers: [], sequences: [] };
+    const result = computeObjectsDiff(left, right);
+    expect(result.indexes).toHaveLength(1);
+    expect(result.indexes[0].status).toBe('removed');
+  });
+
+  it('detects index column change', () => {
+    const left = {
+      indexes: [{ name: 'idx_x', columns: ['a', 'b'], unique: false }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const right = {
+      indexes: [{ name: 'idx_x', columns: ['a', 'c'], unique: false }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.indexes[0].status).toBe('differs');
+    expect(result.indexes[0].differences).toBeDefined();
+  });
+
+  it('detects constraint type change', () => {
+    const left = {
+      indexes: [], triggers: [], sequences: [],
+      constraints: [{ name: 'pk_id', type: 'PRIMARY KEY' as const, columns: ['id'] }],
+    };
+    const right = {
+      indexes: [], triggers: [], sequences: [],
+      constraints: [{ name: 'pk_id', type: 'UNIQUE' as const, columns: ['id'] }],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.constraints[0].status).toBe('differs');
+  });
+
+  it('detects added trigger', () => {
+    const left = { indexes: [], constraints: [], triggers: [], sequences: [] };
+    const right = {
+      indexes: [], constraints: [], sequences: [],
+      triggers: [{ name: 'trg_audit', timing: 'AFTER', events: 'INSERT', definition: 'audit_fn' }],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.triggers).toHaveLength(1);
+    expect(result.triggers[0].status).toBe('added');
+  });
+
+  it('detects sequence increment change', () => {
+    const left = {
+      indexes: [], constraints: [], triggers: [],
+      sequences: [{ name: 'seq_id', startValue: 1, increment: 1 }],
+    };
+    const right = {
+      indexes: [], constraints: [], triggers: [],
+      sequences: [{ name: 'seq_id', startValue: 1, increment: 10 }],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.sequences[0].status).toBe('differs');
+  });
+
+  it('handles undefined inputs gracefully', () => {
+    const result = computeObjectsDiff(undefined, undefined);
+    expect(result.indexes).toHaveLength(0);
+    expect(result.constraints).toHaveLength(0);
+    expect(result.triggers).toHaveLength(0);
+    expect(result.sequences).toHaveLength(0);
   });
 });
 

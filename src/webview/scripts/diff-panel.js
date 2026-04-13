@@ -8,6 +8,7 @@
 
   const rowDiff = data.rowDiff;
   const schemaDiff = data.schemaDiff;
+  const objectsDiff = data.objectsDiff;
   const leftLabel = data.leftLabel || 'Left';
   const rightLabel = data.rightLabel || 'Right';
   const keyColumns = data.keyColumns || [];
@@ -262,6 +263,48 @@
     schemaBody.innerHTML = html;
   }
 
+  // ---- Render objects diff (indexes, constraints, triggers, sequences) ----
+  function renderObjectsDiff() {
+    var container = document.getElementById('objectsDiffContainer');
+    if (!container || !objectsDiff) return;
+
+    var sections = [
+      { key: 'indexes', title: 'Indexes' },
+      { key: 'constraints', title: 'Constraints' },
+      { key: 'triggers', title: 'Triggers' },
+      { key: 'sequences', title: 'Sequences' },
+    ];
+
+    var html = '';
+    for (var secIdx = 0; secIdx < sections.length; secIdx++) {
+      var section = sections[secIdx];
+      var items = objectsDiff[section.key];
+      if (!items || items.length === 0) continue;
+
+      html += '<h3 class="diff-section-title">' + escapeHtml(section.title) + ' (' + items.length + ')</h3>';
+      html += '<table class="diff-schema-table">';
+      html += '<thead><tr><th>Name</th><th>Left</th><th>Right</th><th>Status</th></tr></thead>';
+      html += '<tbody>';
+      for (var itemIdx = 0; itemIdx < items.length; itemIdx++) {
+        var item = items[itemIdx];
+        var rowClass = item.status === 'added' ? 'diff-added' : item.status === 'removed' ? 'diff-removed' : '';
+        var statusText = item.status;
+        if (item.differences && item.differences.length > 0) {
+          statusText += ': ' + item.differences.join(', ');
+        }
+        html += '<tr' + (rowClass ? ' class="' + rowClass + '"' : '') + '>';
+        html += '<td>' + escapeHtml(item.name) + '</td>';
+        html += '<td>' + escapeHtml(item.leftDetail || '') + '</td>';
+        html += '<td>' + escapeHtml(item.rightDetail || '') + '</td>';
+        html += '<td class="diff-status-' + escapeHtml(item.status) + '">' + escapeHtml(statusText) + '</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+
+    container.innerHTML = html;
+  }
+
   // ---- Handle messages from host ----
   window.addEventListener('message', function (event) {
     var msg = event.data;
@@ -293,4 +336,5 @@
   buildRowHeaders();
   renderRowDiff();
   renderSchemaDiff();
+  renderObjectsDiff();
 })();

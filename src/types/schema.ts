@@ -38,3 +38,56 @@ export interface TableInfo {
   rowCount?: number;
   sizeBytes?: number;
 }
+
+export interface IndexInfo {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  /** Index type: btree, hash, gin, gist, etc. */
+  type?: string;
+  /** Partial index WHERE clause */
+  predicate?: string;
+}
+
+export interface ConstraintInfo {
+  name: string;
+  type: 'PRIMARY KEY' | 'UNIQUE' | 'FOREIGN KEY' | 'CHECK';
+  columns: string[];
+  /** FK: referenced table (schema.table) */
+  referencedTable?: string;
+  /** FK: referenced columns */
+  referencedColumns?: string[];
+  /** FK: ON DELETE action */
+  onDelete?: string;
+  /** FK: ON UPDATE action */
+  onUpdate?: string;
+  /** CHECK: expression */
+  checkExpression?: string;
+}
+
+export interface TriggerInfo {
+  name: string;
+  /** BEFORE, AFTER, INSTEAD OF */
+  timing: string;
+  /** INSERT, UPDATE, DELETE (comma-separated if multiple) */
+  events: string;
+  /** Trigger function name (PG) or full SQL (SQLite) */
+  definition?: string;
+}
+
+export interface SequenceInfo {
+  name: string;
+  dataType?: string;
+  startValue?: number;
+  increment?: number;
+  minValue?: number;
+  maxValue?: number;
+}
+
+/** Extended table metadata including related schema objects */
+export interface TableObjects {
+  indexes: IndexInfo[];
+  constraints: ConstraintInfo[];
+  triggers: TriggerInfo[];
+  sequences: SequenceInfo[];
+}

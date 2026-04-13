@@ -3,7 +3,7 @@ import { DatabaseDriver } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { CompletionItem } from '../types/driver';
-import { SchemaObject, TableInfo, ColumnInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
 import { createSSHTunnel, createSocks5Connection, TunnelInfo } from '../connections/tunnel';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
@@ -569,6 +569,126 @@ export class PostgresDriver implements DatabaseDriver {
       WHERE n.nspname = $1 AND c.relname = $2
     `, [schema, name]);
     return new Set(res.rows.map((r: { attname: string }) => r.attname));
+  }
+
+  async getTableObjects(name: string, schema = 'public'): Promise<TableObjects> {
+    // Indexes (excluding primary key indexes)
+    const indexesRes = await this.client!.query(`
+      SELECT i.relname AS index_name,
+             array_agg(a.attname ORDER BY k.ordinality) AS columns,
+             ix.indisunique AS is_unique,
+             am.amname AS index_type,
+             pg_get_expr(ix.indpred, ix.indrelid) AS predicate
+      FROM pg_index ix
+      JOIN pg_class i ON i.oid = ix.indexrelid
+      JOIN pg_class t ON t.oid = ix.indrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      JOIN pg_am am ON am.oid = i.relam
+      CROSS JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ordinality)
+      JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+      WHERE n.nspname = $1 AND t.relname = $2
+        AND NOT ix.indisprimary
+      GROUP BY i.relname, ix.indisunique, am.amname, ix.indpred, ix.indrelid
+      ORDER BY i.relname
+    `, [schema, name]);
+
+    const indexes: IndexInfo[] = indexesRes.rows.map((row: any) => ({
+      name: row.index_name,
+      columns: row.columns,
+      unique: row.is_unique,
+      type: row.index_type,
+      predicate: row.predicate ?? undefined,
+    }));
+
+    // Constraints
+    const constraintsRes = await this.client!.query(`
+      SELECT tc.constraint_name, tc.constraint_type,
+             array_agg(DISTINCT kcu.column_name ORDER BY kcu.column_name) AS columns,
+             ccu.table_schema || '.' || ccu.table_name AS ref_table,
+             array_agg(DISTINCT ccu.column_name ORDER BY ccu.column_name) AS ref_columns,
+             rc.delete_rule, rc.update_rule,
+             cc.check_clause
+      FROM information_schema.table_constraints tc
+      LEFT JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+      LEFT JOIN information_schema.constraint_column_usage ccu
+        ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+        AND tc.constraint_type = 'FOREIGN KEY'
+      LEFT JOIN information_schema.referential_constraints rc
+        ON tc.constraint_name = rc.constraint_name AND tc.table_schema = rc.constraint_schema
+      LEFT JOIN information_schema.check_constraints cc
+        ON tc.constraint_name = cc.constraint_name AND tc.constraint_schema = cc.constraint_schema
+      WHERE tc.table_schema = $1 AND tc.table_name = $2
+        AND tc.constraint_name NOT LIKE '%_not_null'
+      GROUP BY tc.constraint_name, tc.constraint_type, ccu.table_schema, ccu.table_name,
+               rc.delete_rule, rc.update_rule, cc.check_clause
+      ORDER BY tc.constraint_type, tc.constraint_name
+    `, [schema, name]);
+
+    const constraints: ConstraintInfo[] = constraintsRes.rows.map((row: any) => ({
+      name: row.constraint_name,
+      type: row.constraint_type as ConstraintInfo['type'],
+      columns: row.columns?.filter((col: string | null) => col !== null) ?? [],
+      referencedTable: row.constraint_type === 'FOREIGN KEY' ? row.ref_table : undefined,
+      referencedColumns: row.constraint_type === 'FOREIGN KEY'
+        ? row.ref_columns?.filter((col: string | null) => col !== null) : undefined,
+      onDelete: row.delete_rule ?? undefined,
+      onUpdate: row.update_rule ?? undefined,
+      checkExpression: row.check_clause ?? undefined,
+    }));
+
+    // Triggers
+    const triggersRes = await this.client!.query(`
+      SELECT t.tgname AS trigger_name,
+             CASE WHEN t.tgtype & 2 = 2 THEN 'BEFORE'
+                  WHEN t.tgtype & 64 = 64 THEN 'INSTEAD OF'
+                  ELSE 'AFTER' END AS timing,
+             concat_ws(', ',
+               CASE WHEN t.tgtype & 4 = 4 THEN 'INSERT' END,
+               CASE WHEN t.tgtype & 8 = 8 THEN 'DELETE' END,
+               CASE WHEN t.tgtype & 16 = 16 THEN 'UPDATE' END
+             ) AS events,
+             p.proname AS function_name
+      FROM pg_trigger t
+      JOIN pg_class c ON t.tgrelid = c.oid
+      JOIN pg_namespace n ON c.relnamespace = n.oid
+      JOIN pg_proc p ON t.tgfoid = p.oid
+      WHERE n.nspname = $1 AND c.relname = $2
+        AND NOT t.tgisinternal
+      ORDER BY t.tgname
+    `, [schema, name]);
+
+    const triggers: TriggerInfo[] = triggersRes.rows.map((row: any) => ({
+      name: row.trigger_name,
+      timing: row.timing,
+      events: row.events,
+      definition: row.function_name,
+    }));
+
+    // Sequences owned by this table
+    const sequencesRes = await this.client!.query(`
+      SELECT s.relname AS seq_name, sq.data_type,
+             sq.start_value::bigint, sq.increment_by::bigint,
+             sq.min_value::bigint, sq.max_value::bigint
+      FROM pg_class s
+      JOIN pg_depend d ON d.objid = s.oid
+      JOIN pg_class t ON t.oid = d.refobjid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      LEFT JOIN pg_sequences sq ON sq.schemaname = n.nspname AND sq.sequencename = s.relname
+      WHERE s.relkind = 'S' AND n.nspname = $1 AND t.relname = $2
+      ORDER BY s.relname
+    `, [schema, name]);
+
+    const sequences: SequenceInfo[] = sequencesRes.rows.map((row: any) => ({
+      name: row.seq_name,
+      dataType: row.data_type ?? undefined,
+      startValue: row.start_value != null ? Number(row.start_value) : undefined,
+      increment: row.increment_by != null ? Number(row.increment_by) : undefined,
+      minValue: row.min_value != null ? Number(row.min_value) : undefined,
+      maxValue: row.max_value != null ? Number(row.max_value) : undefined,
+    }));
+
+    return { indexes, constraints, triggers, sequences };
   }
 
   async getCompletions(): Promise<CompletionItem[]> {

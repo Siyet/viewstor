@@ -31,7 +31,7 @@ F5 in VS Code → Extension Development Host. Reload Window picks up new `dist/`
 
 Required methods: `connect`, `disconnect`, `ping`, `execute`, `getSchema`, `getTableInfo`, `getTableData`.
 
-Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query).
+Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff).
 
 Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
 
@@ -101,9 +101,9 @@ Multi-source: `ChartDataSource` in config, resolved via `PinnedQueryProvider` (i
 Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana push.
 
 ### Data Diff
-`src/diff/diffEngine.ts` — pure functions: `computeRowDiff()` matches rows by key columns (PK or user-specified), compares all non-key columns by stringifying values. `computeSchemaDiff()` compares column names, types, nullability, PK status. `exportDiffAsCsv()` / `exportDiffAsJson()` for diff export. No vscode dependency, fully unit-tested.
+`src/diff/diffEngine.ts` — pure functions: `computeRowDiff()` matches rows by key columns (PK or user-specified), compares all non-key columns by stringifying values. `computeSchemaDiff()` compares column names, types, nullability, PK status. `computeObjectsDiff()` compares indexes, constraints, triggers, sequences. `exportDiffAsCsv()` / `exportDiffAsJson()` for diff export. No vscode dependency, fully unit-tested.
 
-`src/diff/diffTypes.ts` — `DiffSource`, `DiffOptions`, `RowDiffResult`, `MatchedRow`, `SchemaDiffResult`, `ColumnCompare`.
+`src/diff/diffTypes.ts` — `DiffSource`, `DiffOptions`, `RowDiffResult`, `MatchedRow`, `SchemaDiffResult`, `ColumnCompare`, `ObjectsDiffResult`, `ObjectDiffItem`.
 
 `src/diff/diffPanel.ts` — `DiffPanelManager`, webview panel for side-by-side diff visualization. Row diff tab (added/removed/changed rows with cell-level highlighting) and Schema diff tab (column comparison). Export as CSV/JSON. Swap sides button.
 

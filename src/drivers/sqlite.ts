@@ -2,7 +2,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
-import { SchemaObject, TableInfo, ColumnInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, IndexInfo, ConstraintInfo, TriggerInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
 // Lazy-load better-sqlite3 to avoid crashing the entire extension on ABI mismatch.
@@ -279,6 +279,88 @@ export class SqliteDriver implements DatabaseDriver {
     }
 
     return items;
+  }
+
+  async getTableObjects(name: string): Promise<TableObjects> {
+    // Indexes
+    const rawIndexes = this.db!.prepare(`PRAGMA index_list(${quoteIdentifier(name)})`).all() as Array<{
+      name: string; unique: number; origin: string;
+    }>;
+    const indexes: IndexInfo[] = [];
+    for (const idx of rawIndexes) {
+      const cols = this.db!.prepare(`PRAGMA index_info(${quoteIdentifier(idx.name)})`).all() as Array<{ name: string }>;
+      indexes.push({
+        name: idx.name,
+        columns: cols.map(col => col.name),
+        unique: idx.unique === 1,
+      });
+    }
+
+    // Constraints: primary key from table_info
+    const constraints: ConstraintInfo[] = [];
+    const pragmaRows = this.db!.prepare(`PRAGMA table_info(${quoteIdentifier(name)})`).all() as Array<{
+      name: string; pk: number;
+    }>;
+    const pkColumns = pragmaRows.filter(row => row.pk > 0).sort((left, right) => left.pk - right.pk);
+    if (pkColumns.length > 0) {
+      constraints.push({
+        name: 'PRIMARY KEY',
+        type: 'PRIMARY KEY',
+        columns: pkColumns.map(row => row.name),
+      });
+    }
+
+    // Constraints: unique indexes (from index_list with origin = 'u')
+    for (const idx of rawIndexes) {
+      if (idx.unique === 1 && idx.origin === 'u') {
+        const cols = this.db!.prepare(`PRAGMA index_info(${quoteIdentifier(idx.name)})`).all() as Array<{ name: string }>;
+        constraints.push({
+          name: idx.name,
+          type: 'UNIQUE',
+          columns: cols.map(col => col.name),
+        });
+      }
+    }
+
+    // Constraints: foreign keys
+    const fks = this.db!.prepare(`PRAGMA foreign_key_list(${quoteIdentifier(name)})`).all() as Array<{
+      id: number; table: string; from: string; to: string; on_delete: string; on_update: string;
+    }>;
+    const fkGroups = new Map<number, typeof fks>();
+    for (const fk of fks) {
+      if (!fkGroups.has(fk.id)) fkGroups.set(fk.id, []);
+      fkGroups.get(fk.id)!.push(fk);
+    }
+    for (const [fkId, group] of fkGroups) {
+      constraints.push({
+        name: `fk_${fkId}`,
+        type: 'FOREIGN KEY',
+        columns: group.map(fk => fk.from),
+        referencedTable: group[0].table,
+        referencedColumns: group.map(fk => fk.to),
+        onDelete: group[0].on_delete !== 'NO ACTION' ? group[0].on_delete : undefined,
+        onUpdate: group[0].on_update !== 'NO ACTION' ? group[0].on_update : undefined,
+      });
+    }
+
+    // Triggers
+    const rawTriggers = this.db!.prepare(
+      'SELECT name, sql FROM sqlite_master WHERE type = \'trigger\' AND tbl_name = ?'
+    ).all(name) as Array<{ name: string; sql: string }>;
+    const triggers: TriggerInfo[] = rawTriggers.map(trigger => {
+      const match = trigger.sql?.match(
+        /CREATE\s+TRIGGER\s+\S+\s+(BEFORE|AFTER|INSTEAD\s+OF)\s+(INSERT|UPDATE|DELETE)/i
+      );
+      return {
+        name: trigger.name,
+        timing: match ? match[1].toUpperCase() : 'UNKNOWN',
+        events: match ? match[2].toUpperCase() : 'UNKNOWN',
+        definition: trigger.sql ?? undefined,
+      };
+    });
+
+    // SQLite has no sequences
+    return { indexes, constraints, triggers, sequences: [] };
   }
 
   // --- Private helpers ---

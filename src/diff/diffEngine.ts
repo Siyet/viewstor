@@ -1,5 +1,5 @@
-import { ColumnInfo } from '../types/schema';
-import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare } from './diffTypes';
+import { ColumnInfo, TableObjects, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
+import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult } from './diffTypes';
 
 /**
  * Stringify a cell value for comparison.
@@ -154,6 +154,202 @@ export function computeSchemaDiff(leftColumns: ColumnInfo[], rightColumns: Colum
   }
 
   return { leftOnlyColumns, rightOnlyColumns, commonColumns };
+}
+
+/**
+ * Compare table objects (indexes, constraints, triggers, sequences) between two tables.
+ */
+export function computeObjectsDiff(
+  leftObjects: TableObjects | undefined,
+  rightObjects: TableObjects | undefined,
+): ObjectsDiffResult {
+  const empty: TableObjects = { indexes: [], constraints: [], triggers: [], sequences: [] };
+  const left = leftObjects || empty;
+  const right = rightObjects || empty;
+
+  return {
+    indexes: diffIndexes(left.indexes, right.indexes),
+    constraints: diffConstraints(left.constraints, right.constraints),
+    triggers: diffTriggers(left.triggers, right.triggers),
+    sequences: diffSequences(left.sequences, right.sequences),
+  };
+}
+
+function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): ObjectDiffItem[] {
+  const leftMap = new Map(leftIndexes.map(idx => [idx.name, idx]));
+  const rightMap = new Map(rightIndexes.map(idx => [idx.name, idx]));
+  const result: ObjectDiffItem[] = [];
+
+  for (const [name, leftIdx] of leftMap) {
+    const rightIdx = rightMap.get(name);
+    if (!rightIdx) {
+      result.push({
+        name,
+        status: 'removed',
+        leftDetail: formatIndex(leftIdx),
+      });
+    } else {
+      const diffs: string[] = [];
+      if (JSON.stringify(leftIdx.columns) !== JSON.stringify(rightIdx.columns)) {
+        diffs.push(`columns: ${leftIdx.columns.join(', ')} → ${rightIdx.columns.join(', ')}`);
+      }
+      if (leftIdx.unique !== rightIdx.unique) {
+        diffs.push(`unique: ${leftIdx.unique} → ${rightIdx.unique}`);
+      }
+      if ((leftIdx.type || '') !== (rightIdx.type || '')) {
+        diffs.push(`type: ${leftIdx.type || '?'} → ${rightIdx.type || '?'}`);
+      }
+      result.push({
+        name,
+        status: diffs.length > 0 ? 'differs' : 'same',
+        leftDetail: formatIndex(leftIdx),
+        rightDetail: formatIndex(rightIdx),
+        differences: diffs.length > 0 ? diffs : undefined,
+      });
+    }
+  }
+
+  for (const [name, rightIdx] of rightMap) {
+    if (!leftMap.has(name)) {
+      result.push({
+        name,
+        status: 'added',
+        rightDetail: formatIndex(rightIdx),
+      });
+    }
+  }
+
+  return result;
+}
+
+function formatIndex(idx: IndexInfo): string {
+  const parts = [idx.unique ? 'UNIQUE' : '', idx.type || '', `(${idx.columns.join(', ')})`];
+  if (idx.predicate) parts.push(`WHERE ${idx.predicate}`);
+  return parts.filter(Boolean).join(' ').trim();
+}
+
+function diffConstraints(leftConstraints: ConstraintInfo[], rightConstraints: ConstraintInfo[]): ObjectDiffItem[] {
+  const leftMap = new Map(leftConstraints.map(constraint => [constraint.name, constraint]));
+  const rightMap = new Map(rightConstraints.map(constraint => [constraint.name, constraint]));
+  const result: ObjectDiffItem[] = [];
+
+  for (const [name, leftCon] of leftMap) {
+    const rightCon = rightMap.get(name);
+    if (!rightCon) {
+      result.push({ name, status: 'removed', leftDetail: formatConstraint(leftCon) });
+    } else {
+      const diffs: string[] = [];
+      if (leftCon.type !== rightCon.type) diffs.push(`type: ${leftCon.type} → ${rightCon.type}`);
+      if (JSON.stringify(leftCon.columns) !== JSON.stringify(rightCon.columns)) {
+        diffs.push(`columns: ${leftCon.columns.join(', ')} → ${rightCon.columns.join(', ')}`);
+      }
+      if (leftCon.referencedTable !== rightCon.referencedTable) {
+        diffs.push(`references: ${leftCon.referencedTable || '—'} → ${rightCon.referencedTable || '—'}`);
+      }
+      if (leftCon.checkExpression !== rightCon.checkExpression) {
+        diffs.push(`check: ${leftCon.checkExpression || '—'} → ${rightCon.checkExpression || '—'}`);
+      }
+      result.push({
+        name,
+        status: diffs.length > 0 ? 'differs' : 'same',
+        leftDetail: formatConstraint(leftCon),
+        rightDetail: formatConstraint(rightCon),
+        differences: diffs.length > 0 ? diffs : undefined,
+      });
+    }
+  }
+
+  for (const [name, rightCon] of rightMap) {
+    if (!leftMap.has(name)) {
+      result.push({ name, status: 'added', rightDetail: formatConstraint(rightCon) });
+    }
+  }
+
+  return result;
+}
+
+function formatConstraint(constraint: ConstraintInfo): string {
+  let detail = `${constraint.type} (${constraint.columns.join(', ')})`;
+  if (constraint.referencedTable) detail += ` → ${constraint.referencedTable}`;
+  if (constraint.checkExpression) detail += ` ${constraint.checkExpression}`;
+  return detail;
+}
+
+function diffTriggers(leftTriggers: TriggerInfo[], rightTriggers: TriggerInfo[]): ObjectDiffItem[] {
+  const leftMap = new Map(leftTriggers.map(trigger => [trigger.name, trigger]));
+  const rightMap = new Map(rightTriggers.map(trigger => [trigger.name, trigger]));
+  const result: ObjectDiffItem[] = [];
+
+  for (const [name, leftTrig] of leftMap) {
+    const rightTrig = rightMap.get(name);
+    if (!rightTrig) {
+      result.push({ name, status: 'removed', leftDetail: formatTrigger(leftTrig) });
+    } else {
+      const diffs: string[] = [];
+      if (leftTrig.timing !== rightTrig.timing) diffs.push(`timing: ${leftTrig.timing} → ${rightTrig.timing}`);
+      if (leftTrig.events !== rightTrig.events) diffs.push(`events: ${leftTrig.events} → ${rightTrig.events}`);
+      if ((leftTrig.definition || '') !== (rightTrig.definition || '')) diffs.push('definition differs');
+      result.push({
+        name,
+        status: diffs.length > 0 ? 'differs' : 'same',
+        leftDetail: formatTrigger(leftTrig),
+        rightDetail: formatTrigger(rightTrig),
+        differences: diffs.length > 0 ? diffs : undefined,
+      });
+    }
+  }
+
+  for (const [name, rightTrig] of rightMap) {
+    if (!leftMap.has(name)) {
+      result.push({ name, status: 'added', rightDetail: formatTrigger(rightTrig) });
+    }
+  }
+
+  return result;
+}
+
+function formatTrigger(trigger: TriggerInfo): string {
+  return `${trigger.timing} ${trigger.events}${trigger.definition ? ` → ${trigger.definition}` : ''}`;
+}
+
+function diffSequences(leftSequences: SequenceInfo[], rightSequences: SequenceInfo[]): ObjectDiffItem[] {
+  const leftMap = new Map(leftSequences.map(seq => [seq.name, seq]));
+  const rightMap = new Map(rightSequences.map(seq => [seq.name, seq]));
+  const result: ObjectDiffItem[] = [];
+
+  for (const [name, leftSeq] of leftMap) {
+    const rightSeq = rightMap.get(name);
+    if (!rightSeq) {
+      result.push({ name, status: 'removed', leftDetail: formatSequence(leftSeq) });
+    } else {
+      const diffs: string[] = [];
+      if (leftSeq.increment !== rightSeq.increment) diffs.push(`increment: ${leftSeq.increment} → ${rightSeq.increment}`);
+      if (leftSeq.startValue !== rightSeq.startValue) diffs.push(`start: ${leftSeq.startValue} → ${rightSeq.startValue}`);
+      result.push({
+        name,
+        status: diffs.length > 0 ? 'differs' : 'same',
+        leftDetail: formatSequence(leftSeq),
+        rightDetail: formatSequence(rightSeq),
+        differences: diffs.length > 0 ? diffs : undefined,
+      });
+    }
+  }
+
+  for (const [name, rightSeq] of rightMap) {
+    if (!leftMap.has(name)) {
+      result.push({ name, status: 'added', rightDetail: formatSequence(rightSeq) });
+    }
+  }
+
+  return result;
+}
+
+function formatSequence(seq: SequenceInfo): string {
+  const parts: string[] = [];
+  if (seq.dataType) parts.push(seq.dataType);
+  if (seq.startValue !== undefined) parts.push(`start=${seq.startValue}`);
+  if (seq.increment !== undefined) parts.push(`inc=${seq.increment}`);
+  return parts.join(', ') || seq.name;
 }
 
 /**
