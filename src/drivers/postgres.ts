@@ -592,9 +592,16 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY i.relname
     `, [schema, name]);
 
+    // PG array_agg can return JS array or PG {curly,brace} string depending on driver/query
+    const toStringArray = (value: unknown): string[] => {
+      if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+      if (typeof value === 'string') return value.replace(/[{}]/g, '').split(',').filter(Boolean);
+      return [];
+    };
+
     const indexes: IndexInfo[] = indexesRes.rows.map((row: any) => ({
       name: row.index_name,
-      columns: row.columns,
+      columns: toStringArray(row.columns),
       unique: row.is_unique,
       type: row.index_type,
       predicate: row.predicate ?? undefined,
@@ -625,11 +632,6 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY tc.constraint_type, tc.constraint_name
     `, [schema, name]);
 
-    const toStringArray = (value: unknown): string[] => {
-      if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
-      if (typeof value === 'string') return value.replace(/[{}]/g, '').split(',').filter(Boolean);
-      return [];
-    };
     const constraints: ConstraintInfo[] = constraintsRes.rows.map((row: any) => ({
       name: row.constraint_name,
       type: row.constraint_type as ConstraintInfo['type'],
