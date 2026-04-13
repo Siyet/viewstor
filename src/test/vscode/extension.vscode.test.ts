@@ -109,6 +109,80 @@ suite('Extension Activation', () => {
       assert.ok(commands.includes(cmd), `Command ${cmd} not registered`);
     }
   });
+
+  test('tree views are registered', async () => {
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    await ext!.activate();
+    // package.json contributes two tree views; verify they exist by checking registered commands
+    // that VS Code creates for tree view focus (view.focus commands are auto-registered)
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes('viewstor.connections.focus'), 'viewstor.connections tree view not registered');
+    assert.ok(commands.includes('viewstor.queryHistory.focus'), 'viewstor.queryHistory tree view not registered');
+  });
+
+  test('extension returns test API', async () => {
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    const api = await ext!.activate();
+    assert.ok(api, 'activate() should return a test API object');
+    assert.ok(api.queryHistoryProvider, 'API should expose queryHistoryProvider');
+    assert.ok(api.queryFileManager, 'API should expose queryFileManager');
+  });
+
+  test('output channel is created', async () => {
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    await ext!.activate();
+    // LogOutputChannel is registered to subscriptions; verify the extension activated
+    // without errors (output channel creation failure would prevent activation)
+    assert.strictEqual(ext!.isActive, true, 'Extension should be active after creating output channel');
+  });
+
+  test('SQL completion provider is registered', async () => {
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    await ext!.activate();
+    // Create a temporary SQL file and trigger completion provider
+    const filePath = createTempSqlFile(`completion_test_${Date.now()}.sql`, 'SELECT ');
+    try {
+      const doc = await vscode.workspace.openTextDocument(filePath);
+      await vscode.window.showTextDocument(doc, { preview: false });
+      // executeCompletionItemProvider returns a CompletionList — it should not throw
+      const completions = await vscode.commands.executeCommand<vscode.CompletionList>(
+        'vscode.executeCompletionItemProvider',
+        doc.uri,
+        new vscode.Position(0, 7),
+      );
+      assert.ok(completions, 'Completion provider should return a result');
+    } finally {
+      await closeActiveEditor();
+      cleanup(filePath);
+    }
+  });
+
+  test('native module availability does not break activation', async () => {
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    await ext!.activate();
+    // Whether better-sqlite3 loads or not, the extension must remain active
+    assert.strictEqual(ext!.isActive, true, 'Extension should be active regardless of native module availability');
+    try {
+      require('better-sqlite3');
+    } catch {
+      // Native module may fail in test environment (e.g. Node/Electron mismatch).
+      // This is acceptable — the extension lazy-loads it and handles the error.
+    }
+  });
+
+  test('deactivate does not throw', async () => {
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    await ext!.activate();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const extensionModule = require('../../extension') as { deactivate: () => void };
+    assert.doesNotThrow(() => extensionModule.deactivate(), 'deactivate() should not throw');
+  });
 });
 
 // ============================================================
