@@ -45,10 +45,14 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             rightDriver.getTableData(picked.tableName, picked.schema, rowLimit, 0),
           ]);
 
-          const [leftObjects, rightObjects] = await Promise.all([
-            leftDriver.getTableObjects ? leftDriver.getTableObjects(item.schemaObject!.name, item.schemaObject!.schema) : undefined,
-            rightDriver.getTableObjects ? rightDriver.getTableObjects(picked.tableName, picked.schema) : undefined,
-          ]);
+          // Fetch table objects (indexes, constraints, etc.) — non-critical, fallback to undefined
+          let leftObjects, rightObjects;
+          try {
+            [leftObjects, rightObjects] = await Promise.all([
+              leftDriver.getTableObjects ? leftDriver.getTableObjects(item.schemaObject!.name, item.schemaObject!.schema) : undefined,
+              rightDriver.getTableObjects ? rightDriver.getTableObjects(picked.tableName, picked.schema) : undefined,
+            ]);
+          } catch { /* schema objects unavailable — diff will show columns only */ }
 
           // Auto-detect key columns from left table PKs
           const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
@@ -138,10 +142,13 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             rightDriver.getTableData(rightPick.tableName, rightPick.schema, rowLimit, 0),
           ]);
 
-          const [leftObjects, rightObjects] = await Promise.all([
-            leftDriver.getTableObjects ? leftDriver.getTableObjects(leftPick.tableName, leftPick.schema) : undefined,
-            rightDriver.getTableObjects ? rightDriver.getTableObjects(rightPick.tableName, rightPick.schema) : undefined,
-          ]);
+          let leftObjects, rightObjects;
+          try {
+            [leftObjects, rightObjects] = await Promise.all([
+              leftDriver.getTableObjects ? leftDriver.getTableObjects(leftPick.tableName, leftPick.schema) : undefined,
+              rightDriver.getTableObjects ? rightDriver.getTableObjects(rightPick.tableName, rightPick.schema) : undefined,
+            ]);
+          } catch { /* schema objects unavailable — diff will show columns only */ }
 
           const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
           let keyColumns = pkColumns;

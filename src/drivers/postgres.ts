@@ -625,13 +625,18 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY tc.constraint_type, tc.constraint_name
     `, [schema, name]);
 
+    const toStringArray = (value: unknown): string[] => {
+      if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+      if (typeof value === 'string') return value.replace(/[{}]/g, '').split(',').filter(Boolean);
+      return [];
+    };
     const constraints: ConstraintInfo[] = constraintsRes.rows.map((row: any) => ({
       name: row.constraint_name,
       type: row.constraint_type as ConstraintInfo['type'],
-      columns: row.columns?.filter((col: string | null) => col !== null) ?? [],
+      columns: toStringArray(row.columns),
       referencedTable: row.constraint_type === 'FOREIGN KEY' ? row.ref_table : undefined,
       referencedColumns: row.constraint_type === 'FOREIGN KEY'
-        ? row.ref_columns?.filter((col: string | null) => col !== null) : undefined,
+        ? toStringArray(row.ref_columns) : undefined,
       onDelete: row.delete_rule ?? undefined,
       onUpdate: row.update_rule ?? undefined,
       checkExpression: row.check_clause ?? undefined,
