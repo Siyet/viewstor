@@ -253,11 +253,18 @@ npm run package      # .vsix package
 
 ### Testing
 
-Unit tests use [vitest](https://vitest.dev/). E2E tests use [testcontainers](https://www.npmjs.com/package/testcontainers) to spin up PostgreSQL, Redis, and ClickHouse in Docker. Auto-skipped if Docker is unavailable.
+700+ tests across three layers:
+
+| Layer | Runner | Coverage |
+|---|---|---|
+| Unit tests | [vitest](https://vitest.dev/) | Pure logic: diff engine, chart transforms, query helpers, export/import, ConnectionManager, driver contracts, workflows |
+| VS Code tests | Mocha + `@vscode/test-cli` | Extension activation, command registration, CodeLens, query editor |
+| E2E tests | vitest + [testcontainers](https://www.npmjs.com/package/testcontainers) | Real PG/Redis/CH/SQLite drivers (Docker required, auto-skipped otherwise) |
 
 ### CI/CD
 
-- **CI** (on PR, trunk push, tags): lint → unit tests → build → `npm audit`
+- **CI** (on PR, trunk push, tags): lint → unit tests → e2e tests → build → security audit → changeset size check
+- **Changeset size** — warns when a PR changes 30+ files (historically the threshold for cascading regressions)
 - **Release** (on `v*` tag): build → test → publish to Marketplace → GitHub Release with `.vsix`
 
 ## Contributing

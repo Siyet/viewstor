@@ -164,7 +164,21 @@ Usage in Claude Code config:
 `src/utils/queryHelpers.ts` — pure functions for SQL generation and error enhancement: `levenshtein`, `parseTablesFromQuery`, `enhanceColumnError`, `buildUpdateSql`, `buildDeleteSql`, `buildInsertDefaultSql`, `quoteTable`, `sqlValue`. All vscode-independent, fully unit-tested.
 
 ### Commands
-`src/commands/index.ts` — all `viewstor.*` commands. Notable: `_fetchPage` (server-side pagination), `_exportAllData` (fetches up to 100k rows), `_cancelQuery`, `_refreshCount` (exact COUNT), `_insertRow` (INSERT with DEFAULT), `_deleteRows` (DELETE by PK with confirmation), `reportIssue` (GitHub issue with env info). All commands support `databaseName` parameter for multi-DB connections.
+`src/commands/` — split into focused modules to prevent regressions:
+
+| File | Scope |
+|---|---|
+| `index.ts` | Orchestrator: registers CodeLens, document handlers, delegates to modules |
+| `shared.ts` | `CommandContext` interface, shared state (queryResults, historyDocMap), helpers |
+| `queryCommands.ts` | `runQuery`, `executeTempSql`, `cancelQuery`, safe mode, TempFileManager callbacks |
+| `tableCommands.ts` | `showTableData`, `_fetchPage`, `_saveEdits`, `_insertRow`, `_deleteRows`, `_runCustomTableQuery`, MCP table |
+| `connectionCommands.ts` | Connection/folder CRUD, import, schema visibility |
+| `historyCommands.ts` | Query history: open, pin, unpin, rename, clear |
+| `schemaCommands.ts` | `showDDL`, `copyName`, rename/create/drop objects, `reportIssue` |
+| `exportCommands.ts` | Export (CSV/TSV/JSON/Markdown), visualize, Grafana, MCP query |
+| `diffCommands.ts` | `compareWith` (context menu), `compareData` (command palette) |
+
+All commands support `databaseName` parameter for multi-DB connections.
 
 ## Key Conventions
 
