@@ -49,7 +49,6 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider('viewstor', new QueryDocumentProvider()),
     vscode.commands.registerCommand('viewstor._noop', () => {}),
-    vscode.commands.registerCommand('viewstor._showExplain', () => {}),
   );
 
   // Register command groups
