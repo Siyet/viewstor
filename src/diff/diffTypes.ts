@@ -62,3 +62,20 @@ export interface ColumnCompare {
   rightIsPK: boolean;
   pkDiffers: boolean;
 }
+
+// --- Schema objects diff (indexes, constraints, triggers, sequences) ---
+
+export interface ObjectDiffItem {
+  name: string;
+  status: 'same' | 'differs' | 'added' | 'removed';
+  leftDetail?: string;
+  rightDetail?: string;
+  differences?: string[];
+}
+
+export interface ObjectsDiffResult {
+  indexes: ObjectDiffItem[];
+  constraints: ObjectDiffItem[];
+  triggers: ObjectDiffItem[];
+  sequences: ObjectDiffItem[];
+}

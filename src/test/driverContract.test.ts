@@ -51,6 +51,7 @@ const OPTIONAL_METHODS: (keyof DatabaseDriver)[] = [
   'getIndexedColumns',
   'getTableRowCount',
   'getEstimatedRowCount',
+  'getTableObjects',
 ];
 
 interface DriverSpec {
@@ -73,6 +74,7 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getIndexedColumns',
       'getTableRowCount',
       'getEstimatedRowCount',
+      'getTableObjects',
     ],
   },
   {
@@ -91,6 +93,7 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getCompletions',
       'getTableRowCount',
       'getEstimatedRowCount',
+      'getTableObjects',
     ],
   },
   {
@@ -103,6 +106,7 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getIndexedColumns',
       'getTableRowCount',
       'getEstimatedRowCount',
+      'getTableObjects',
     ],
   },
 ];

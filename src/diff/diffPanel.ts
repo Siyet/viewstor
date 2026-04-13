@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult } from './diffTypes';
-import { computeRowDiff, computeSchemaDiff, exportDiffAsCsv, exportDiffAsJson } from './diffEngine';
-import { ColumnInfo } from '../types/schema';
+import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffResult } from './diffTypes';
+import { computeRowDiff, computeSchemaDiff, computeObjectsDiff, exportDiffAsCsv, exportDiffAsJson } from './diffEngine';
+import { ColumnInfo, TableObjects } from '../types/schema';
 
 interface DiffState {
   panel: vscode.WebviewPanel;
@@ -11,8 +11,11 @@ interface DiffState {
   options: DiffOptions;
   rowDiff: RowDiffResult;
   schemaDiff: SchemaDiffResult | null;
+  objectsDiff: ObjectsDiffResult | null;
   leftTableInfo?: { columns: ColumnInfo[] };
   rightTableInfo?: { columns: ColumnInfo[] };
+  leftObjects?: TableObjects;
+  rightObjects?: TableObjects;
   disposable: vscode.Disposable;
 }
 
@@ -27,10 +30,15 @@ export class DiffPanelManager {
     options: DiffOptions,
     leftTableInfo?: { columns: ColumnInfo[] },
     rightTableInfo?: { columns: ColumnInfo[] },
+    leftObjects?: TableObjects,
+    rightObjects?: TableObjects,
   ) {
     const rowDiff = computeRowDiff(left, right, options);
     const schemaDiff = leftTableInfo && rightTableInfo
       ? computeSchemaDiff(leftTableInfo.columns, rightTableInfo.columns)
+      : null;
+    const objectsDiff = (leftObjects || rightObjects)
+      ? computeObjectsDiff(leftObjects, rightObjects)
       : null;
 
     const panelTitle = `Diff \u2014 ${left.label} \u2194 ${right.label}`;
@@ -44,8 +52,11 @@ export class DiffPanelManager {
       state.options = options;
       state.rowDiff = rowDiff;
       state.schemaDiff = schemaDiff;
+      state.objectsDiff = objectsDiff;
       state.leftTableInfo = leftTableInfo;
       state.rightTableInfo = rightTableInfo;
+      state.leftObjects = leftObjects;
+      state.rightObjects = rightObjects;
     } else {
       const panel = vscode.window.createWebviewPanel(
         'viewstor.diff',
@@ -70,8 +81,11 @@ export class DiffPanelManager {
         options,
         rowDiff,
         schemaDiff,
+        objectsDiff,
         leftTableInfo,
         rightTableInfo,
+        leftObjects,
+        rightObjects,
         disposable: new vscode.Disposable(() => {}),
       };
       this.diffs.set(panelKey, state);
@@ -112,7 +126,9 @@ export class DiffPanelManager {
           const swappedRight = state.left;
           const swappedLeftInfo = state.rightTableInfo;
           const swappedRightInfo = state.leftTableInfo;
-          this.show(swappedLeft, swappedRight, state.options, swappedLeftInfo, swappedRightInfo);
+          const swappedLeftObjects = state.rightObjects;
+          const swappedRightObjects = state.leftObjects;
+          this.show(swappedLeft, swappedRight, state.options, swappedLeftInfo, swappedRightInfo, swappedLeftObjects, swappedRightObjects);
           break;
         }
       }
@@ -128,6 +144,7 @@ export class DiffPanelManager {
     const diffData = {
       rowDiff: state.rowDiff,
       schemaDiff: state.schemaDiff,
+      objectsDiff: state.objectsDiff,
       leftLabel: state.left.label,
       rightLabel: state.right.label,
       keyColumns: state.options.keyColumns,
@@ -209,6 +226,7 @@ export class DiffPanelManager {
       </table>
     </div>
     ` : '<div class="diff-no-schema">Schema diff not available (table info not provided)</div>'}
+    <div id="objectsDiffContainer"></div>
   </div>
 
   <script>window.diffData = ${safeJsonForScript(diffData)};</script>

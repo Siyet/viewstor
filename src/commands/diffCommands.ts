@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { CommandContext } from './shared';
 import { ConnectionTreeItem } from '../views/connectionTree';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
+import { dbg } from '../utils/debug';
 
 export function registerDiffCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
   const { connectionManager, diffPanelManager } = ctx;
@@ -9,83 +10,53 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
   context.subscriptions.push(
     // Context menu on table: "Compare with..."
     vscode.commands.registerCommand('viewstor.compareWith', async (item?: ConnectionTreeItem) => {
-      if (!item?.connectionId || !item.schemaObject) return;
-      if (!diffPanelManager) return;
+      dbg('compareWith', 'item:', item?.connectionId, item?.schemaObject?.name);
+      if (!item?.connectionId || !item.schemaObject) { dbg('compareWith', 'no item'); return; }
+      if (!diffPanelManager) { dbg('compareWith', 'no diffPanelManager'); return; }
 
       const leftState = connectionManager.get(item.connectionId);
-      if (!leftState) return;
+      if (!leftState) { dbg('compareWith', 'no leftState'); return; }
 
-      // Build list of all tables across all connected connections (can be slow)
-      const tableItems = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Loading tables...') },
-        async () => {
-          const items: Array<{
-            label: string;
-            description: string;
-            connectionId: string;
-            tableName: string;
-            schema?: string;
-            databaseName?: string;
-          }> = [];
-          const allConnections = connectionManager.getAll().filter(s => s.connected);
-          for (const conn of allConnections) {
-            const driver = connectionManager.getDriver(conn.config.id);
-            if (!driver) continue;
-            try {
-              const schema = await driver.getSchema();
-              for (const schemaObj of schema) {
-                if (schemaObj.children) {
-                  for (const child of schemaObj.children) {
-                    if (child.type === 'table' || child.type === 'view') {
-                      items.push({
-                        label: child.name,
-                        description: `${schemaObj.name} — ${conn.config.name}`,
-                        connectionId: conn.config.id,
-                        tableName: child.name,
-                        schema: schemaObj.name,
-                      });
-                    }
-                  }
-                }
-              }
-            } catch { /* skip connections with schema fetch errors */ }
-          }
-          return items;
-        },
+      const picked = await pickTableWithLoading(
+        connectionManager,
+        vscode.l10n.t('Select table to compare with "{0}"', item.schemaObject.name),
       );
-
-      if (tableItems.length === 0) {
-        vscode.window.showWarningMessage(vscode.l10n.t('No tables available for comparison. Connect to a database first.'));
-        return;
-      }
-
-      const picked = await vscode.window.showQuickPick(tableItems, {
-        placeHolder: vscode.l10n.t('Select table to compare with "{0}"', item.schemaObject.name),
-      });
+      dbg('compareWith', 'picked:', picked?.tableName, picked?.connectionId);
       if (!picked) return;
 
-      // Get left table info and data
       const leftDriver = item.databaseName
         ? await connectionManager.getDriverForDatabase(item.connectionId, item.databaseName)
         : connectionManager.getDriver(item.connectionId);
-      if (!leftDriver) return;
+      if (!leftDriver) { dbg('compareWith', 'no leftDriver'); return; }
 
       const rightDriver = picked.databaseName
         ? await connectionManager.getDriverForDatabase(picked.connectionId, picked.databaseName)
         : connectionManager.getDriver(picked.connectionId);
-      if (!rightDriver) return;
+      if (!rightDriver) { dbg('compareWith', 'no rightDriver for', picked.connectionId); return; }
 
       const rowLimit = vscode.workspace.getConfiguration('viewstor').get<number>('diffRowLimit', 10000);
 
+      try {
+      dbg('compareWith', 'starting diff, rowLimit:', rowLimit);
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Comparing data...') },
         async () => {
+          dbg('compareWith', 'fetching table info and data...');
           const [leftInfo, rightInfo, leftData, rightData] = await Promise.all([
             leftDriver.getTableInfo(item.schemaObject!.name, item.schemaObject!.schema),
             rightDriver.getTableInfo(picked.tableName, picked.schema),
             leftDriver.getTableData(item.schemaObject!.name, item.schemaObject!.schema, rowLimit, 0),
             rightDriver.getTableData(picked.tableName, picked.schema, rowLimit, 0),
           ]);
+
+          // Fetch table objects (indexes, constraints, etc.) — non-critical, fallback to undefined
+          let leftObjects, rightObjects;
+          try {
+            [leftObjects, rightObjects] = await Promise.all([
+              leftDriver.getTableObjects ? leftDriver.getTableObjects(item.schemaObject!.name, item.schemaObject!.schema) : undefined,
+              rightDriver.getTableObjects ? rightDriver.getTableObjects(picked.tableName, picked.schema) : undefined,
+            ]);
+          } catch { /* schema objects unavailable — diff will show columns only */ }
 
           // Auto-detect key columns from left table PKs
           const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
@@ -127,76 +98,42 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
           diffPanelManager.show(leftSource, rightSource, options,
             { columns: leftInfo.columns },
             { columns: rightInfo.columns },
+            leftObjects,
+            rightObjects,
           );
         },
       );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        dbg('compareWith', 'ERROR:', message, err instanceof Error ? err.stack : '');
+        vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', message));
+      }
     }),
 
     // Command palette: "Compare Data"
     vscode.commands.registerCommand('viewstor.compareData', async () => {
       if (!diffPanelManager) return;
 
-      const allConnections = connectionManager.getAll().filter(s => s.connected);
-      if (allConnections.length === 0) {
+      if (connectionManager.getAll().filter(s => s.connected).length === 0) {
         vscode.window.showWarningMessage(vscode.l10n.t('No connected databases. Connect first.'));
         return;
       }
 
-      // Build list of all tables (can be slow)
-      const tableItems = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Loading tables...') },
-        async () => {
-          const items: Array<{
-            label: string;
-            description: string;
-            connectionId: string;
-            tableName: string;
-            schema?: string;
-            databaseName?: string;
-          }> = [];
-          for (const conn of allConnections) {
-            const driver = connectionManager.getDriver(conn.config.id);
-            if (!driver) continue;
-            try {
-              const schema = await driver.getSchema();
-              for (const schemaObj of schema) {
-                if (schemaObj.children) {
-                  for (const child of schemaObj.children) {
-                    if (child.type === 'table' || child.type === 'view') {
-                      items.push({
-                        label: child.name,
-                        description: `${schemaObj.name} — ${conn.config.name}`,
-                        connectionId: conn.config.id,
-                        tableName: child.name,
-                        schema: schemaObj.name,
-                      });
-                    }
-                  }
-                }
-              }
-            } catch { /* skip */ }
-          }
-          return items;
-        },
+      const leftPick = await pickTableWithLoading(
+        connectionManager,
+        vscode.l10n.t('Select LEFT table'),
       );
-
-      if (tableItems.length < 2) {
-        vscode.window.showWarningMessage(vscode.l10n.t('Need at least 2 tables for comparison.'));
-        return;
-      }
-
-      const leftPick = await vscode.window.showQuickPick(tableItems, {
-        placeHolder: vscode.l10n.t('Select LEFT table'),
-      });
       if (!leftPick) return;
 
-      const rightPick = await vscode.window.showQuickPick(tableItems, {
-        placeHolder: vscode.l10n.t('Select RIGHT table'),
-      });
+      const rightPick = await pickTableWithLoading(
+        connectionManager,
+        vscode.l10n.t('Select RIGHT table'),
+      );
       if (!rightPick) return;
 
       const rowLimit = vscode.workspace.getConfiguration('viewstor').get<number>('diffRowLimit', 10000);
 
+      try {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Comparing data...') },
         async () => {
@@ -214,6 +151,14 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             leftDriver.getTableData(leftPick.tableName, leftPick.schema, rowLimit, 0),
             rightDriver.getTableData(rightPick.tableName, rightPick.schema, rowLimit, 0),
           ]);
+
+          let leftObjects, rightObjects;
+          try {
+            [leftObjects, rightObjects] = await Promise.all([
+              leftDriver.getTableObjects ? leftDriver.getTableObjects(leftPick.tableName, leftPick.schema) : undefined,
+              rightDriver.getTableObjects ? rightDriver.getTableObjects(rightPick.tableName, rightPick.schema) : undefined,
+            ]);
+          } catch { /* schema objects unavailable — diff will show columns only */ }
 
           const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
           let keyColumns = pkColumns;
@@ -251,9 +196,99 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
           diffPanelManager.show(leftSource, rightSource, { keyColumns, rowLimit },
             { columns: leftInfo.columns },
             { columns: rightInfo.columns },
+            leftObjects,
+            rightObjects,
           );
         },
       );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', message));
+      }
     }),
   );
+}
+
+interface TablePickItem {
+  label: string;
+  description: string;
+  connectionId: string;
+  tableName: string;
+  schema?: string;
+  databaseName?: string;
+}
+
+/**
+ * Show a QuickPick with a loading spinner while fetching table list from all connected databases.
+ * The picker appears immediately with "Loading..." and becomes interactive when data arrives.
+ */
+function pickTableWithLoading(
+  connectionManager: import('../connections/connectionManager').ConnectionManager,
+  placeholder: string,
+): Promise<TablePickItem | undefined> {
+  return new Promise(resolve => {
+    const picker = vscode.window.createQuickPick<TablePickItem>();
+    picker.placeholder = placeholder;
+    picker.busy = true;
+    picker.enabled = false;
+    picker.show();
+
+    let resolved = false;
+    const done = (value: TablePickItem | undefined) => {
+      if (resolved) return;
+      resolved = true;
+      picker.dispose();
+      resolve(value);
+    };
+
+    loadAllTables(connectionManager).then(items => {
+      if (resolved) return;
+      if (items.length === 0) {
+        vscode.window.showWarningMessage(vscode.l10n.t('No tables available for comparison.'));
+        done(undefined);
+        return;
+      }
+      picker.items = items;
+      picker.busy = false;
+      picker.enabled = true;
+    });
+
+    picker.onDidAccept(() => {
+      done(picker.selectedItems[0]);
+    });
+
+    picker.onDidHide(() => {
+      done(undefined);
+    });
+  });
+}
+
+async function loadAllTables(
+  connectionManager: import('../connections/connectionManager').ConnectionManager,
+): Promise<TablePickItem[]> {
+  const items: TablePickItem[] = [];
+  const allConnections = connectionManager.getAll().filter(state => state.connected);
+  for (const conn of allConnections) {
+    const driver = connectionManager.getDriver(conn.config.id);
+    if (!driver) continue;
+    try {
+      const schema = await driver.getSchema();
+      for (const schemaObj of schema) {
+        if (schemaObj.children) {
+          for (const child of schemaObj.children) {
+            if (child.type === 'table' || child.type === 'view') {
+              items.push({
+                label: child.name,
+                description: `${schemaObj.name} — ${conn.config.name}`,
+                connectionId: conn.config.id,
+                tableName: child.name,
+                schema: schemaObj.name,
+              });
+            }
+          }
+        }
+      }
+    } catch { /* skip connections with schema fetch errors */ }
+  }
+  return items;
 }

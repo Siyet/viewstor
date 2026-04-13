@@ -254,6 +254,16 @@ body {
   content: '\00a0';
 }
 
+/* ---- Section title (objects diff) ---- */
+.diff-section-title {
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  border-top: 1px solid var(--vscode-panel-border);
+  margin-top: 8px;
+}
+
 /* ---- Schema diff table ---- */
 .diff-schema-container {
   flex: 1;

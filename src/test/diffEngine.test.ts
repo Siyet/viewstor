@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stringifyCell, computeRowDiff, computeSchemaDiff, exportDiffAsCsv, exportDiffAsJson } from '../diff/diffEngine';
+import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, exportDiffAsCsv, exportDiffAsJson } from '../diff/diffEngine';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
 import { ColumnInfo } from '../types/schema';
 
@@ -291,6 +291,279 @@ describe('computeSchemaDiff', () => {
     expect(result.leftOnlyColumns).toHaveLength(0);
     expect(result.rightOnlyColumns).toHaveLength(0);
     expect(result.commonColumns).toHaveLength(0);
+  });
+});
+
+// --- computeObjectsDiff ---
+
+describe('computeObjectsDiff', () => {
+  it('identical indexes produce same status', () => {
+    const objects = {
+      indexes: [{ name: 'idx_name', columns: ['name'], unique: false, type: 'btree' }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const result = computeObjectsDiff(objects, objects);
+    expect(result.indexes).toHaveLength(1);
+    expect(result.indexes[0].status).toBe('same');
+  });
+
+  it('detects added index', () => {
+    const left = { indexes: [], constraints: [], triggers: [], sequences: [] };
+    const right = {
+      indexes: [{ name: 'idx_new', columns: ['email'], unique: true, type: 'btree' }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.indexes).toHaveLength(1);
+    expect(result.indexes[0].status).toBe('added');
+    expect(result.indexes[0].name).toBe('idx_new');
+  });
+
+  it('detects removed index', () => {
+    const left = {
+      indexes: [{ name: 'idx_old', columns: ['name'], unique: false }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const right = { indexes: [], constraints: [], triggers: [], sequences: [] };
+    const result = computeObjectsDiff(left, right);
+    expect(result.indexes).toHaveLength(1);
+    expect(result.indexes[0].status).toBe('removed');
+  });
+
+  it('detects index column change', () => {
+    const left = {
+      indexes: [{ name: 'idx_x', columns: ['a', 'b'], unique: false }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const right = {
+      indexes: [{ name: 'idx_x', columns: ['a', 'c'], unique: false }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.indexes[0].status).toBe('differs');
+    expect(result.indexes[0].differences).toBeDefined();
+  });
+
+  it('detects constraint type change', () => {
+    const left = {
+      indexes: [], triggers: [], sequences: [],
+      constraints: [{ name: 'pk_id', type: 'PRIMARY KEY' as const, columns: ['id'] }],
+    };
+    const right = {
+      indexes: [], triggers: [], sequences: [],
+      constraints: [{ name: 'pk_id', type: 'UNIQUE' as const, columns: ['id'] }],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.constraints[0].status).toBe('differs');
+  });
+
+  it('detects added trigger', () => {
+    const left = { indexes: [], constraints: [], triggers: [], sequences: [] };
+    const right = {
+      indexes: [], constraints: [], sequences: [],
+      triggers: [{ name: 'trg_audit', timing: 'AFTER', events: 'INSERT', definition: 'audit_fn' }],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.triggers).toHaveLength(1);
+    expect(result.triggers[0].status).toBe('added');
+  });
+
+  it('detects sequence increment change', () => {
+    const left = {
+      indexes: [], constraints: [], triggers: [],
+      sequences: [{ name: 'seq_id', startValue: 1, increment: 1 }],
+    };
+    const right = {
+      indexes: [], constraints: [], triggers: [],
+      sequences: [{ name: 'seq_id', startValue: 1, increment: 10 }],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.sequences[0].status).toBe('differs');
+  });
+
+  it('handles undefined inputs gracefully', () => {
+    const result = computeObjectsDiff(undefined, undefined);
+    expect(result.indexes).toHaveLength(0);
+    expect(result.constraints).toHaveLength(0);
+    expect(result.triggers).toHaveLength(0);
+    expect(result.sequences).toHaveLength(0);
+  });
+
+  it('index with predicate (partial index): left has predicate, right does not', () => {
+    const left = {
+      indexes: [{ name: 'idx_active', columns: ['email'], unique: false, type: 'btree', predicate: 'active = true' }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const right = {
+      indexes: [{ name: 'idx_active', columns: ['email'], unique: false, type: 'btree' }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.indexes).toHaveLength(1);
+    expect(result.indexes[0].status).toBe('differs');
+    expect(result.indexes[0].differences).toBeDefined();
+    expect(result.indexes[0].differences!.some(d => d.includes('predicate'))).toBe(true);
+    // Left detail should include WHERE clause
+    expect(result.indexes[0].leftDetail).toContain('WHERE active = true');
+  });
+
+  it('constraint FK with different ON DELETE actions', () => {
+    const left = {
+      indexes: [], triggers: [], sequences: [],
+      constraints: [{
+        name: 'fk_order_user',
+        type: 'FOREIGN KEY' as const,
+        columns: ['user_id'],
+        referencedTable: 'public.users',
+        onDelete: 'CASCADE',
+      }],
+    };
+    const right = {
+      indexes: [], triggers: [], sequences: [],
+      constraints: [{
+        name: 'fk_order_user',
+        type: 'FOREIGN KEY' as const,
+        columns: ['user_id'],
+        referencedTable: 'public.users',
+        onDelete: 'SET NULL',
+      }],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.constraints).toHaveLength(1);
+    expect(result.constraints[0].status).toBe('differs');
+    expect(result.constraints[0].differences).toBeDefined();
+    expect(result.constraints[0].differences!.some(d => d.includes('onDelete'))).toBe(true);
+    expect(result.constraints[0].differences!.some(d => d.includes('CASCADE') && d.includes('SET NULL'))).toBe(true);
+  });
+
+  it('trigger timing change: BEFORE -> AFTER', () => {
+    const left = {
+      indexes: [], constraints: [], sequences: [],
+      triggers: [{ name: 'trg_audit', timing: 'BEFORE', events: 'INSERT', definition: 'audit_fn()' }],
+    };
+    const right = {
+      indexes: [], constraints: [], sequences: [],
+      triggers: [{ name: 'trg_audit', timing: 'AFTER', events: 'INSERT', definition: 'audit_fn()' }],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.triggers).toHaveLength(1);
+    expect(result.triggers[0].status).toBe('differs');
+    expect(result.triggers[0].differences).toBeDefined();
+    expect(result.triggers[0].differences!.some(d => d.includes('timing'))).toBe(true);
+    expect(result.triggers[0].differences!.some(d => d.includes('BEFORE') && d.includes('AFTER'))).toBe(true);
+  });
+
+  it('mixed: indexes + constraints + triggers all at once', () => {
+    const left = {
+      indexes: [
+        { name: 'idx_a', columns: ['a'], unique: false },
+        { name: 'idx_b', columns: ['b'], unique: true },
+      ],
+      constraints: [
+        { name: 'pk_id', type: 'PRIMARY KEY' as const, columns: ['id'] },
+      ],
+      triggers: [
+        { name: 'trg_log', timing: 'AFTER', events: 'UPDATE', definition: 'log_fn()' },
+      ],
+      sequences: [],
+    };
+    const right = {
+      indexes: [
+        { name: 'idx_a', columns: ['a', 'c'], unique: false }, // changed
+        { name: 'idx_c', columns: ['c'], unique: false },      // added
+      ],
+      constraints: [
+        { name: 'pk_id', type: 'PRIMARY KEY' as const, columns: ['id'] }, // same
+        { name: 'uq_email', type: 'UNIQUE' as const, columns: ['email'] }, // added
+      ],
+      triggers: [], // trg_log removed
+      sequences: [],
+    };
+    const result = computeObjectsDiff(left, right);
+
+    // Indexes: idx_a differs, idx_b removed, idx_c added
+    expect(result.indexes).toHaveLength(3);
+    const idxA = result.indexes.find(i => i.name === 'idx_a');
+    const idxB = result.indexes.find(i => i.name === 'idx_b');
+    const idxC = result.indexes.find(i => i.name === 'idx_c');
+    expect(idxA!.status).toBe('differs');
+    expect(idxB!.status).toBe('removed');
+    expect(idxC!.status).toBe('added');
+
+    // Constraints: pk_id same, uq_email added
+    expect(result.constraints).toHaveLength(2);
+    const pkId = result.constraints.find(c => c.name === 'pk_id');
+    const uqEmail = result.constraints.find(c => c.name === 'uq_email');
+    expect(pkId!.status).toBe('same');
+    expect(uqEmail!.status).toBe('added');
+
+    // Triggers: trg_log removed
+    expect(result.triggers).toHaveLength(1);
+    expect(result.triggers[0].status).toBe('removed');
+    expect(result.triggers[0].name).toBe('trg_log');
+
+    // Sequences: empty on both sides
+    expect(result.sequences).toHaveLength(0);
+  });
+
+  it('large number of indexes: 20 indexes, 2 differ, 3 added, 1 removed', () => {
+    // 17 shared indexes (15 same + 2 differ) + 1 left-only + 3 right-only = 20 left, 20 right
+    const sharedIndexes = Array.from({ length: 15 }, (_, index) => ({
+      name: `idx_shared_${index}`,
+      columns: [`col_${index}`],
+      unique: false,
+      type: 'btree',
+    }));
+
+    const leftOnly = { name: 'idx_removed', columns: ['old_col'], unique: false, type: 'btree' };
+    const differLeft1 = { name: 'idx_diff_1', columns: ['a'], unique: false, type: 'btree' };
+    const differLeft2 = { name: 'idx_diff_2', columns: ['b'], unique: true, type: 'btree' };
+    const differRight1 = { name: 'idx_diff_1', columns: ['a', 'x'], unique: false, type: 'btree' };
+    const differRight2 = { name: 'idx_diff_2', columns: ['b'], unique: false, type: 'btree' }; // unique changed
+
+    const rightAdded = Array.from({ length: 3 }, (_, index) => ({
+      name: `idx_new_${index}`,
+      columns: [`new_col_${index}`],
+      unique: false,
+      type: 'btree',
+    }));
+
+    const left = {
+      indexes: [...sharedIndexes, leftOnly, differLeft1, differLeft2],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const right = {
+      indexes: [...sharedIndexes, differRight1, differRight2, ...rightAdded],
+      constraints: [], triggers: [], sequences: [],
+    };
+
+    const result = computeObjectsDiff(left, right);
+
+    const same = result.indexes.filter(i => i.status === 'same');
+    const differs = result.indexes.filter(i => i.status === 'differs');
+    const added = result.indexes.filter(i => i.status === 'added');
+    const removed = result.indexes.filter(i => i.status === 'removed');
+
+    expect(same).toHaveLength(15);
+    expect(differs).toHaveLength(2);
+    expect(added).toHaveLength(3);
+    expect(removed).toHaveLength(1);
+    expect(result.indexes).toHaveLength(21); // 15 + 2 + 3 + 1
+  });
+
+  it('index with empty string name does not crash', () => {
+    const left = {
+      indexes: [{ name: '', columns: ['a'], unique: false }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const right = {
+      indexes: [{ name: '', columns: ['a'], unique: false }],
+      constraints: [], triggers: [], sequences: [],
+    };
+    const result = computeObjectsDiff(left, right);
+    expect(result.indexes).toHaveLength(1);
+    expect(result.indexes[0].name).toBe('');
+    expect(result.indexes[0].status).toBe('same');
   });
 });
 

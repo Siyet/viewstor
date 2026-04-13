@@ -1,6 +1,6 @@
 import { ConnectionConfig } from './connection';
 import { QueryResult, SortColumn } from './query';
-import { SchemaObject, TableInfo } from './schema';
+import { SchemaObject, TableInfo, TableObjects } from './schema';
 
 /**
  * Unified interface that all database drivers must implement.
@@ -21,6 +21,8 @@ export interface DatabaseDriver {
   getCompletions?(): Promise<CompletionItem[]>;
   /** Returns column names that have indexes for a given table */
   getIndexedColumns?(name: string, schema?: string): Promise<Set<string>>;
+  /** Returns indexes, constraints, triggers, sequences for a table */
+  getTableObjects?(name: string, schema?: string): Promise<TableObjects>;
 }
 
 export interface CompletionItem {

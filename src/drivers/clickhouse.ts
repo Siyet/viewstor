@@ -2,7 +2,7 @@ import { createClient, type ClickHouseClient } from '@clickhouse/client';
 import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
-import { SchemaObject, TableInfo, ColumnInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, IndexInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
 export class ClickHouseDriver implements DatabaseDriver {
@@ -230,6 +230,28 @@ export class ClickHouseDriver implements DatabaseDriver {
     const result = await this.execute(sql);
     result.query = sql;
     return result;
+  }
+
+  async getTableObjects(name: string, schema?: string): Promise<TableObjects> {
+    const db = schema || this.database || 'default';
+
+    // Data skipping indices
+    const result = await this.client!.query({
+      query: 'SELECT name, expr, type FROM system.data_skipping_indices WHERE database = {db:String} AND table = {name:String}',
+      format: 'JSONEachRow',
+      query_params: { db, name },
+    });
+    const rawIndexes = await result.json<{ name: string; expr: string; type: string }[]>();
+
+    const indexes: IndexInfo[] = rawIndexes.map(row => ({
+      name: row.name,
+      columns: [row.expr],
+      unique: false,
+      type: row.type,
+    }));
+
+    // ClickHouse has no constraints, triggers, or sequences
+    return { indexes, constraints: [], triggers: [], sequences: [] };
   }
 
   async getCompletions(): Promise<CompletionItem[]> {

@@ -143,7 +143,7 @@ Compare data between tables — even across different connections (dev vs stagin
 
 - Right-click a table → **Compare With...** → pick another table from any connected database
 - **Row diff** — matches rows by primary key, highlights added/removed/changed cells side-by-side
-- **Schema diff** — compare column names, types, nullability, and PK status
+- **Schema diff** — compare column names, types, nullability, PK status, plus indexes, constraints, triggers, and sequences
 - Export diff as CSV or JSON
 - Configure max rows in settings (`viewstor.diffRowLimit`, default 10,000)
 
