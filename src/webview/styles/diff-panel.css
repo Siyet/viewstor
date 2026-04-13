@@ -1,0 +1,336 @@
+/* Diff panel webview styles */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: 13px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ---- Tab bar ---- */
+.diff-tab-bar {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  flex-shrink: 0;
+  background: var(--vscode-editorGroupHeader-tabsBackground);
+}
+
+.diff-tab {
+  padding: 8px 20px;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--vscode-foreground);
+  border-bottom: 2px solid transparent;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.diff-tab:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
+}
+
+.diff-tab.active {
+  opacity: 1;
+  border-bottom-color: var(--vscode-focusBorder);
+  font-weight: 600;
+}
+
+/* ---- Summary bar ---- */
+.diff-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.diff-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.diff-badge.unchanged {
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+
+.diff-badge.changed {
+  background: rgba(255, 200, 0, 0.2);
+  color: var(--vscode-foreground);
+}
+
+.diff-badge.added {
+  background: var(--vscode-diffEditor-insertedTextBackground);
+  color: var(--vscode-foreground);
+}
+
+.diff-badge.removed {
+  background: var(--vscode-diffEditor-removedTextBackground);
+  color: var(--vscode-foreground);
+}
+
+.diff-summary-spacer {
+  flex: 1;
+}
+
+.diff-summary button {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.diff-summary button:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+/* ---- Filter bar ---- */
+.diff-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  flex-shrink: 0;
+}
+
+.diff-filter-btn {
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  opacity: 0.7;
+}
+
+.diff-filter-btn:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
+}
+
+.diff-filter-btn.active {
+  opacity: 1;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border-color: var(--vscode-focusBorder);
+}
+
+.diff-filter-label {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  margin-right: 4px;
+}
+
+/* ---- Tab panels ---- */
+.diff-tab-panel {
+  display: none;
+  flex: 1;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.diff-tab-panel.active {
+  display: flex;
+}
+
+/* ---- Side-by-side row diff ---- */
+.diff-tables-container {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.diff-table-pane {
+  flex: 1;
+  overflow: auto;
+  min-width: 0;
+}
+
+.diff-table-pane:first-child {
+  border-right: 2px solid var(--vscode-panel-border);
+}
+
+.diff-table-pane-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--vscode-editorGroupHeader-tabsBackground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-foreground);
+}
+
+/* ---- Tables ---- */
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-size: 13px;
+}
+
+.diff-table th {
+  position: sticky;
+  top: 0;
+  background: var(--vscode-editorGroupHeader-tabsBackground);
+  font-weight: 600;
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 2px solid var(--vscode-panel-border);
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.diff-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  white-space: nowrap;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diff-table tr:hover td {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* ---- Diff row classes ---- */
+.diff-added {
+  background: var(--vscode-diffEditor-insertedTextBackground);
+}
+
+.diff-removed {
+  background: var(--vscode-diffEditor-removedTextBackground);
+}
+
+.diff-changed {
+  background: rgba(255, 200, 0, 0.08);
+}
+
+.diff-unchanged {
+  opacity: 0.5;
+}
+
+/* ---- Cell-level highlight ---- */
+.diff-cell {
+  /* base cell style */
+}
+
+.diff-cell-changed {
+  background: rgba(255, 200, 0, 0.2);
+  font-weight: 600;
+}
+
+.diff-cell-empty {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+/* ---- Schema diff table ---- */
+.diff-schema-container {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+
+.diff-schema-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-size: 13px;
+}
+
+.diff-schema-table th {
+  position: sticky;
+  top: 0;
+  background: var(--vscode-editorGroupHeader-tabsBackground);
+  font-weight: 600;
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 2px solid var(--vscode-panel-border);
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.diff-schema-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  white-space: nowrap;
+}
+
+.diff-schema-table tr:hover td {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.diff-status-same {
+  color: var(--vscode-descriptionForeground);
+}
+
+.diff-status-differs {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-weight: 600;
+}
+
+.diff-status-added {
+  color: var(--vscode-gitDecoration-addedResourceForeground, #81b88b);
+  font-weight: 600;
+}
+
+.diff-status-removed {
+  color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39);
+  font-weight: 600;
+}
+
+/* ---- Truncation warning ---- */
+.diff-truncated {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  background: var(--vscode-inputValidation-warningBackground, rgba(200, 160, 0, 0.1));
+  border-bottom: 1px solid var(--vscode-panel-border);
+  flex-shrink: 0;
+}
+
+/* ---- No schema message ---- */
+.diff-no-schema {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  font-size: 14px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ---- Key column indicator ---- */
+.diff-key-col {
+  color: var(--vscode-symbolIcon-keyForeground, var(--vscode-foreground));
+}
+
+.diff-key-col::after {
+  content: ' \1F511';
+  font-size: 10px;
+}

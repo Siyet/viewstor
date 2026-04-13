@@ -100,6 +100,17 @@ Multi-source: `ChartDataSource` in config, resolved via `PinnedQueryProvider` (i
 
 Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana push.
 
+### Data Diff
+`src/diff/diffEngine.ts` — pure functions: `computeRowDiff()` matches rows by key columns (PK or user-specified), compares all non-key columns by stringifying values. `computeSchemaDiff()` compares column names, types, nullability, PK status. `exportDiffAsCsv()` / `exportDiffAsJson()` for diff export. No vscode dependency, fully unit-tested.
+
+`src/diff/diffTypes.ts` — `DiffSource`, `DiffOptions`, `RowDiffResult`, `MatchedRow`, `SchemaDiffResult`, `ColumnCompare`.
+
+`src/diff/diffPanel.ts` — `DiffPanelManager`, webview panel for side-by-side diff visualization. Row diff tab (added/removed/changed rows with cell-level highlighting) and Schema diff tab (column comparison). Export as CSV/JSON. Swap sides button.
+
+`src/commands/diffCommands.ts` — `viewstor.compareWith` (context menu on tables), `viewstor.compareData` (command palette). Auto-detects PK columns; prompts user if no PK found. Fetches data from both sources, computes diff, opens panel.
+
+Settings: `viewstor.diffRowLimit` (default 10000, max 100000).
+
 ### SQL Autocomplete
 `src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).
 

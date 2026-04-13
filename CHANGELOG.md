@@ -2,6 +2,12 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **Data diff** — compare data between tables or connections with side-by-side visualization. Row diff matches by PK and highlights added/removed/changed cells; Schema diff compares column types, nullability, and PK status. Export as CSV/JSON. Accessible via right-click "Compare With..." on tables or "Viewstor: Compare Data" command palette ([#5](https://github.com/Siyet/viewstor/issues/5))
+- **Regression prevention** — split monolithic `commands/index.ts` (1598 lines) into 7 focused modules, added 161 tests (ConnectionManager, driver contracts, integration workflows, activation smoke), connectionMap auto-cleanup, getDriverForDatabase concurrency lock, CI changeset size guard ([#59](https://github.com/Siyet/viewstor/issues/59), [#60](https://github.com/Siyet/viewstor/issues/60), [#61](https://github.com/Siyet/viewstor/issues/61))
+
 ## [0.3.2] — 2026-04-13
 
 ### Fixed

@@ -48,5 +48,8 @@
   "command.exportGrafana": "Exporter vers un tableau de bord Grafana",
   "config.grafanaUrl.description": "URL du serveur Grafana pour l'envoi direct de tableaux de bord (ex. : https://grafana.example.com).",
   "config.grafanaApiKey.description": "Clé API Grafana pour envoyer des tableaux de bord. Créez une clé avec le rôle Editor.",
-  "chat.command.chart": "Générer un graphique à partir d'une requête"
+  "chat.command.chart": "Générer un graphique à partir d'une requête",
+  "command.compareWith": "Comparer avec...",
+  "command.compareData": "Comparer les données",
+  "config.diffRowLimit.description": "Nombre maximum de lignes à comparer par table."
 }

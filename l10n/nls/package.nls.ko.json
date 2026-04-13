@@ -48,5 +48,8 @@
   "command.exportGrafana": "Grafana 대시보드로 내보내기",
   "config.grafanaUrl.description": "대시보드를 직접 푸시하기 위한 Grafana 서버 URL (예: https://grafana.example.com).",
   "config.grafanaApiKey.description": "대시보드 푸시를 위한 Grafana API 키. Editor 역할로 키를 생성하세요.",
-  "chat.command.chart": "쿼리에서 차트 시각화 생성"
+  "chat.command.chart": "쿼리에서 차트 시각화 생성",
+  "command.compareWith": "비교...",
+  "command.compareData": "데이터 비교",
+  "config.diffRowLimit.description": "테이블당 비교할 최대 행 수."
 }

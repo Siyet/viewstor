@@ -48,5 +48,8 @@
   "command.exportGrafana": "Экспорт в дашборд Grafana",
   "config.grafanaUrl.description": "URL сервера Grafana для прямой отправки дашбордов (например, https://grafana.example.com).",
   "config.grafanaApiKey.description": "API-ключ Grafana для отправки дашбордов. Создайте ключ с ролью Editor.",
-  "chat.command.chart": "Сгенерировать визуализацию графика из запроса"
+  "chat.command.chart": "Сгенерировать визуализацию графика из запроса",
+  "command.compareWith": "Сравнить с...",
+  "command.compareData": "Сравнить данные",
+  "config.diffRowLimit.description": "Максимальное количество строк для сравнения на таблицу."
 }

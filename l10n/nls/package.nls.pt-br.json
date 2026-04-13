@@ -48,5 +48,8 @@
   "command.exportGrafana": "Exportar para painel do Grafana",
   "config.grafanaUrl.description": "URL do servidor Grafana para envio direto de painéis (ex.: https://grafana.example.com).",
   "config.grafanaApiKey.description": "Chave de API do Grafana para enviar painéis. Crie uma chave com a função Editor.",
-  "chat.command.chart": "Gerar uma visualização de gráfico a partir de uma consulta"
+  "chat.command.chart": "Gerar uma visualização de gráfico a partir de uma consulta",
+  "command.compareWith": "Comparar com...",
+  "command.compareData": "Comparar dados",
+  "config.diffRowLimit.description": "Número máximo de linhas a comparar por tabela."
 }
