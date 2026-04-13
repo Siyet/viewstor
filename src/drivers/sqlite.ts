@@ -1,16 +1,25 @@
-import Database from 'better-sqlite3';
+import type BetterSqlite3 from 'better-sqlite3';
 import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { SchemaObject, TableInfo, ColumnInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
+// Lazy-load better-sqlite3 to avoid crashing the entire extension on ABI mismatch.
+// Top-level require of this native module runs at bundle load time, which means
+// a broken binary (wrong Electron ABI, missing prebuild) prevents activate() from
+// ever executing — no commands get registered and all connections "disappear".
+function loadSqlite(): typeof BetterSqlite3 {
+  return require('better-sqlite3');
+}
+
 export class SqliteDriver implements DatabaseDriver {
-  private db: Database.Database | undefined;
+  private db: BetterSqlite3.Database | undefined;
 
   async connect(config: ConnectionConfig): Promise<void> {
     const filePath = config.database || ':memory:';
     try {
+      const Database = loadSqlite();
       this.db = new Database(filePath, {
         readonly: config.readonly || false,
       });
