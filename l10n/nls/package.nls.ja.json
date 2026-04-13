@@ -48,5 +48,8 @@
   "command.exportGrafana": "Grafanaダッシュボードにエクスポート",
   "config.grafanaUrl.description": "ダッシュボードを直接プッシュするためのGrafanaサーバーURL（例: https://grafana.example.com）。",
   "config.grafanaApiKey.description": "ダッシュボードをプッシュするためのGrafana APIキー。Editorロールでキーを作成してください。",
-  "chat.command.chart": "クエリからチャートを生成"
+  "chat.command.chart": "クエリからチャートを生成",
+  "command.compareWith": "比較...",
+  "command.compareData": "データ比較",
+  "config.diffRowLimit.description": "テーブルごとの最大比較行数。"
 }

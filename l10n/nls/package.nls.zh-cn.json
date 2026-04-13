@@ -48,5 +48,8 @@
   "command.exportGrafana": "导出到 Grafana 仪表板",
   "config.grafanaUrl.description": "用于直接推送仪表板的 Grafana 服务器 URL（例如 https://grafana.example.com）。",
   "config.grafanaApiKey.description": "用于推送仪表板的 Grafana API 密钥。请创建具有 Editor 角色的密钥。",
-  "chat.command.chart": "从查询生成图表可视化"
+  "chat.command.chart": "从查询生成图表可视化",
+  "command.compareWith": "比较...",
+  "command.compareData": "比较数据",
+  "config.diffRowLimit.description": "每个表比较的最大行数。"
 }

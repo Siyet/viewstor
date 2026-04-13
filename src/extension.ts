@@ -16,6 +16,7 @@ import { registerMcpCommands } from './mcp/server';
 import { registerCommands } from './commands';
 import { registerChatParticipant } from './chat/participant';
 import { ChartPanelManager, setChartOutputChannel } from './chart/chartPanel';
+import { DiffPanelManager } from './diff/diffPanel';
 import { TempFileManager } from './services/tempFileManager';
 import { QueryFileManager } from './services/queryFileManager';
 import { setDebugChannel, dbg } from './utils/debug';
@@ -43,6 +44,7 @@ export function activate(context: vscode.ExtensionContext) {
     chartPanelManager.setPinnedQueryProvider(queryHistoryProvider);
     chartPanelManager.setConnectionManager(connectionManager);
     setChartOutputChannel(outputChannel);
+    const diffPanelManager = new DiffPanelManager(context);
     tempFileManager = new TempFileManager(context, queryFileManager);
     tempFileManager.setPostMessage((key, msg) => resultPanelManager.postMessage(key, msg));
     resultPanelManager.setTempFileManager(tempFileManager);
@@ -100,6 +102,7 @@ export function activate(context: vscode.ExtensionContext) {
       outputChannel,
       tempFileManager,
       queryFileManager,
+      diffPanelManager,
     });
 
     // MCP-compatible commands for AI agent integration

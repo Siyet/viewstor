@@ -9,6 +9,7 @@ import { ConnectionFormPanel } from '../views/connectionForm';
 import { FolderFormPanel } from '../views/folderForm';
 import { TempFileManager } from '../services/tempFileManager';
 import { QueryFileManager } from '../services/queryFileManager';
+import { DiffPanelManager } from '../diff/diffPanel';
 import { splitStatements, firstSqlTokenOffset } from '../utils/queryHelpers';
 
 export interface CommandContext {
@@ -23,6 +24,7 @@ export interface CommandContext {
   outputChannel: vscode.LogOutputChannel;
   tempFileManager: TempFileManager;
   queryFileManager: QueryFileManager;
+  diffPanelManager: DiffPanelManager;
 }
 
 // --- Shared mutable state ---

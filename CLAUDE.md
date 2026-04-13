@@ -100,6 +100,17 @@ Multi-source: `ChartDataSource` in config, resolved via `PinnedQueryProvider` (i
 
 Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana push.
 
+### Data Diff
+`src/diff/diffEngine.ts` — pure functions: `computeRowDiff()` matches rows by key columns (PK or user-specified), compares all non-key columns by stringifying values. `computeSchemaDiff()` compares column names, types, nullability, PK status. `exportDiffAsCsv()` / `exportDiffAsJson()` for diff export. No vscode dependency, fully unit-tested.
+
+`src/diff/diffTypes.ts` — `DiffSource`, `DiffOptions`, `RowDiffResult`, `MatchedRow`, `SchemaDiffResult`, `ColumnCompare`.
+
+`src/diff/diffPanel.ts` — `DiffPanelManager`, webview panel for side-by-side diff visualization. Row diff tab (added/removed/changed rows with cell-level highlighting) and Schema diff tab (column comparison). Export as CSV/JSON. Swap sides button.
+
+`src/commands/diffCommands.ts` — `viewstor.compareWith` (context menu on tables), `viewstor.compareData` (command palette). Auto-detects PK columns; prompts user if no PK found. Fetches data from both sources, computes diff, opens panel.
+
+Settings: `viewstor.diffRowLimit` (default 10000, max 100000).
+
 ### SQL Autocomplete
 `src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).
 
@@ -153,7 +164,21 @@ Usage in Claude Code config:
 `src/utils/queryHelpers.ts` — pure functions for SQL generation and error enhancement: `levenshtein`, `parseTablesFromQuery`, `enhanceColumnError`, `buildUpdateSql`, `buildDeleteSql`, `buildInsertDefaultSql`, `quoteTable`, `sqlValue`. All vscode-independent, fully unit-tested.
 
 ### Commands
-`src/commands/index.ts` — all `viewstor.*` commands. Notable: `_fetchPage` (server-side pagination), `_exportAllData` (fetches up to 100k rows), `_cancelQuery`, `_refreshCount` (exact COUNT), `_insertRow` (INSERT with DEFAULT), `_deleteRows` (DELETE by PK with confirmation), `reportIssue` (GitHub issue with env info). All commands support `databaseName` parameter for multi-DB connections.
+`src/commands/` — split into focused modules to prevent regressions:
+
+| File | Scope |
+|---|---|
+| `index.ts` | Orchestrator: registers CodeLens, document handlers, delegates to modules |
+| `shared.ts` | `CommandContext` interface, shared state (queryResults, historyDocMap), helpers |
+| `queryCommands.ts` | `runQuery`, `executeTempSql`, `cancelQuery`, safe mode, TempFileManager callbacks |
+| `tableCommands.ts` | `showTableData`, `_fetchPage`, `_saveEdits`, `_insertRow`, `_deleteRows`, `_runCustomTableQuery`, MCP table |
+| `connectionCommands.ts` | Connection/folder CRUD, import, schema visibility |
+| `historyCommands.ts` | Query history: open, pin, unpin, rename, clear |
+| `schemaCommands.ts` | `showDDL`, `copyName`, rename/create/drop objects, `reportIssue` |
+| `exportCommands.ts` | Export (CSV/TSV/JSON/Markdown), visualize, Grafana, MCP query |
+| `diffCommands.ts` | `compareWith` (context menu), `compareData` (command palette) |
+
+All commands support `databaseName` parameter for multi-DB connections.
 
 ## Key Conventions
 

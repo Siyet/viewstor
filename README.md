@@ -33,6 +33,7 @@ Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHo
 | **Import from DBeaver/DataGrip/pgAdmin** | Yes | No | No | No |
 | **Index hints** | Yes | No | No | No |
 | **Chart visualization** | 12 chart types, free | No | No | No |
+| **Data diff** | Row + schema diff, free | No | No | No |
 | **Color-coded folders** | Nested, inherited | No | No | No |
 | **Localization** | 12 languages | English only | English only | English only |
 
@@ -135,6 +136,18 @@ Visualize query results as interactive charts — powered by [Apache ECharts](ht
 5. Select which numeric columns to include, set a label — done
 
 Example: pin `SELECT ts, cpu FROM metrics` and `SELECT ts, mem FROM metrics`, open chart from CPU, add Memory as data source with join on `ts` — both metrics on the same time axis.
+
+### Data Diff
+
+Compare data between tables — even across different connections (dev vs staging):
+
+- Right-click a table → **Compare With...** → pick another table from any connected database
+- **Row diff** — matches rows by primary key, highlights added/removed/changed cells side-by-side
+- **Schema diff** — compare column names, types, nullability, and PK status
+- Export diff as CSV or JSON
+- Configure max rows in settings (`viewstor.diffRowLimit`, default 10,000)
+
+Also available via Command Palette: `Viewstor: Compare Data`.
 
 ### Copilot Chat (`@viewstor`)
 
@@ -240,11 +253,18 @@ npm run package      # .vsix package
 
 ### Testing
 
-Unit tests use [vitest](https://vitest.dev/). E2E tests use [testcontainers](https://www.npmjs.com/package/testcontainers) to spin up PostgreSQL, Redis, and ClickHouse in Docker. Auto-skipped if Docker is unavailable.
+700+ tests across three layers:
+
+| Layer | Runner | Coverage |
+|---|---|---|
+| Unit tests | [vitest](https://vitest.dev/) | Pure logic: diff engine, chart transforms, query helpers, export/import, ConnectionManager, driver contracts, workflows |
+| VS Code tests | Mocha + `@vscode/test-cli` | Extension activation, command registration, CodeLens, query editor |
+| E2E tests | vitest + [testcontainers](https://www.npmjs.com/package/testcontainers) | Real PG/Redis/CH/SQLite drivers (Docker required, auto-skipped otherwise) |
 
 ### CI/CD
 
-- **CI** (on PR, trunk push, tags): lint → unit tests → build → `npm audit`
+- **CI** (on PR, trunk push, tags): lint → unit tests → e2e tests → build → security audit → changeset size check
+- **Changeset size** — warns when a PR changes 30+ files (historically the threshold for cascading regressions)
 - **Release** (on `v*` tag): build → test → publish to Marketplace → GitHub Release with `.vsix`
 
 ## Contributing
