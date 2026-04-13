@@ -15,39 +15,44 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
       const leftState = connectionManager.get(item.connectionId);
       if (!leftState) return;
 
-      // Build list of all tables across all connected connections
-      const allConnections = connectionManager.getAll().filter(s => s.connected);
-      const tableItems: Array<{
-        label: string;
-        description: string;
-        connectionId: string;
-        tableName: string;
-        schema?: string;
-        databaseName?: string;
-      }> = [];
-
-      for (const conn of allConnections) {
-        const driver = connectionManager.getDriver(conn.config.id);
-        if (!driver) continue;
-        try {
-          const schema = await driver.getSchema();
-          for (const schemaObj of schema) {
-            if (schemaObj.children) {
-              for (const child of schemaObj.children) {
-                if (child.type === 'table' || child.type === 'view') {
-                  tableItems.push({
-                    label: child.name,
-                    description: `${schemaObj.name} — ${conn.config.name}`,
-                    connectionId: conn.config.id,
-                    tableName: child.name,
-                    schema: schemaObj.name,
-                  });
+      // Build list of all tables across all connected connections (can be slow)
+      const tableItems = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Loading tables...') },
+        async () => {
+          const items: Array<{
+            label: string;
+            description: string;
+            connectionId: string;
+            tableName: string;
+            schema?: string;
+            databaseName?: string;
+          }> = [];
+          const allConnections = connectionManager.getAll().filter(s => s.connected);
+          for (const conn of allConnections) {
+            const driver = connectionManager.getDriver(conn.config.id);
+            if (!driver) continue;
+            try {
+              const schema = await driver.getSchema();
+              for (const schemaObj of schema) {
+                if (schemaObj.children) {
+                  for (const child of schemaObj.children) {
+                    if (child.type === 'table' || child.type === 'view') {
+                      items.push({
+                        label: child.name,
+                        description: `${schemaObj.name} — ${conn.config.name}`,
+                        connectionId: conn.config.id,
+                        tableName: child.name,
+                        schema: schemaObj.name,
+                      });
+                    }
+                  }
                 }
               }
-            }
+            } catch { /* skip connections with schema fetch errors */ }
           }
-        } catch { /* skip connections with schema fetch errors */ }
-      }
+          return items;
+        },
+      );
 
       if (tableItems.length === 0) {
         vscode.window.showWarningMessage(vscode.l10n.t('No tables available for comparison. Connect to a database first.'));
@@ -137,38 +142,43 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
         return;
       }
 
-      // Build list of all tables
-      const tableItems: Array<{
-        label: string;
-        description: string;
-        connectionId: string;
-        tableName: string;
-        schema?: string;
-        databaseName?: string;
-      }> = [];
-
-      for (const conn of allConnections) {
-        const driver = connectionManager.getDriver(conn.config.id);
-        if (!driver) continue;
-        try {
-          const schema = await driver.getSchema();
-          for (const schemaObj of schema) {
-            if (schemaObj.children) {
-              for (const child of schemaObj.children) {
-                if (child.type === 'table' || child.type === 'view') {
-                  tableItems.push({
-                    label: child.name,
-                    description: `${schemaObj.name} — ${conn.config.name}`,
-                    connectionId: conn.config.id,
-                    tableName: child.name,
-                    schema: schemaObj.name,
-                  });
+      // Build list of all tables (can be slow)
+      const tableItems = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Loading tables...') },
+        async () => {
+          const items: Array<{
+            label: string;
+            description: string;
+            connectionId: string;
+            tableName: string;
+            schema?: string;
+            databaseName?: string;
+          }> = [];
+          for (const conn of allConnections) {
+            const driver = connectionManager.getDriver(conn.config.id);
+            if (!driver) continue;
+            try {
+              const schema = await driver.getSchema();
+              for (const schemaObj of schema) {
+                if (schemaObj.children) {
+                  for (const child of schemaObj.children) {
+                    if (child.type === 'table' || child.type === 'view') {
+                      items.push({
+                        label: child.name,
+                        description: `${schemaObj.name} — ${conn.config.name}`,
+                        connectionId: conn.config.id,
+                        tableName: child.name,
+                        schema: schemaObj.name,
+                      });
+                    }
+                  }
                 }
               }
-            }
+            } catch { /* skip */ }
           }
-        } catch { /* skip */ }
-      }
+          return items;
+        },
+      );
 
       if (tableItems.length < 2) {
         vscode.window.showWarningMessage(vscode.l10n.t('Need at least 2 tables for comparison.'));

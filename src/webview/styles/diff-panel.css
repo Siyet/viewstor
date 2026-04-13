@@ -250,6 +250,10 @@ body {
   font-style: italic;
 }
 
+.diff-cell-empty::after {
+  content: '\00a0';
+}
+
 /* ---- Schema diff table ---- */
 .diff-schema-container {
   flex: 1;
