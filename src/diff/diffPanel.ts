@@ -167,6 +167,7 @@ export class DiffPanelManager {
       <span class="diff-filter-label">Filter:</span>
       <button class="diff-filter-btn active" data-filter="all">All</button>
       <button class="diff-filter-btn" data-filter="changed">Changed</button>
+      <button class="diff-filter-btn" data-filter="unchanged">Unchanged</button>
       <button class="diff-filter-btn" data-filter="added">Added</button>
       <button class="diff-filter-btn" data-filter="removed">Removed</button>
     </div>

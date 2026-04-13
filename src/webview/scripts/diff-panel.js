@@ -90,22 +90,27 @@
     var rightHtml = '';
     var columns = rowDiff.allColumns;
 
-    // Changed rows
-    if (activeFilter === 'all' || activeFilter === 'changed') {
-      for (var matchIdx = 0; matchIdx < rowDiff.matched.length; matchIdx++) {
-        var match = rowDiff.matched[matchIdx];
-        leftHtml += '<tr class="diff-changed">';
-        rightHtml += '<tr class="diff-changed">';
-        for (var colIdx = 0; colIdx < columns.length; colIdx++) {
-          var col = columns[colIdx];
-          var isChanged = match.changedColumns.indexOf(col) !== -1;
-          var cellClass = isChanged ? 'diff-cell diff-cell-changed' : 'diff-cell';
-          leftHtml += '<td class="' + cellClass + '">' + formatCell(match.left[col]) + '</td>';
-          rightHtml += '<td class="' + cellClass + '">' + formatCell(match.right[col]) + '</td>';
-        }
-        leftHtml += '</tr>';
-        rightHtml += '</tr>';
+    // Matched rows (changed + unchanged)
+    for (var matchIdx = 0; matchIdx < rowDiff.matched.length; matchIdx++) {
+      var match = rowDiff.matched[matchIdx];
+      var isUnchanged = match.changedColumns.length === 0;
+      var rowCategory = isUnchanged ? 'unchanged' : 'changed';
+
+      // Apply filter
+      if (activeFilter !== 'all' && activeFilter !== rowCategory) continue;
+
+      var rowClass = isUnchanged ? 'diff-unchanged' : 'diff-changed';
+      leftHtml += '<tr class="' + rowClass + '">';
+      rightHtml += '<tr class="' + rowClass + '">';
+      for (var colIdx = 0; colIdx < columns.length; colIdx++) {
+        var col = columns[colIdx];
+        var isCellChanged = match.changedColumns.indexOf(col) !== -1;
+        var cellClass = isCellChanged ? 'diff-cell diff-cell-changed' : 'diff-cell';
+        leftHtml += '<td class="' + cellClass + '">' + formatCell(match.left[col]) + '</td>';
+        rightHtml += '<td class="' + cellClass + '">' + formatCell(match.right[col]) + '</td>';
       }
+      leftHtml += '</tr>';
+      rightHtml += '</tr>';
     }
 
     // Removed rows (left only)
