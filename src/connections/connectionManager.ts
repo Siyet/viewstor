@@ -22,6 +22,7 @@ export class ConnectionManager {
   private connections: Map<string, ConnectionState> = new Map();
   private drivers: Map<string, DatabaseDriver> = new Map();
   private dbDrivers: Map<string, DatabaseDriver> = new Map(); // connectionId:database → driver
+  private dbDriverLocks: Map<string, Promise<DatabaseDriver>> = new Map(); // in-flight driver creation
   private folders: Map<string, ConnectionFolder> = new Map();
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChange = this._onDidChange.event;
@@ -189,6 +190,21 @@ export class ConnectionManager {
     }
 
     const cacheKey = `${connectionId}:${database}`;
+
+    // Reuse in-flight creation to prevent duplicate drivers from concurrent calls
+    const inflight = this.dbDriverLocks.get(cacheKey);
+    if (inflight) return inflight;
+
+    const promise = this.resolveDbDriver(cacheKey, state, database);
+    this.dbDriverLocks.set(cacheKey, promise);
+    try {
+      return await promise;
+    } finally {
+      this.dbDriverLocks.delete(cacheKey);
+    }
+  }
+
+  private async resolveDbDriver(cacheKey: string, state: ConnectionState, database: string): Promise<DatabaseDriver> {
     let driver = this.dbDrivers.get(cacheKey);
     if (driver) {
       try { await driver.ping(); return driver; } catch { /* reconnect below */ }
