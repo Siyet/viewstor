@@ -40,8 +40,18 @@ jobs:
       - run: npm test
 
       # --- Publish to VS Code Marketplace ---
+      - name: Verify marketplace token
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::VSCE_PAT secret is empty or not configured"
+            exit 1
+          fi
+          echo "VSCE_PAT is set (${#VSCE_PAT} chars)"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
       - name: Publish to VS Code Marketplace
-        run: npx @vscode/vsce publish --no-git-tag-version
+        run: npx @vscode/vsce publish --pat "$VSCE_PAT" --no-git-tag-version
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
