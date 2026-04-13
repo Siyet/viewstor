@@ -43,6 +43,7 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
     vscode.workspace.onDidCloseTextDocument(doc => {
       queryResults.delete(doc.uri.toString());
       historyDocMap.forEach((uri, id) => { if (uri === doc.uri.toString()) historyDocMap.delete(id); });
+      ctx.queryEditorProvider.removeConnectionForUri(doc.uri);
     }),
   );
 
