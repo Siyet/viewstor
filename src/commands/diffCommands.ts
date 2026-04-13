@@ -233,12 +233,19 @@ function pickTableWithLoading(
     picker.enabled = false;
     picker.show();
 
-    // Load tables in background
+    let resolved = false;
+    const done = (value: TablePickItem | undefined) => {
+      if (resolved) return;
+      resolved = true;
+      picker.dispose();
+      resolve(value);
+    };
+
     loadAllTables(connectionManager).then(items => {
+      if (resolved) return;
       if (items.length === 0) {
-        picker.dispose();
         vscode.window.showWarningMessage(vscode.l10n.t('No tables available for comparison.'));
-        resolve(undefined);
+        done(undefined);
         return;
       }
       picker.items = items;
@@ -247,14 +254,11 @@ function pickTableWithLoading(
     });
 
     picker.onDidAccept(() => {
-      const selected = picker.selectedItems[0];
-      picker.dispose();
-      resolve(selected);
+      done(picker.selectedItems[0]);
     });
 
     picker.onDidHide(() => {
-      picker.dispose();
-      resolve(undefined);
+      done(undefined);
     });
   });
 }
