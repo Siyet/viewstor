@@ -2,6 +2,12 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.1] — 2026-04-13
+
+### Fixed
+- **Extension fails to activate after v0.3.0 update** — top-level `import` of `better-sqlite3` native module crashed the entire bundle when the binary had an ABI mismatch (wrong Electron version), preventing `activate()` from running and making all commands unavailable. Now uses lazy `require()` inside `connect()` so a broken SQLite binary only affects SQLite connections, not the entire extension ([#51](https://github.com/Siyet/viewstor/issues/51))
+- **Incomplete command registration test** — expanded from 17 to 50+ commands to catch activation failures like this in CI
+
 ## [0.3.0] — 2026-04-12
 
 ### Added
