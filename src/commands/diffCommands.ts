@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { CommandContext } from './shared';
 import { ConnectionTreeItem } from '../views/connectionTree';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
+import { dbg } from '../utils/debug';
 
 export function registerDiffCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
   const { connectionManager, diffPanelManager } = ctx;
@@ -9,36 +10,38 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
   context.subscriptions.push(
     // Context menu on table: "Compare with..."
     vscode.commands.registerCommand('viewstor.compareWith', async (item?: ConnectionTreeItem) => {
-      if (!item?.connectionId || !item.schemaObject) return;
-      if (!diffPanelManager) return;
+      dbg('compareWith', 'item:', item?.connectionId, item?.schemaObject?.name);
+      if (!item?.connectionId || !item.schemaObject) { dbg('compareWith', 'no item'); return; }
+      if (!diffPanelManager) { dbg('compareWith', 'no diffPanelManager'); return; }
 
       const leftState = connectionManager.get(item.connectionId);
-      if (!leftState) return;
+      if (!leftState) { dbg('compareWith', 'no leftState'); return; }
 
-      // Show QuickPick immediately with loading spinner, populate items in background
       const picked = await pickTableWithLoading(
         connectionManager,
         vscode.l10n.t('Select table to compare with "{0}"', item.schemaObject.name),
       );
+      dbg('compareWith', 'picked:', picked?.tableName, picked?.connectionId);
       if (!picked) return;
 
-      // Get left table info and data
       const leftDriver = item.databaseName
         ? await connectionManager.getDriverForDatabase(item.connectionId, item.databaseName)
         : connectionManager.getDriver(item.connectionId);
-      if (!leftDriver) return;
+      if (!leftDriver) { dbg('compareWith', 'no leftDriver'); return; }
 
       const rightDriver = picked.databaseName
         ? await connectionManager.getDriverForDatabase(picked.connectionId, picked.databaseName)
         : connectionManager.getDriver(picked.connectionId);
-      if (!rightDriver) return;
+      if (!rightDriver) { dbg('compareWith', 'no rightDriver for', picked.connectionId); return; }
 
       const rowLimit = vscode.workspace.getConfiguration('viewstor').get<number>('diffRowLimit', 10000);
 
       try {
+      dbg('compareWith', 'starting diff, rowLimit:', rowLimit);
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Comparing data...') },
         async () => {
+          dbg('compareWith', 'fetching table info and data...');
           const [leftInfo, rightInfo, leftData, rightData] = await Promise.all([
             leftDriver.getTableInfo(item.schemaObject!.name, item.schemaObject!.schema),
             rightDriver.getTableInfo(picked.tableName, picked.schema),
@@ -102,6 +105,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
       );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        dbg('compareWith', 'ERROR:', message, err instanceof Error ? err.stack : '');
         vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', message));
       }
     }),
