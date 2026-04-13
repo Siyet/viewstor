@@ -118,8 +118,11 @@ import { ConnectionManager } from '../connections/connectionManager';
 import { QueryEditorProvider } from '../editors/queryEditor';
 import { ExportService } from '../services/exportService';
 import { parseDBeaver } from '../services/importService';
+import { computeRowDiff, computeSchemaDiff, computeObjectsDiff, exportDiffAsCsv, exportDiffAsJson } from '../diff/diffEngine';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult } from '../types/query';
+import { ColumnInfo, TableObjects } from '../types/schema';
+import { DiffSource, DiffOptions } from '../diff/diffTypes';
 import { createDriver } from '../drivers';
 
 // --- Helpers ---
@@ -671,5 +674,158 @@ describe('Workflow 6: DBeaver import -> connection configs round-trip', () => {
     const result = parseDBeaver(dbeaverJson);
     expect(result.connections).toHaveLength(1);
     expect(result.connections[0].readonly).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Workflow 7: Diff engine full pipeline
+// ---------------------------------------------------------------------------
+describe('Workflow 7: diff engine full pipeline', () => {
+  function makeDiffSource(rows: Record<string, unknown>[], columns?: string[]): DiffSource {
+    const colNames = columns || (rows.length > 0 ? Object.keys(rows[0]) : []);
+    return {
+      label: 'test',
+      columns: colNames.map(name => ({ name, dataType: 'text' })),
+      rows,
+    };
+  }
+
+  function makeDiffOptions(keyColumns: string[], rowLimit = 10000): DiffOptions {
+    return { keyColumns, rowLimit };
+  }
+
+  it('full pipeline: row diff -> schema diff -> objects diff -> export CSV -> export JSON', () => {
+    // Step 1: Row diff with mixed changes
+    const leftRows = [
+      { id: 1, name: 'Alice', score: 90 },
+      { id: 2, name: 'Bob', score: 80 },
+      { id: 3, name: 'Carol', score: 70 },
+    ];
+    const rightRows = [
+      { id: 1, name: 'Alice', score: 95 },  // changed: score
+      { id: 2, name: 'Bob', score: 80 },    // unchanged
+      { id: 4, name: 'Dave', score: 60 },   // added
+    ];
+
+    const rowDiff = computeRowDiff(
+      makeDiffSource(leftRows),
+      makeDiffSource(rightRows),
+      makeDiffOptions(['id']),
+    );
+
+    expect(rowDiff.summary.changed).toBe(1);
+    expect(rowDiff.summary.unchanged).toBe(1);
+    expect(rowDiff.summary.added).toBe(1);
+    expect(rowDiff.summary.removed).toBe(1);
+    expect(rowDiff.leftOnly).toHaveLength(1);
+    expect(rowDiff.leftOnly[0].id).toBe(3);
+    expect(rowDiff.rightOnly).toHaveLength(1);
+    expect(rowDiff.rightOnly[0].id).toBe(4);
+
+    // Step 2: Schema diff
+    const leftColumns: ColumnInfo[] = [
+      { name: 'id', dataType: 'integer', nullable: false, isPrimaryKey: true },
+      { name: 'name', dataType: 'varchar(100)', nullable: false, isPrimaryKey: false },
+      { name: 'score', dataType: 'integer', nullable: true, isPrimaryKey: false },
+      { name: 'email', dataType: 'text', nullable: true, isPrimaryKey: false },
+    ];
+    const rightColumns: ColumnInfo[] = [
+      { name: 'id', dataType: 'integer', nullable: false, isPrimaryKey: true },
+      { name: 'name', dataType: 'text', nullable: false, isPrimaryKey: false }, // type changed
+      { name: 'score', dataType: 'integer', nullable: false, isPrimaryKey: false }, // nullable changed
+      { name: 'phone', dataType: 'varchar(20)', nullable: true, isPrimaryKey: false }, // new column
+    ];
+
+    const schemaDiff = computeSchemaDiff(leftColumns, rightColumns);
+
+    expect(schemaDiff.leftOnlyColumns).toHaveLength(1);
+    expect(schemaDiff.leftOnlyColumns[0].name).toBe('email');
+    expect(schemaDiff.rightOnlyColumns).toHaveLength(1);
+    expect(schemaDiff.rightOnlyColumns[0].name).toBe('phone');
+    expect(schemaDiff.commonColumns).toHaveLength(3);
+    const nameCol = schemaDiff.commonColumns.find(c => c.name === 'name');
+    expect(nameCol!.typeDiffers).toBe(true);
+    const scoreCol = schemaDiff.commonColumns.find(c => c.name === 'score');
+    expect(scoreCol!.nullableDiffers).toBe(true);
+
+    // Step 3: Objects diff
+    const leftObjects: TableObjects = {
+      indexes: [
+        { name: 'idx_name', columns: ['name'], unique: false, type: 'btree' },
+        { name: 'idx_score', columns: ['score'], unique: false, type: 'btree' },
+      ],
+      constraints: [
+        { name: 'pk_users', type: 'PRIMARY KEY', columns: ['id'] },
+        { name: 'fk_dept', type: 'FOREIGN KEY', columns: ['dept_id'], referencedTable: 'departments', onDelete: 'CASCADE' },
+      ],
+      triggers: [
+        { name: 'trg_updated', timing: 'BEFORE', events: 'UPDATE', definition: 'set_updated_at()' },
+      ],
+      sequences: [
+        { name: 'users_id_seq', startValue: 1, increment: 1 },
+      ],
+    };
+    const rightObjects: TableObjects = {
+      indexes: [
+        { name: 'idx_name', columns: ['name'], unique: true, type: 'btree' },  // unique changed
+        { name: 'idx_phone', columns: ['phone'], unique: false, type: 'btree' }, // added
+      ],
+      constraints: [
+        { name: 'pk_users', type: 'PRIMARY KEY', columns: ['id'] },
+        { name: 'fk_dept', type: 'FOREIGN KEY', columns: ['dept_id'], referencedTable: 'departments', onDelete: 'SET NULL' },
+      ],
+      triggers: [
+        { name: 'trg_updated', timing: 'AFTER', events: 'UPDATE', definition: 'set_updated_at()' }, // timing changed
+      ],
+      sequences: [
+        { name: 'users_id_seq', startValue: 1, increment: 1 }, // same
+      ],
+    };
+
+    const objectsDiff = computeObjectsDiff(leftObjects, rightObjects);
+
+    // idx_name differs (unique changed), idx_score removed, idx_phone added
+    expect(objectsDiff.indexes).toHaveLength(3);
+    expect(objectsDiff.indexes.find(i => i.name === 'idx_name')!.status).toBe('differs');
+    expect(objectsDiff.indexes.find(i => i.name === 'idx_score')!.status).toBe('removed');
+    expect(objectsDiff.indexes.find(i => i.name === 'idx_phone')!.status).toBe('added');
+
+    // pk_users same, fk_dept differs (onDelete)
+    expect(objectsDiff.constraints.find(c => c.name === 'pk_users')!.status).toBe('same');
+    expect(objectsDiff.constraints.find(c => c.name === 'fk_dept')!.status).toBe('differs');
+
+    // trg_updated differs (timing BEFORE -> AFTER)
+    expect(objectsDiff.triggers[0].status).toBe('differs');
+
+    // users_id_seq same
+    expect(objectsDiff.sequences[0].status).toBe('same');
+
+    // Step 4: Export as CSV
+    const csv = exportDiffAsCsv(rowDiff, ['id']);
+    const csvLines = csv.split('\n');
+    expect(csvLines[0]).toBe('_diff_status,id,name,score');
+    expect(csvLines.some(line => line.startsWith('removed'))).toBe(true);
+    expect(csvLines.some(line => line.startsWith('changed'))).toBe(true);
+    expect(csvLines.some(line => line.startsWith('added'))).toBe(true);
+    // Total lines: header + 1 removed + 2 matched + 1 added = 5
+    expect(csvLines).toHaveLength(5);
+
+    // Step 5: Export as JSON
+    const json = exportDiffAsJson(rowDiff);
+    const parsed = JSON.parse(json);
+    expect(parsed.summary).toBeDefined();
+    expect(parsed.summary.changed).toBe(1);
+    expect(parsed.summary.added).toBe(1);
+    expect(parsed.summary.removed).toBe(1);
+    expect(parsed.summary.unchanged).toBe(1);
+    expect(parsed.changed).toHaveLength(2); // matched includes both changed and unchanged
+    expect(parsed.added).toHaveLength(1);
+    expect(parsed.removed).toHaveLength(1);
+    // Verify structure of a changed entry
+    const changedEntry = parsed.changed.find((entry: { changedColumns: string[] }) => entry.changedColumns.length > 0);
+    expect(changedEntry).toBeDefined();
+    expect(changedEntry.changedColumns).toEqual(['score']);
+    expect(changedEntry.left).toBeDefined();
+    expect(changedEntry.right).toBeDefined();
   });
 });

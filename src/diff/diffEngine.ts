@@ -199,6 +199,9 @@ function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): Objec
       if ((leftIdx.type || '') !== (rightIdx.type || '')) {
         diffs.push(`type: ${leftIdx.type || '?'} → ${rightIdx.type || '?'}`);
       }
+      if ((leftIdx.predicate || '') !== (rightIdx.predicate || '')) {
+        diffs.push(`predicate: ${leftIdx.predicate || '—'} → ${rightIdx.predicate || '—'}`);
+      }
       result.push({
         name,
         status: diffs.length > 0 ? 'differs' : 'same',
@@ -248,6 +251,12 @@ function diffConstraints(leftConstraints: ConstraintInfo[], rightConstraints: Co
       }
       if (leftCon.checkExpression !== rightCon.checkExpression) {
         diffs.push(`check: ${leftCon.checkExpression || '—'} → ${rightCon.checkExpression || '—'}`);
+      }
+      if ((leftCon.onDelete || '') !== (rightCon.onDelete || '')) {
+        diffs.push(`onDelete: ${leftCon.onDelete || '—'} → ${rightCon.onDelete || '—'}`);
+      }
+      if ((leftCon.onUpdate || '') !== (rightCon.onUpdate || '')) {
+        diffs.push(`onUpdate: ${leftCon.onUpdate || '—'} → ${rightCon.onUpdate || '—'}`);
       }
       result.push({
         name,
