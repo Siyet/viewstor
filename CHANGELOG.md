@@ -2,6 +2,14 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.2] — 2026-04-13
+
+### Fixed
+- **SQLite connection fails in marketplace build** — `better-sqlite3` was in both `dependencies` (^11.9.1) and `devDependencies` (^12.8.0); VSIX shipped v11 while prebuild binary was for v12, causing `r is not a constructor`. Removed from devDependencies, aligned to ^12.8.0 ([#54](https://github.com/Siyet/viewstor/issues/54))
+- **PG array values saved with JSON brackets** — editing a `text[]` / `integer[]` column generated `SET col = '[1,2,3]'` instead of `SET col = '{1,2,3}'`. Added `pgArrayLiteral()` for correct PostgreSQL array literal serialization with proper quoting and escaping ([#55](https://github.com/Siyet/viewstor/issues/55))
+- **No feedback when cell editing is blocked** — double-clicking a non-JSON cell in a table without primary keys silently did nothing. Added `cursor:text` for editable cells and `console.warn` diagnostic in webview ([#56](https://github.com/Siyet/viewstor/issues/56))
+- **Release workflow 401 on marketplace publish** — `vsce` didn't pick up `VSCE_PAT` env var via `npx`; now passes `--pat` explicitly and verifies token before publish
+
 ## [0.3.1] — 2026-04-13
 
 ### Fixed
