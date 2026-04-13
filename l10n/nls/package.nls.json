@@ -48,5 +48,8 @@
   "command.exportGrafana": "Export to Grafana Dashboard",
   "config.grafanaUrl.description": "Grafana server URL for direct dashboard push (e.g., https://grafana.example.com).",
   "config.grafanaApiKey.description": "Grafana API key for pushing dashboards. Create a key with Editor role.",
-  "chat.command.chart": "Generate a chart visualization from a query"
+  "chat.command.chart": "Generate a chart visualization from a query",
+  "command.compareWith": "Compare With...",
+  "command.compareData": "Compare Data",
+  "config.diffRowLimit.description": "Maximum number of rows to compare per table. Larger values use more memory."
 }
