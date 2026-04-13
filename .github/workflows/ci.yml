@@ -67,3 +67,21 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=high
+
+  changeset-size:
+    name: Changeset Size
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Count changed files
+        run: |
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.event.pull_request.head.sha }}
+          COUNT=$(git diff --name-only "$BASE" "$HEAD" | wc -l)
+          echo "Changed files: $COUNT"
+          if [ "$COUNT" -ge 30 ]; then
+            echo "::warning::Large changeset: $COUNT files changed. PRs with 30+ files have historically caused cascading regressions. Consider splitting."
+          fi
