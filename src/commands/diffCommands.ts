@@ -35,6 +35,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
 
       const rowLimit = vscode.workspace.getConfiguration('viewstor').get<number>('diffRowLimit', 10000);
 
+      try {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Comparing data...') },
         async () => {
@@ -99,6 +100,10 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
           );
         },
       );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', message));
+      }
     }),
 
     // Command palette: "Compare Data"
@@ -124,6 +129,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
 
       const rowLimit = vscode.workspace.getConfiguration('viewstor').get<number>('diffRowLimit', 10000);
 
+      try {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Comparing data...') },
         async () => {
@@ -191,6 +197,10 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
           );
         },
       );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', message));
+      }
     }),
   );
 }
