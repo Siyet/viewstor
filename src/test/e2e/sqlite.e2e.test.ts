@@ -23,6 +23,18 @@ describe('SQLite native module ABI', () => {
     expect(() => require('better-sqlite3')).not.toThrow();
   });
 
+  it('better-sqlite3 exports a constructor (not a plain object)', () => {
+    // This catches the "r is not a constructor" bug from marketplace builds
+    // where version mismatch between deps/devDeps caused wrong export
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Database = require('better-sqlite3');
+    expect(typeof Database).toBe('function');
+    expect(Database.name).toBe('Database');
+    const db = new Database(':memory:');
+    expect(db).toBeDefined();
+    db.close();
+  });
+
   it('Node cache meta file contains correct ABI for current runtime', () => {
     if (!fs.existsSync(NODE_META)) {
       // Meta might not exist if cache was just created; skip gracefully
