@@ -55,13 +55,14 @@ function defaultOptions(keyColumns: string[], rowLimit = 10000): DiffOptions {
 }
 
 describe('computeRowDiff', () => {
-  it('identical tables produce zero diffs', () => {
+  it('identical tables produce zero diffs (unchanged rows included in matched)', () => {
     const rows = [
       { id: 1, name: 'Alice' },
       { id: 2, name: 'Bob' },
     ];
     const result = computeRowDiff(makeSource(rows), makeSource(rows), defaultOptions(['id']));
-    expect(result.matched).toHaveLength(0);
+    expect(result.matched).toHaveLength(2); // unchanged rows are in matched with changedColumns=[]
+    expect(result.matched.every(m => m.changedColumns.length === 0)).toBe(true);
     expect(result.leftOnly).toHaveLength(0);
     expect(result.rightOnly).toHaveLength(0);
     expect(result.summary.unchanged).toBe(2);
@@ -110,8 +111,10 @@ describe('computeRowDiff', () => {
       { org: 'A', user: 2, role: 'member' },
     ]);
     const result = computeRowDiff(left, right, defaultOptions(['org', 'user']));
-    expect(result.matched).toHaveLength(1);
-    expect(result.matched[0].changedColumns).toEqual(['role']);
+    expect(result.matched).toHaveLength(2); // 1 changed + 1 unchanged
+    const changed = result.matched.filter(m => m.changedColumns.length > 0);
+    expect(changed).toHaveLength(1);
+    expect(changed[0].changedColumns).toEqual(['role']);
     expect(result.summary.unchanged).toBe(1);
   });
 
@@ -127,7 +130,8 @@ describe('computeRowDiff', () => {
     const left = makeSource([{ id: 1, email: null }]);
     const right = makeSource([{ id: 1, email: null }]);
     const result = computeRowDiff(left, right, defaultOptions(['id']));
-    expect(result.matched).toHaveLength(0);
+    expect(result.matched).toHaveLength(1);
+    expect(result.matched[0].changedColumns).toHaveLength(0);
     expect(result.summary.unchanged).toBe(1);
   });
 
@@ -136,7 +140,8 @@ describe('computeRowDiff', () => {
     const right = makeSource([{ id: 1, count: '42' }]);
     const result = computeRowDiff(left, right, defaultOptions(['id']));
     expect(result.summary.unchanged).toBe(1);
-    expect(result.matched).toHaveLength(0);
+    expect(result.matched).toHaveLength(1);
+    expect(result.matched[0].changedColumns).toHaveLength(0);
   });
 
   it('empty tables produce zero diffs', () => {
@@ -212,7 +217,10 @@ describe('computeRowDiff', () => {
     expect(result.summary.changed).toBe(1);
     expect(result.summary.removed).toBe(1);
     expect(result.summary.added).toBe(1);
-    expect(result.matched[0].changedColumns).toEqual(['score']);
+    // matched[0] = Alice (unchanged), matched[1] = Bob (changed)
+    const changed = result.matched.filter(m => m.changedColumns.length > 0);
+    expect(changed).toHaveLength(1);
+    expect(changed[0].changedColumns).toEqual(['score']);
     expect(result.leftOnly[0].id).toBe(3);
     expect(result.rightOnly[0].id).toBe(4);
   });

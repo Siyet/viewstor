@@ -64,9 +64,8 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
           changedColumns.push(col);
         }
       }
-      if (changedColumns.length > 0) {
-        matched.push({ key, left: leftRow, right: rightRow, changedColumns });
-      } else {
+      matched.push({ key, left: leftRow, right: rightRow, changedColumns });
+      if (changedColumns.length === 0) {
         unchanged++;
       }
     } else {
@@ -92,7 +91,7 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
     summary: {
       total: leftRows.length + rightOnly.length,
       unchanged,
-      changed: matched.length,
+      changed: matched.length - unchanged,
       added: rightOnly.length,
       removed: leftOnly.length,
     },
