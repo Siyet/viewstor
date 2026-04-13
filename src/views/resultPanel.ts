@@ -353,6 +353,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   .resize-handle { position:absolute; bottom:-5px; right:-5px; width:8px; height:8px; background:var(--vscode-focusBorder); cursor:crosshair; z-index:5; border:2px solid var(--vscode-editor-background); border-radius:1px; }
   .null-val { color:var(--vscode-descriptionForeground); font-style:italic; }
   td.json-cell { cursor:pointer; }
+  td.editable { cursor:text; }
   td.search-hit { background:color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c0055) 60%, transparent) !important; }
   td.search-focus { outline:2px solid var(--vscode-editor-findMatchBorder, var(--vscode-focusBorder)) !important; background:color-mix(in srgb, var(--vscode-editor-findMatchBackground, #515c6a) 70%, transparent) !important; }
   .search-input { padding:2px 6px; font-size:12px; border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); background:var(--vscode-input-background); color:var(--vscode-input-foreground); border-radius:2px; width:160px; outline:none; }
@@ -702,7 +703,8 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
         const modClass = pendingEdits.has(key) ? ' modified' : '';
         const isComplex = row[c.name] !== null && row[c.name] !== undefined && row[c.name] !== '__DEFAULT__' && (jsonTypes.has(c.dataType) || isComplexValue(row[c.name]));
         const jsonClass = isComplex ? ' json-cell' : '';
-        return '<td data-row="' + ri + '" data-col="' + ci + '" class="' + modClass + jsonClass + '">' + formatCell(row[c.name], c) + '</td>';
+        const editClass = !IS_READONLY && !isComplex && (pkColumns.length > 0 || isNewRow) ? ' editable' : '';
+        return '<td data-row="' + ri + '" data-col="' + ci + '" class="' + modClass + jsonClass + editClass + '">' + formatCell(row[c.name], c) + '</td>';
       }).join('');
       var trClass = isNewRow ? ' class="new-row"' : isOutOfQuery ? ' class="out-of-query-row"' : '';
       return '<tr' + trClass + '>' + rowNum + cells + '</tr>';
@@ -736,7 +738,12 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
           return;
         }
         // Allow editing: existing rows need PK, new rows always editable
-        if (!IS_READONLY && (pkColumns.length > 0 || pendingNewRows.has(ri.toString()))) startEdit(td, ci, ri);
+        if (IS_READONLY) return;
+        if (pkColumns.length > 0 || pendingNewRows.has(ri.toString())) {
+          startEdit(td, ci, ri);
+        } else {
+          console.warn('[viewstor] Editing blocked: table has no primary key columns. pkColumns=', pkColumns, 'readonly=', IS_READONLY);
+        }
       });
     });
     // Row number: click selects row, right-click opens copy menu
@@ -1322,7 +1329,12 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
         openJsonInTab(typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val), rowIdx, col);
         return;
       }
-      if (!IS_READONLY && (pkColumns.length > 0 || pendingNewRows.has(rowIdx.toString()))) startEdit(td, colIdx, rowIdx);
+      if (IS_READONLY) return;
+      if (pkColumns.length > 0 || pendingNewRows.has(rowIdx.toString())) {
+        startEdit(td, colIdx, rowIdx);
+      } else {
+        console.warn('[viewstor] Editing blocked: table has no primary key columns. pkColumns=', pkColumns, 'readonly=', IS_READONLY);
+      }
     });
   }
 

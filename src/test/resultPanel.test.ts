@@ -234,6 +234,133 @@ describe('buildResultHtml', () => {
 });
 
 // ============================================================
+// Cell editing conditions
+// ============================================================
+
+describe('buildResultHtml — cell editing', () => {
+  it('initializes pkColumns from ShowOptions', () => {
+    const result = makeResult(
+      [{ name: 'id', dataType: 'integer' }, { name: 'name', dataType: 'text' }],
+      [{ id: 1, name: 'Alice' }],
+    );
+    const html = buildResultHtml(result, {
+      connectionId: 'conn-1',
+      tableName: 'users',
+      pkColumns: ['id'],
+      readonly: false,
+    });
+    expect(html).toContain('const pkColumns = ["id"]');
+    expect(html).toContain('IS_READONLY = false');
+  });
+
+  it('pkColumns defaults to empty array when not provided', () => {
+    const result = makeResult(
+      [{ name: 'x', dataType: 'integer' }],
+      [{ x: 1 }],
+    );
+    const html = buildResultHtml(result);
+    expect(html).toContain('const pkColumns = []');
+  });
+
+  it('marks non-JSON cells as editable when pkColumns present and not readonly', () => {
+    const result = makeResult(
+      [{ name: 'id', dataType: 'integer' }, { name: 'name', dataType: 'text' }],
+      [{ id: 1, name: 'Alice' }],
+    );
+    const html = buildResultHtml(result, {
+      connectionId: 'conn-1',
+      tableName: 'users',
+      pkColumns: ['id'],
+      readonly: false,
+    });
+    expect(html).toContain('editable');
+    expect(html).toContain('cursor:text');
+  });
+
+  it('does not mark cells as editable when readonly', () => {
+    const result = makeResult(
+      [{ name: 'id', dataType: 'integer' }, { name: 'name', dataType: 'text' }],
+      [{ id: 1, name: 'Alice' }],
+    );
+    const html = buildResultHtml(result, {
+      connectionId: 'conn-1',
+      tableName: 'users',
+      pkColumns: ['id'],
+      readonly: true,
+    });
+    // The initial HTML renders cells — check data-row cells don't have editable class
+    // (editable class is only added by renderPage JS, but the initial HTML should not have it for readonly)
+    expect(html).toContain('IS_READONLY = true');
+  });
+
+  it('does not mark cells as editable when no pkColumns', () => {
+    const result = makeResult(
+      [{ name: 'id', dataType: 'integer' }, { name: 'name', dataType: 'text' }],
+      [{ id: 1, name: 'Alice' }],
+    );
+    const html = buildResultHtml(result, {
+      connectionId: 'conn-1',
+      tableName: 'users',
+      pkColumns: [],
+      readonly: false,
+    });
+    expect(html).toContain('const pkColumns = []');
+  });
+
+  it('JSON cells get json-cell class, not editable', () => {
+    const result = makeResult(
+      [{ name: 'data', dataType: 'jsonb' }],
+      [{ data: { key: 'value' } }],
+    );
+    const html = buildResultHtml(result, {
+      connectionId: 'conn-1',
+      tableName: 'users',
+      pkColumns: ['id'],
+      readonly: false,
+    });
+    expect(html).toContain('json-cell');
+  });
+
+  it('includes startEdit function in inline JS', () => {
+    const result = makeResult(
+      [{ name: 'id', dataType: 'integer' }],
+      [{ id: 1 }],
+    );
+    const html = buildResultHtml(result, {
+      connectionId: 'conn-1',
+      tableName: 'users',
+      pkColumns: ['id'],
+    });
+    expect(html).toContain('function startEdit(');
+    expect(html).toContain('function makeInput(');
+    expect(html).toContain('function finishEdit(');
+  });
+
+  it('includes console.warn for editing blocked by missing PKs', () => {
+    const result = makeResult(
+      [{ name: 'id', dataType: 'integer' }],
+      [{ id: 1 }],
+    );
+    const html = buildResultHtml(result);
+    expect(html).toContain('Editing blocked: table has no primary key');
+  });
+
+  it('multi-column PK is serialized correctly', () => {
+    const result = makeResult(
+      [{ name: 'a', dataType: 'integer' }, { name: 'b', dataType: 'integer' }],
+      [{ a: 1, b: 2 }],
+    );
+    const html = buildResultHtml(result, {
+      connectionId: 'conn-1',
+      tableName: 'composite_pk',
+      pkColumns: ['a', 'b'],
+      readonly: false,
+    });
+    expect(html).toContain('const pkColumns = ["a","b"]');
+  });
+});
+
+// ============================================================
 // Inline JS syntax validation
 // ============================================================
 

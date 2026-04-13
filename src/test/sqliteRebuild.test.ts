@@ -30,6 +30,34 @@ function canLoadSqlite(): boolean {
   }
 }
 
+describe('better-sqlite3 package.json consistency', () => {
+  it('better-sqlite3 must be in dependencies (not only devDependencies)', () => {
+    const pkgPath = path.join(ROOT, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    expect(pkg.dependencies).toHaveProperty('better-sqlite3');
+  });
+
+  it('better-sqlite3 must NOT appear in devDependencies (avoids version mismatch in VSIX)', () => {
+    const pkgPath = path.join(ROOT, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    expect(pkg.devDependencies).not.toHaveProperty('better-sqlite3');
+  });
+
+  it('require("better-sqlite3") returns a constructor function', () => {
+    let Database: unknown;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      Database = require('better-sqlite3');
+    } catch {
+      // Binary may be for Electron ABI — skip when incompatible
+      return;
+    }
+    expect(typeof Database).toBe('function');
+    // Verify it's a constructor (can be called with new)
+    expect(Database).toHaveProperty('prototype');
+  });
+});
+
 describe('sqlite-rebuild.js', () => {
   let sqliteUnavailable = false;
 

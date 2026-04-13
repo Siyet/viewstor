@@ -68,9 +68,27 @@ const NUMERIC_TYPES = new Set([
 
 const JSON_TYPES = new Set(['json', 'jsonb']);
 
+/** Convert a JS array to PostgreSQL array literal: {1,2,"has spaces"} */
+function pgArrayLiteral(arr: unknown[]): string {
+  const inner = arr.map(v => {
+    if (v === null || v === undefined) return 'NULL';
+    if (Array.isArray(v)) return pgArrayLiteral(v);
+    if (typeof v === 'object') return JSON.stringify(v);
+    const s = String(v);
+    if (s === '' || /[,"{}\s]/.test(s)) return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    return s;
+  }).join(',');
+  return '{' + inner + '}';
+}
+
 /** Escape a value for SQL, respecting column type */
 export function sqlValue(val: unknown, dataType?: string): string {
   if (val === null || val === undefined) return 'NULL';
+  // PostgreSQL arrays: dataType starts with _ (e.g. _text, _int4) or contains []
+  if (Array.isArray(val)) {
+    const str = pgArrayLiteral(val);
+    return `'${str.replace(/'/g, '\'\'')}'`;
+  }
   if (typeof val === 'object') {
     const str = JSON.stringify(val);
     return `'${str.replace(/'/g, '\'\'')}'`;

@@ -253,8 +253,24 @@ describe('sqlValue', () => {
     expect(sqlValue({ key: 'value' })).toBe('\'{"key":"value"}\'');
   });
 
-  it('should JSON.stringify arrays', () => {
-    expect(sqlValue([1, 2, 3])).toBe('\'[1,2,3]\'');
+  it('should format arrays as PG array literals', () => {
+    expect(sqlValue([1, 2, 3])).toBe('\'{1,2,3}\'');
+  });
+
+  it('should format nested arrays as PG array literals', () => {
+    expect(sqlValue([[1, 2], [3, 4]])).toBe('\'{{1,2},{3,4}}\'');
+  });
+
+  it('should quote array elements containing special chars', () => {
+    expect(sqlValue(['hello world', 'a,b'])).toBe('\'{"hello world","a,b"}\'');
+  });
+
+  it('should handle NULL elements in arrays', () => {
+    expect(sqlValue([1, null, 3])).toBe('\'{1,NULL,3}\'');
+  });
+
+  it('should handle empty arrays', () => {
+    expect(sqlValue([])).toBe('\'{}\'');
   });
 
   it('should escape quotes in JSON', () => {
@@ -390,6 +406,18 @@ describe('buildUpdateSql', () => {
     });
     expect(sql).toContain('"order" = \'5\'');
     expect(sql).toContain('"type" = \'premium\'');
+  });
+
+  it('should format PG array values with curly braces', () => {
+    const sql = buildUpdateSql('users', 'public', ['id'], {
+      changes: { tags: ['admin', 'editor'], scores: [10, 20, 30] },
+      columnTypes: { tags: '_text', scores: '_int4' },
+      pkValues: { id: 1 },
+      pkTypes: { id: 'integer' },
+    });
+    expect(sql).toContain('tags = \'{admin,editor}\'');
+    expect(sql).toContain('scores = \'{10,20,30}\'');
+    expect(sql).not.toContain('[');
   });
 });
 
