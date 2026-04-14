@@ -376,8 +376,13 @@
     var leftColor = getCssVar('--vscode-charts-blue') || '#3794ff';
     var rightColor = getCssVar('--vscode-charts-green') || '#89d185';
 
-    // Matrix layout: one mini-chart per metric, up to 4 columns wide
-    var cols = Math.min(4, numericItems.length);
+    // Responsive matrix layout: choose column count from container width.
+    // Each cell needs ~240px to render two bars + value labels comfortably.
+    // Narrow window → 1 column; very wide screen → all metrics in a single row.
+    var minCellWidth = 240;
+    var containerWidth = container.clientWidth || container.parentElement.clientWidth || 800;
+    var maxCols = Math.max(1, Math.floor(containerWidth / minCellWidth));
+    var cols = Math.min(numericItems.length, maxCols);
     var rows = Math.ceil(numericItems.length / cols);
     var cellHeight = 170;
     var titleH = 22;
@@ -417,6 +422,11 @@
         top: row * cellHeight + titleH,
         bottom: totalHeight - (row + 1) * cellHeight + bottomPad,
         containLabel: false,
+        // Highlight cells where the metric differs with a translucent warning tint.
+        // grid.show must be true for backgroundColor to render.
+        show: item.status === 'differs',
+        borderWidth: 0,
+        backgroundColor: item.status === 'differs' ? 'rgba(204, 167, 0, 0.10)' : 'transparent',
       });
 
       xAxes.push({
@@ -491,12 +501,26 @@
       try { window.__diffStatsChart.dispose(); } catch (e) { /* noop */ }
     }
     window.__diffStatsChart = chart;
+    window.__diffStatsCols = cols;
 
-    if (!window.__diffStatsResize) {
-      window.__diffStatsResize = true;
-      window.addEventListener('resize', function () {
-        if (window.__diffStatsChart) window.__diffStatsChart.resize();
+    // Watch for container width changes (sidebar toggle, window resize, etc.)
+    // and rebuild the chart only when the column count would actually change.
+    if (!window.__diffStatsObserver && typeof ResizeObserver !== 'undefined') {
+      var resizeTimer = null;
+      window.__diffStatsObserver = new ResizeObserver(function (entries) {
+        if (resizeTimer) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function () {
+          if (!window.__diffStatsRendered || !window.__diffStatsChart) return;
+          var width = container.clientWidth;
+          var newCols = Math.min(numericItems.length, Math.max(1, Math.floor(width / minCellWidth)));
+          if (newCols !== window.__diffStatsCols) {
+            renderStatsChart();
+          } else {
+            window.__diffStatsChart.resize();
+          }
+        }, 120);
       });
+      window.__diffStatsObserver.observe(container.parentElement || container);
     }
   }
 
