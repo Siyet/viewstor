@@ -33,16 +33,21 @@ export function registerSchemaCommands(context: vscode.ExtensionContext, ctx: Co
         vscode.window.showWarningMessage(vscode.l10n.t('DDL generation is not supported for this connection type.'));
         return;
       }
-      let indexName: string | undefined = indexNames[0];
-      if (indexNames.length > 1) {
-        indexName = await vscode.window.showQuickPick(indexNames, {
-          placeHolder: vscode.l10n.t('Select an index to show DDL for'),
-        });
-        if (!indexName) return;
-      }
       try {
-        const ddl = await driver.getDDL(indexName, 'index', item.schemaObject.schema);
-        const doc = await vscode.workspace.openTextDocument({ content: ddl, language: 'sql' });
+        // Fetch all index DDLs in parallel; partial failures degrade gracefully
+        // by emitting a comment block in their slot rather than aborting the whole thing.
+        const schema = item.schemaObject.schema;
+        const ddls = await Promise.all(indexNames.map(async name => {
+          try {
+            return { name, sql: await driver.getDDL!(name, 'index', schema) };
+          } catch (err) {
+            return { name, sql: `-- Failed to get DDL for ${name}: ${err instanceof Error ? err.message : String(err)}` };
+          }
+        }));
+        const content = ddls.length === 1
+          ? ddls[0].sql
+          : ddls.map(({ name, sql }) => `-- ${name}\n${sql}`).join('\n\n');
+        const doc = await vscode.workspace.openTextDocument({ content, language: 'sql' });
         await vscode.window.showTextDocument(doc, { preview: true });
       } catch (err) {
         logAndShowError(vscode.l10n.t('Failed to get index DDL: {0}', err instanceof Error ? err.message : String(err)));
