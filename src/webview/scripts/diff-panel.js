@@ -231,27 +231,24 @@
 
       html += '<tr>';
       html += '<td>' + escapeHtml(col.name) + '</td>';
-      html += '<td' + (col.typeDiffers ? ' class="diff-cell-changed"' : '') + '>' + escapeHtml(col.leftType) + '</td>';
-      html += '<td' + (col.typeDiffers ? ' class="diff-cell-changed"' : '') + '>' + escapeHtml(col.rightType) + '</td>';
-      html += '<td' + (col.nullableDiffers ? ' class="diff-cell-changed"' : '') + '>' + (col.leftNullable ? 'YES' : 'NO') + '</td>';
-      html += '<td' + (col.nullableDiffers ? ' class="diff-cell-changed"' : '') + '>' + (col.rightNullable ? 'YES' : 'NO') + '</td>';
-      html += '<td' + (col.pkDiffers ? ' class="diff-cell-changed"' : '') + '>' + (col.leftIsPK ? 'YES' : 'NO') + '</td>';
-      html += '<td' + (col.pkDiffers ? ' class="diff-cell-changed"' : '') + '>' + (col.rightIsPK ? 'YES' : 'NO') + '</td>';
+      html += '<td' + (col.typeDiffers ? ' class="diff-cell-changed"' : '') + '>'
+        + escapeHtml(col.leftType) + ' / ' + escapeHtml(col.rightType) + '</td>';
+      html += '<td' + (col.nullableDiffers ? ' class="diff-cell-changed"' : '') + '>'
+        + (col.leftNullable ? 'YES' : 'NO') + ' / ' + (col.rightNullable ? 'YES' : 'NO') + '</td>';
+      html += '<td' + (col.pkDiffers ? ' class="diff-cell-changed"' : '') + '>'
+        + (col.leftIsPK ? 'YES' : 'NO') + ' / ' + (col.rightIsPK ? 'YES' : 'NO') + '</td>';
       html += '<td class="' + statusClass + '">' + statusText + '</td>';
       html += '</tr>';
     }
 
-    // Left-only columns (removed from right)
+    // Left-only columns (removed from right) — use em dash for the missing side
     for (var leftIdx = 0; leftIdx < schemaDiff.leftOnlyColumns.length; leftIdx++) {
       var leftCol = schemaDiff.leftOnlyColumns[leftIdx];
       html += '<tr class="diff-removed">';
       html += '<td>' + escapeHtml(leftCol.name) + '</td>';
-      html += '<td>' + escapeHtml(leftCol.dataType) + '</td>';
-      html += '<td class="diff-cell-empty"></td>';
-      html += '<td>' + (leftCol.nullable ? 'YES' : 'NO') + '</td>';
-      html += '<td class="diff-cell-empty"></td>';
-      html += '<td>' + (leftCol.isPrimaryKey ? 'YES' : 'NO') + '</td>';
-      html += '<td class="diff-cell-empty"></td>';
+      html += '<td>' + escapeHtml(leftCol.dataType) + ' / \u2014</td>';
+      html += '<td>' + (leftCol.nullable ? 'YES' : 'NO') + ' / \u2014</td>';
+      html += '<td>' + (leftCol.isPrimaryKey ? 'YES' : 'NO') + ' / \u2014</td>';
       html += '<td class="diff-status-removed">removed</td>';
       html += '</tr>';
     }
@@ -261,12 +258,9 @@
       var rightCol = schemaDiff.rightOnlyColumns[rightIdx];
       html += '<tr class="diff-added">';
       html += '<td>' + escapeHtml(rightCol.name) + '</td>';
-      html += '<td class="diff-cell-empty"></td>';
-      html += '<td>' + escapeHtml(rightCol.dataType) + '</td>';
-      html += '<td class="diff-cell-empty"></td>';
-      html += '<td>' + (rightCol.nullable ? 'YES' : 'NO') + '</td>';
-      html += '<td class="diff-cell-empty"></td>';
-      html += '<td>' + (rightCol.isPrimaryKey ? 'YES' : 'NO') + '</td>';
+      html += '<td>\u2014 / ' + escapeHtml(rightCol.dataType) + '</td>';
+      html += '<td>\u2014 / ' + (rightCol.nullable ? 'YES' : 'NO') + '</td>';
+      html += '<td>\u2014 / ' + (rightCol.isPrimaryKey ? 'YES' : 'NO') + '</td>';
       html += '<td class="diff-status-added">added</td>';
       html += '</tr>';
     }

@@ -235,12 +235,9 @@ export class DiffPanelManager {
         <thead>
           <tr>
             <th>Column</th>
-            <th>Left Type</th>
-            <th>Right Type</th>
-            <th>Left Nullable</th>
-            <th>Right Nullable</th>
-            <th>Left PK</th>
-            <th>Right PK</th>
+            <th>Type (${esc(state.left.label)} / ${esc(state.right.label)})</th>
+            <th>Nullable (${esc(state.left.label)} / ${esc(state.right.label)})</th>
+            <th>PK (${esc(state.left.label)} / ${esc(state.right.label)})</th>
             <th>Status</th>
           </tr>
         </thead>
