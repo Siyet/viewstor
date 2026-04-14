@@ -328,21 +328,23 @@ body {
 }
 
 /* ---- Schema diff layout ---- */
-/* CSS Grid with auto-fit: each block (columns, indexes, constraints, ...) is
-   a tile that reflows to fill available width. Narrow window = single column
-   stack, wide window = multiple tiles side-by-side. */
+/* Blocks stack vertically; the stack itself is width-capped so tables don't
+   stretch across a full ultrawide screen (unreadable). Centered horizontally. */
 .diff-schema-layout {
   flex: 1;
   overflow: auto;
   padding: 12px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(560px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
-/* objectsDiffContainer is a plain wrapper for JS-rendered blocks — make its
-   children participate in the grid directly. */
+/* JS renders object sections into this wrapper — flatten into the flex column. */
 #objectsDiffContainer {
   display: contents;
 }
