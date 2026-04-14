@@ -656,7 +656,14 @@
       });
     }
 
-    var chart = window.echarts.init(container, null, { renderer: 'svg' });
+    // Reuse existing chart instance when possible — echarts.init() returns the
+    // same instance for a container that already has one, so disposing AFTER
+    // setOption(...) destroys the chart we just rendered. Init-if-needed +
+    // setOption(option, true) is correct and avoids the flicker of re-init.
+    if (!window.__diffStatsChart) {
+      window.__diffStatsChart = window.echarts.init(container, null, { renderer: 'svg' });
+    }
+    var chart = window.__diffStatsChart;
 
     var option = {
       animation: false,
@@ -680,12 +687,10 @@
         },
       },
     };
-    chart.setOption(option);
-
-    if (window.__diffStatsChart) {
-      try { window.__diffStatsChart.dispose(); } catch (e) { /* noop */ }
-    }
-    window.__diffStatsChart = chart;
+    // notMerge: true — fully replace the option so shrinking the grid count
+    // (e.g. after a filter) doesn't leave stale series / axes behind.
+    chart.setOption(option, true);
+    chart.resize();
     window.__diffStatsCols = cols;
 
     // Watch for container width changes (sidebar toggle, window resize, etc.)
