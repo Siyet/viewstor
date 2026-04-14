@@ -196,10 +196,11 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
     expect(sequencesGroup.children!.map(c => c.name)).toContain('custom_seq');
     expect(sequencesGroup.children![0].type).toBe('sequence');
 
-    // Column detail contains data type
+    // Column detail contains the actual enum type name (not the placeholder "USER-DEFINED")
     const feedbackTable = pub.children!.find(c => c.name === 'feedback')!;
     const moodCol = feedbackTable.children!.filter(c => c.type === 'column').find(c => c.name === 'mood')!;
-    expect(moodCol.detail).toContain('USER-DEFINED');
+    expect(moodCol.detail).toContain('mood');
+    expect(moodCol.detail).not.toContain('USER-DEFINED');
   });
 
   it.each([

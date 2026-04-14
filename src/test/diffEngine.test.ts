@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, exportDiffAsCsv, exportDiffAsJson } from '../diff/diffEngine';
+import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, formatStatValue, toggleFilter, exportDiffAsCsv, exportDiffAsJson } from '../diff/diffEngine';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
-import { ColumnInfo } from '../types/schema';
+import { ColumnInfo, TableStatistic } from '../types/schema';
 
 // --- stringifyCell ---
 
@@ -611,5 +611,194 @@ describe('exportDiffAsJson', () => {
     expect(parsed.changed).toHaveLength(1);
     expect(parsed.added).toHaveLength(1);
     expect(parsed.removed).toHaveLength(0);
+  });
+});
+
+// --- computeStatsDiff ---
+
+describe('computeStatsDiff', () => {
+  const leftStats: TableStatistic[] = [
+    { key: 'row_count', label: 'Row count', value: 1000, unit: 'count' },
+    { key: 'table_size', label: 'Table size', value: 1024, unit: 'bytes' },
+    { key: 'dead_tuples', label: 'Dead tuples', value: 10, unit: 'count', badWhen: 'higher' },
+    { key: 'last_vacuum', label: 'Last vacuum', value: '2026-01-01T00:00:00Z', unit: 'date' },
+  ];
+
+  it('marks matching values as same', () => {
+    const result = computeStatsDiff(leftStats, leftStats);
+    for (const item of result.items) {
+      expect(item.status).toBe('same');
+    }
+  });
+
+  it('computes numeric delta and percent', () => {
+    const rightStats: TableStatistic[] = [
+      { key: 'row_count', label: 'Row count', value: 1500, unit: 'count' },
+      { key: 'table_size', label: 'Table size', value: 2048, unit: 'bytes' },
+    ];
+    const result = computeStatsDiff(leftStats.slice(0, 2), rightStats);
+    const rowCountItem = result.items.find(item => item.key === 'row_count')!;
+    expect(rowCountItem.delta).toBe(500);
+    expect(rowCountItem.deltaPercent).toBe(50);
+    expect(rowCountItem.status).toBe('differs');
+  });
+
+  it('handles left being 0 (no percent delta)', () => {
+    const left: TableStatistic[] = [{ key: 'idx_scan', label: 'Index scans', value: 0, unit: 'count' }];
+    const right: TableStatistic[] = [{ key: 'idx_scan', label: 'Index scans', value: 100, unit: 'count' }];
+    const result = computeStatsDiff(left, right);
+    expect(result.items[0].delta).toBe(100);
+    expect(result.items[0].deltaPercent).toBeUndefined();
+  });
+
+  it('marks left-only and right-only items', () => {
+    const left: TableStatistic[] = [{ key: 'pg_only', label: 'PG only', value: 1, unit: 'count' }];
+    const right: TableStatistic[] = [{ key: 'ch_only', label: 'CH only', value: 1, unit: 'count' }];
+    const result = computeStatsDiff(left, right);
+    const pgOnly = result.items.find(item => item.key === 'pg_only')!;
+    const chOnly = result.items.find(item => item.key === 'ch_only')!;
+    expect(pgOnly.status).toBe('leftOnly');
+    expect(pgOnly.rightValue).toBeNull();
+    expect(chOnly.status).toBe('rightOnly');
+    expect(chOnly.leftValue).toBeNull();
+  });
+
+  it('both values null → missing', () => {
+    const left: TableStatistic[] = [{ key: 'x', label: 'X', value: null, unit: 'count' }];
+    const right: TableStatistic[] = [{ key: 'x', label: 'X', value: null, unit: 'count' }];
+    const result = computeStatsDiff(left, right);
+    expect(result.items[0].status).toBe('missing');
+  });
+
+  it('preserves badWhen for coloring', () => {
+    const result = computeStatsDiff(leftStats, leftStats.map(stat =>
+      stat.key === 'dead_tuples' ? { ...stat, value: 200 } : stat
+    ));
+    const dead = result.items.find(item => item.key === 'dead_tuples')!;
+    expect(dead.badWhen).toBe('higher');
+    expect(dead.delta).toBe(190);
+  });
+
+  it('preserves order of left items and appends right-only at end', () => {
+    const left: TableStatistic[] = [
+      { key: 'a', label: 'A', value: 1, unit: 'count' },
+      { key: 'b', label: 'B', value: 2, unit: 'count' },
+    ];
+    const right: TableStatistic[] = [
+      { key: 'b', label: 'B', value: 2, unit: 'count' },
+      { key: 'c', label: 'C', value: 3, unit: 'count' },
+    ];
+    const result = computeStatsDiff(left, right);
+    expect(result.items.map(item => item.key)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('handles undefined inputs', () => {
+    expect(computeStatsDiff(undefined, undefined).items).toEqual([]);
+    expect(computeStatsDiff(leftStats, undefined).items).toHaveLength(leftStats.length);
+    expect(computeStatsDiff(undefined, leftStats).items).toHaveLength(leftStats.length);
+  });
+
+  it('string values compared as strings (no delta)', () => {
+    const left: TableStatistic[] = [{ key: 'engine', label: 'Engine', value: 'MergeTree', unit: 'text' }];
+    const right: TableStatistic[] = [{ key: 'engine', label: 'Engine', value: 'ReplacingMergeTree', unit: 'text' }];
+    const result = computeStatsDiff(left, right);
+    expect(result.items[0].status).toBe('differs');
+    expect(result.items[0].delta).toBeUndefined();
+  });
+});
+
+// --- formatStatValue ---
+
+describe('formatStatValue', () => {
+  it('null → em dash', () => {
+    expect(formatStatValue(null)).toBe('—');
+    expect(formatStatValue(null, 'bytes')).toBe('—');
+  });
+
+  it('formats bytes with binary units', () => {
+    expect(formatStatValue(512, 'bytes')).toBe('512 B');
+    expect(formatStatValue(1024, 'bytes')).toBe('1.00 KB');
+    expect(formatStatValue(1_048_576, 'bytes')).toBe('1.00 MB');
+    expect(formatStatValue(1_073_741_824, 'bytes')).toBe('1.00 GB');
+  });
+
+  it('formats count with thousands separator', () => {
+    expect(formatStatValue(1234567, 'count')).toBe('1,234,567');
+  });
+
+  it('formats percent with two decimals', () => {
+    expect(formatStatValue(12.345, 'percent')).toBe('12.35%');
+  });
+
+  it('formats date as ISO without ms', () => {
+    const formatted = formatStatValue('2026-01-01T12:34:56.789Z', 'date');
+    expect(formatted).toBe('2026-01-01 12:34:56Z');
+  });
+
+  it('text values returned as-is', () => {
+    expect(formatStatValue('MergeTree', 'text')).toBe('MergeTree');
+  });
+});
+
+// --- toggleFilter ---
+
+describe('toggleFilter', () => {
+  const rowFilters = () => ({ unchanged: true, changed: true, added: true, removed: true });
+  const twoFilters = () => ({ differs: true, same: true });
+
+  describe('plain click (solo)', () => {
+    it('activates only the clicked key, deactivates others', () => {
+      const result = toggleFilter(rowFilters(), 'changed', false);
+      expect(result).toEqual({ unchanged: false, changed: true, added: false, removed: false });
+    });
+
+    it('clicking an already-solo key keeps it solo', () => {
+      const soloState = { unchanged: false, changed: true, added: false, removed: false };
+      const result = toggleFilter(soloState, 'changed', false);
+      expect(result).toEqual(soloState);
+    });
+
+    it('works on two-filter groups (schema/stats tabs)', () => {
+      const result = toggleFilter(twoFilters(), 'differs', false);
+      expect(result).toEqual({ differs: true, same: false });
+    });
+  });
+
+  describe('shift+click (additive toggle)', () => {
+    it('toggles the clicked key, preserves others', () => {
+      const result = toggleFilter(rowFilters(), 'changed', true);
+      expect(result).toEqual({ unchanged: true, changed: false, added: true, removed: true });
+    });
+
+    it('re-activating a previously-off key preserves other state', () => {
+      const state = { unchanged: false, changed: true, added: false, removed: false };
+      const result = toggleFilter(state, 'added', true);
+      expect(result).toEqual({ unchanged: false, changed: true, added: true, removed: false });
+    });
+
+    it('blocks turning off the last active filter', () => {
+      const state = { unchanged: false, changed: true, added: false, removed: false };
+      const result = toggleFilter(state, 'changed', true);
+      expect(result).toEqual(state); // unchanged — click was blocked
+    });
+
+    it('on two-filter group, blocks emptying', () => {
+      const state = { differs: true, same: false };
+      const result = toggleFilter(state, 'differs', true);
+      expect(result).toEqual(state);
+    });
+  });
+
+  it('unknown key is ignored', () => {
+    const state = rowFilters();
+    expect(toggleFilter(state, 'nonexistent', false)).toBe(state);
+    expect(toggleFilter(state, 'nonexistent', true)).toBe(state);
+  });
+
+  it('returns a new object (does not mutate input) on successful toggle', () => {
+    const state = rowFilters();
+    const result = toggleFilter(state, 'changed', false);
+    expect(result).not.toBe(state);
+    expect(state).toEqual(rowFilters()); // original untouched
   });
 });

@@ -62,6 +62,7 @@ suite('Extension Activation', () => {
       'viewstor.exportResults',
       'viewstor.showTableData',
       'viewstor.showDDL',
+      'viewstor.showColumnIndexDDL',
       'viewstor.executeTempSql',
       'viewstor.renameHistoryEntry',
       'viewstor.createFolder',

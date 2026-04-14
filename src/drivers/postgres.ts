@@ -3,13 +3,23 @@ import { DatabaseDriver } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { CompletionItem } from '../types/driver';
-import { SchemaObject, TableInfo, ColumnInfo, TableObjects, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
 import { createSSHTunnel, createSocks5Connection, TunnelInfo } from '../connections/tunnel';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
 // Return raw strings for bigint, numeric, etc. instead of JS number
 types.setTypeParser(20, (val: string) => val); // int8
 types.setTypeParser(1700, (val: string) => val); // numeric
+
+/**
+ * PG array_agg can come back as a JS array or as a `{curly,brace}` string
+ * depending on the driver/query; normalize both to string[].
+ */
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+  if (typeof value === 'string') return value.replace(/^\{|\}$/g, '').split(',').filter(Boolean);
+  return [];
+}
 
 export class PostgresDriver implements DatabaseDriver {
   private client: Client | undefined;
@@ -152,9 +162,11 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY schemaname, viewname
     `);
 
-    // Columns per table/view
+    // Columns per table/view.
+    // For ENUM/composite types information_schema.data_type is just "USER-DEFINED";
+    // udt_name carries the actual type name (e.g. "quote_status") — surface that.
     const columnsRes = await this.client!.query(`
-      SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.is_nullable,
+      SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.udt_name, c.is_nullable,
              c.column_default,
              CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk
       FROM information_schema.columns c
@@ -176,6 +188,24 @@ export class PostgresDriver implements DatabaseDriver {
       WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
       ORDER BY schemaname, tablename, indexname
     `);
+
+    // Column → index names mapping (which indexes cover each column).
+    // Used to tint indexed columns blue in the tree and enable "Show index DDL".
+    const columnIndexesRes = await this.client!.query(`
+      SELECT n.nspname AS schema, t.relname AS tbl, a.attname AS col, i.relname AS index_name
+      FROM pg_index ix
+      JOIN pg_class i ON i.oid = ix.indexrelid
+      JOIN pg_class t ON t.oid = ix.indrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+      WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+    `);
+    const columnIndexesMap = new Map<string, string[]>();
+    for (const row of columnIndexesRes.rows) {
+      const key = `${row.schema}.${row.tbl}.${row.col}`;
+      if (!columnIndexesMap.has(key)) columnIndexesMap.set(key, []);
+      columnIndexesMap.get(key)!.push(row.index_name);
+    }
 
     // Triggers
     const triggersRes = await this.client!.query(`
@@ -200,13 +230,17 @@ export class PostgresDriver implements DatabaseDriver {
       if (!columnsMap.has(key)) columnsMap.set(key, []);
       const badges = [];
       if (row.is_pk) badges.push('PK');
-      if (row.is_nullable === 'NO' && !row.is_pk) badges.push('NOT NULL');
-      const detail = `${row.data_type}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
+      const displayType = row.data_type === 'USER-DEFINED' ? row.udt_name : row.data_type;
+      const detail = `${displayType}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
+      const indexNames = columnIndexesMap.get(`${row.table_schema}.${row.table_name}.${row.column_name}`);
+      const notNullable = row.is_nullable === 'NO' && !row.is_pk;
       columnsMap.get(key)!.push({
         name: row.column_name,
         type: 'column',
         schema: row.table_schema,
         detail,
+        indexNames: indexNames && indexNames.length > 0 ? indexNames : undefined,
+        notNullable: notNullable || undefined,
       });
     }
 
@@ -359,7 +393,7 @@ export class PostgresDriver implements DatabaseDriver {
           GROUP BY tc.constraint_name
         `, [schema, name]);
         for (const r of uniqueRes.rows) {
-          colDefs.push(`  CONSTRAINT "${r.constraint_name}" UNIQUE (${(r.columns as string[]).map((c: string) => `"${c}"`).join(', ')})`);
+          colDefs.push(`  CONSTRAINT "${r.constraint_name}" UNIQUE (${toStringArray(r.columns).map(c => `"${c}"`).join(', ')})`);
         }
 
         // Foreign keys
@@ -468,9 +502,14 @@ export class PostgresDriver implements DatabaseDriver {
       SELECT
         c.column_name,
         c.data_type,
+        c.udt_name,
         c.is_nullable,
         c.column_default,
-        CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk
+        CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk,
+        col_description(
+          (quote_ident(c.table_schema) || '.' || quote_ident(c.table_name))::regclass::oid,
+          c.ordinal_position::int
+        ) AS comment
       FROM information_schema.columns c
       LEFT JOIN (
         SELECT ku.column_name
@@ -485,10 +524,11 @@ export class PostgresDriver implements DatabaseDriver {
 
     const columns: ColumnInfo[] = res.rows.map(row => ({
       name: row.column_name,
-      dataType: row.data_type,
+      dataType: row.data_type === 'USER-DEFINED' ? row.udt_name : row.data_type,
       nullable: row.is_nullable === 'YES',
       isPrimaryKey: row.is_pk,
       defaultValue: row.column_default,
+      comment: row.comment ?? undefined,
     }));
 
     return { name, schema, columns };
@@ -572,10 +612,12 @@ export class PostgresDriver implements DatabaseDriver {
   }
 
   async getTableObjects(name: string, schema = 'public'): Promise<TableObjects> {
-    // Indexes (excluding primary key indexes)
+    // Indexes (excluding primary key indexes).
+    // indnkeyatts < indnatts means the trailing columns are INCLUDE'd (covering), not key columns.
     const indexesRes = await this.client!.query(`
       SELECT i.relname AS index_name,
-             array_agg(a.attname ORDER BY k.ordinality) AS columns,
+             array_agg(a.attname ORDER BY k.ordinality) AS all_columns,
+             ix.indnkeyatts AS nkey_atts,
              ix.indisunique AS is_unique,
              am.amname AS index_type,
              pg_get_expr(ix.indpred, ix.indrelid) AS predicate
@@ -588,24 +630,23 @@ export class PostgresDriver implements DatabaseDriver {
       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
       WHERE n.nspname = $1 AND t.relname = $2
         AND NOT ix.indisprimary
-      GROUP BY i.relname, ix.indisunique, am.amname, ix.indpred, ix.indrelid
+      GROUP BY i.relname, ix.indisunique, am.amname, ix.indpred, ix.indrelid, ix.indnkeyatts
       ORDER BY i.relname
     `, [schema, name]);
 
-    // PG array_agg can return JS array or PG {curly,brace} string depending on driver/query
-    const toStringArray = (value: unknown): string[] => {
-      if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
-      if (typeof value === 'string') return value.replace(/[{}]/g, '').split(',').filter(Boolean);
-      return [];
-    };
-
-    const indexes: IndexInfo[] = indexesRes.rows.map((row: any) => ({
-      name: row.index_name,
-      columns: toStringArray(row.columns),
-      unique: row.is_unique,
-      type: row.index_type,
-      predicate: row.predicate ?? undefined,
-    }));
+    const indexes: IndexInfo[] = indexesRes.rows.map((row: any) => {
+      const allCols = toStringArray(row.all_columns);
+      const nkey = parseInt(String(row.nkey_atts), 10) || allCols.length;
+      const included = allCols.slice(nkey);
+      return {
+        name: row.index_name,
+        columns: allCols.slice(0, nkey),
+        included: included.length > 0 ? included : undefined,
+        unique: row.is_unique,
+        type: row.index_type,
+        predicate: row.predicate ?? undefined,
+      };
+    });
 
     // Constraints
     const constraintsRes = await this.client!.query(`
@@ -696,6 +737,76 @@ export class PostgresDriver implements DatabaseDriver {
     }));
 
     return { indexes, constraints, triggers, sequences };
+  }
+
+  async getTableStatistics(name: string, schema = 'public'): Promise<TableStatistic[]> {
+    const qualified = `${quoteIdentifier(schema)}.${quoteIdentifier(name)}`;
+
+    const sizesRes = await this.client!.query(
+      `SELECT
+         pg_table_size($1::regclass)::bigint AS table_size,
+         pg_indexes_size($1::regclass)::bigint AS indexes_size,
+         pg_total_relation_size($1::regclass)::bigint AS total_size,
+         (SELECT reltuples::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $2 AND c.relname = $3) AS est_rows`,
+      [qualified, schema, name],
+    );
+    const sizes = sizesRes.rows[0] || {};
+
+    // pg_stat_user_tables is only available for tables the user can select from;
+    // for views or inaccessible tables this returns no rows — treat as missing.
+    const statRes = await this.client!.query(
+      `SELECT n_live_tup::bigint AS live_tup,
+              n_dead_tup::bigint AS dead_tup,
+              last_vacuum, last_autovacuum, last_analyze, last_autoanalyze,
+              seq_scan::bigint AS seq_scan,
+              idx_scan::bigint AS idx_scan,
+              n_tup_ins::bigint AS n_tup_ins,
+              n_tup_upd::bigint AS n_tup_upd,
+              n_tup_del::bigint AS n_tup_del
+       FROM pg_stat_user_tables
+       WHERE schemaname = $1 AND relname = $2`,
+      [schema, name],
+    );
+    const stat = statRes.rows[0] || {};
+
+    const toNumber = (value: unknown): number | null => {
+      if (value === null || value === undefined) return null;
+      const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const toDate = (value: unknown): string | null => {
+      if (!value) return null;
+      if (value instanceof Date) return value.toISOString();
+      return String(value);
+    };
+
+    const liveTuples = toNumber(stat.live_tup);
+    const deadTuples = toNumber(stat.dead_tup);
+    const deadPct = liveTuples !== null && deadTuples !== null && liveTuples + deadTuples > 0
+      ? (deadTuples / (liveTuples + deadTuples)) * 100
+      : null;
+
+    const lastVacuum = toDate(stat.last_vacuum) || toDate(stat.last_autovacuum);
+    const lastAnalyze = toDate(stat.last_analyze) || toDate(stat.last_autoanalyze);
+
+    return [
+      { key: 'row_count', label: 'Row count (estimated)', value: toNumber(sizes.est_rows), unit: 'count' },
+      { key: 'live_tuples', label: 'Live tuples', value: liveTuples, unit: 'count' },
+      { key: 'dead_tuples', label: 'Dead tuples', value: deadTuples, unit: 'count', badWhen: 'higher' },
+      { key: 'dead_tuples_pct', label: 'Dead tuples %', value: deadPct !== null ? Number(deadPct.toFixed(2)) : null, unit: 'percent', badWhen: 'higher' },
+      { key: 'table_size', label: 'Table size', value: toNumber(sizes.table_size), unit: 'bytes' },
+      { key: 'indexes_size', label: 'Indexes size', value: toNumber(sizes.indexes_size), unit: 'bytes' },
+      { key: 'total_size', label: 'Total size', value: toNumber(sizes.total_size), unit: 'bytes' },
+      { key: 'last_vacuum', label: 'Last vacuum', value: lastVacuum, unit: 'date' },
+      { key: 'last_analyze', label: 'Last analyze', value: lastAnalyze, unit: 'date' },
+      { key: 'seq_scan', label: 'Sequential scans', value: toNumber(stat.seq_scan), unit: 'count', badWhen: 'higher' },
+      { key: 'idx_scan', label: 'Index scans', value: toNumber(stat.idx_scan), unit: 'count', badWhen: 'lower' },
+      { key: 'tup_inserted', label: 'Tuples inserted', value: toNumber(stat.n_tup_ins), unit: 'count' },
+      { key: 'tup_updated', label: 'Tuples updated', value: toNumber(stat.n_tup_upd), unit: 'count' },
+      { key: 'tup_deleted', label: 'Tuples deleted', value: toNumber(stat.n_tup_del), unit: 'count' },
+    ];
   }
 
   async getCompletions(): Promise<CompletionItem[]> {

@@ -22,6 +22,38 @@ export function registerSchemaCommands(context: vscode.ExtensionContext, ctx: Co
       }
     }),
 
+    vscode.commands.registerCommand('viewstor.showColumnIndexDDL', async (item?: ConnectionTreeItem) => {
+      if (!item?.connectionId || !item.schemaObject) return;
+      const indexNames = item.schemaObject.indexNames || [];
+      if (indexNames.length === 0) return;
+      const driver = item.databaseName
+        ? await connectionManager.getDriverForDatabase(item.connectionId, item.databaseName)
+        : connectionManager.getDriver(item.connectionId);
+      if (!driver || !driver.getDDL) {
+        vscode.window.showWarningMessage(vscode.l10n.t('DDL generation is not supported for this connection type.'));
+        return;
+      }
+      try {
+        // Fetch all index DDLs in parallel; partial failures degrade gracefully
+        // by emitting a comment block in their slot rather than aborting the whole thing.
+        const schema = item.schemaObject.schema;
+        const ddls = await Promise.all(indexNames.map(async name => {
+          try {
+            return { name, sql: await driver.getDDL!(name, 'index', schema) };
+          } catch (err) {
+            return { name, sql: `-- Failed to get DDL for ${name}: ${err instanceof Error ? err.message : String(err)}` };
+          }
+        }));
+        const content = ddls.length === 1
+          ? ddls[0].sql
+          : ddls.map(({ name, sql }) => `-- ${name}\n${sql}`).join('\n\n');
+        const doc = await vscode.workspace.openTextDocument({ content, language: 'sql' });
+        await vscode.window.showTextDocument(doc, { preview: true });
+      } catch (err) {
+        logAndShowError(vscode.l10n.t('Failed to get index DDL: {0}', err instanceof Error ? err.message : String(err)));
+      }
+    }),
+
     vscode.commands.registerCommand('viewstor.copyName', async (item?: ConnectionTreeItem) => {
       const name = item?.schemaObject?.name || item?.label?.toString() || '';
       if (name) {

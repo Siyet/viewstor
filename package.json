@@ -203,6 +203,12 @@
         "category": "Viewstor"
       },
       {
+        "command": "viewstor.showColumnIndexDDL",
+        "title": "Show column indexes",
+        "category": "Viewstor",
+        "enablement": "viewItem == column-indexed"
+      },
+      {
         "command": "viewstor.executeTempSql",
         "title": "Execute SQL",
         "category": "Viewstor",
@@ -398,18 +404,23 @@
           "group": "2_data"
         },
         {
+          "command": "viewstor.showColumnIndexDDL",
+          "when": "view == viewstor.connections && viewItem =~ /^column(-indexed)?$/",
+          "group": "2_data"
+        },
+        {
           "command": "viewstor.compareWith",
           "when": "view == viewstor.connections && viewItem =~ /^(table|view)$/",
           "group": "2_data"
         },
         {
           "command": "viewstor.copyName",
-          "when": "view == viewstor.connections && viewItem =~ /^(table|view|column|index|trigger|sequence|schema|database)$/",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view|column|column-indexed|index|trigger|sequence|schema|database)$/",
           "group": "2_data"
         },
         {
           "command": "viewstor.renameObject",
-          "when": "view == viewstor.connections && viewItem =~ /^(table|view|index|sequence|column|schema|database)$/",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view|index|sequence|column|column-indexed|schema|database)$/",
           "group": "2_data"
         },
         {

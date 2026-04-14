@@ -263,18 +263,30 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
       ? vscode.TreeItemCollapsibleState.Collapsed
       : vscode.TreeItemCollapsibleState.None;
 
-    const item = new ConnectionTreeItem(obj.name, collapsible);
+    // Append a "*" to the column name when NOT NULL — universal "required" marker.
+    const label = obj.type === 'column' && obj.notNullable ? `${obj.name}\u2009*` : obj.name;
+    const item = new ConnectionTreeItem(label, collapsible);
     item.connectionId = connectionId;
     item.schemaObject = obj;
-    item.contextValue = obj.type;
+    // Indexed columns get a distinct contextValue so menus can target them
+    // (e.g. "Show index DDL" only appears for column-indexed).
+    const isIndexedColumn = obj.type === 'column' && obj.indexNames && obj.indexNames.length > 0;
+    item.contextValue = isIndexedColumn ? 'column-indexed' : obj.type;
     if (databaseName) item.databaseName = databaseName;
 
-    // Inaccessible items get error color
+    // Inaccessible items get error color. Indexed columns keep the default
+    // (white/foreground) icon to stand out; non-indexed columns get a muted
+    // gray to fade into the background.
     if (obj.inaccessible) {
       item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type), new vscode.ThemeColor('errorForeground'));
       item.tooltip = `${obj.name} — no access`;
+    } else if (obj.type === 'column' && !isIndexedColumn) {
+      item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type), new vscode.ThemeColor('descriptionForeground'));
     } else {
       item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type));
+      if (isIndexedColumn) {
+        item.tooltip = `${obj.name} — indexed by ${obj.indexNames!.join(', ')}`;
+      }
     }
 
     if (obj.detail) {

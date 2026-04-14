@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffResult } from './diffTypes';
-import { computeRowDiff, computeSchemaDiff, computeObjectsDiff, exportDiffAsCsv, exportDiffAsJson } from './diffEngine';
-import { ColumnInfo, TableObjects } from '../types/schema';
+import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffResult, StatsDiffResult } from './diffTypes';
+import { computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, exportDiffAsCsv, exportDiffAsJson } from './diffEngine';
+import { ColumnInfo, TableObjects, TableStatistic } from '../types/schema';
 
 interface DiffState {
   panel: vscode.WebviewPanel;
@@ -12,10 +12,13 @@ interface DiffState {
   rowDiff: RowDiffResult;
   schemaDiff: SchemaDiffResult | null;
   objectsDiff: ObjectsDiffResult | null;
+  statsDiff: StatsDiffResult | null;
   leftTableInfo?: { columns: ColumnInfo[] };
   rightTableInfo?: { columns: ColumnInfo[] };
   leftObjects?: TableObjects;
   rightObjects?: TableObjects;
+  leftStats?: TableStatistic[];
+  rightStats?: TableStatistic[];
   disposable: vscode.Disposable;
 }
 
@@ -32,6 +35,8 @@ export class DiffPanelManager {
     rightTableInfo?: { columns: ColumnInfo[] },
     leftObjects?: TableObjects,
     rightObjects?: TableObjects,
+    leftStats?: TableStatistic[],
+    rightStats?: TableStatistic[],
   ) {
     const rowDiff = computeRowDiff(left, right, options);
     const schemaDiff = leftTableInfo && rightTableInfo
@@ -39,6 +44,9 @@ export class DiffPanelManager {
       : null;
     const objectsDiff = (leftObjects || rightObjects)
       ? computeObjectsDiff(leftObjects, rightObjects)
+      : null;
+    const statsDiff = (leftStats || rightStats)
+      ? computeStatsDiff(leftStats, rightStats)
       : null;
 
     const panelTitle = `Diff \u2014 ${left.label} \u2194 ${right.label}`;
@@ -53,10 +61,13 @@ export class DiffPanelManager {
       state.rowDiff = rowDiff;
       state.schemaDiff = schemaDiff;
       state.objectsDiff = objectsDiff;
+      state.statsDiff = statsDiff;
       state.leftTableInfo = leftTableInfo;
       state.rightTableInfo = rightTableInfo;
       state.leftObjects = leftObjects;
       state.rightObjects = rightObjects;
+      state.leftStats = leftStats;
+      state.rightStats = rightStats;
     } else {
       const panel = vscode.window.createWebviewPanel(
         'viewstor.diff',
@@ -82,10 +93,13 @@ export class DiffPanelManager {
         rowDiff,
         schemaDiff,
         objectsDiff,
+        statsDiff,
         leftTableInfo,
         rightTableInfo,
         leftObjects,
         rightObjects,
+        leftStats,
+        rightStats,
         disposable: new vscode.Disposable(() => {}),
       };
       this.diffs.set(panelKey, state);
@@ -122,13 +136,17 @@ export class DiffPanelManager {
 
         case 'swapSides': {
           // Swap left and right sources and re-compute
-          const swappedLeft = state.right;
-          const swappedRight = state.left;
-          const swappedLeftInfo = state.rightTableInfo;
-          const swappedRightInfo = state.leftTableInfo;
-          const swappedLeftObjects = state.rightObjects;
-          const swappedRightObjects = state.leftObjects;
-          this.show(swappedLeft, swappedRight, state.options, swappedLeftInfo, swappedRightInfo, swappedLeftObjects, swappedRightObjects);
+          this.show(
+            state.right,
+            state.left,
+            state.options,
+            state.rightTableInfo,
+            state.leftTableInfo,
+            state.rightObjects,
+            state.leftObjects,
+            state.rightStats,
+            state.leftStats,
+          );
           break;
         }
       }
@@ -139,12 +157,14 @@ export class DiffPanelManager {
     const distUri = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
     const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'diff-panel.css'));
     const jsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'diff-panel.js'));
+    const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
     const cspSource = webview.cspSource;
 
     const diffData = {
       rowDiff: state.rowDiff,
       schemaDiff: state.schemaDiff,
       objectsDiff: state.objectsDiff,
+      statsDiff: state.statsDiff,
       leftLabel: state.left.label,
       rightLabel: state.right.label,
       keyColumns: state.options.keyColumns,
@@ -152,6 +172,34 @@ export class DiffPanelManager {
 
     const summary = state.rowDiff.summary;
     const hasSchema = !!state.schemaDiff;
+    const hasStats = !!state.statsDiff;
+
+    // Counts for Schema Diff tab: "differs" bundles type/nullable/pk/comment diffs + added/removed columns + non-same objects
+    let schemaDiffers = 0, schemaSame = 0;
+    if (state.schemaDiff) {
+      for (const col of state.schemaDiff.commonColumns) {
+        if (col.typeDiffers || col.nullableDiffers || col.pkDiffers || col.commentDiffers) schemaDiffers++;
+        else schemaSame++;
+      }
+      schemaDiffers += state.schemaDiff.leftOnlyColumns.length + state.schemaDiff.rightOnlyColumns.length;
+    }
+    if (state.objectsDiff) {
+      for (const group of [state.objectsDiff.indexes, state.objectsDiff.constraints, state.objectsDiff.triggers, state.objectsDiff.sequences]) {
+        for (const item of group) {
+          if (item.status === 'same') schemaSame++;
+          else schemaDiffers++;
+        }
+      }
+    }
+
+    // Counts for Statistics tab
+    let statsDiffers = 0, statsSame = 0;
+    if (state.statsDiff) {
+      for (const item of state.statsDiff.items) {
+        if (item.status === 'same' || item.status === 'missing') statsSame++;
+        else statsDiffers++;
+      }
+    }
 
     return `<!DOCTYPE html>
 <html>
@@ -164,13 +212,29 @@ export class DiffPanelManager {
   <div class="diff-tab-bar">
     <button class="diff-tab active" data-tab="rows">Row Diff</button>
     <button class="diff-tab" data-tab="schema">Schema Diff</button>
+    ${hasStats ? '<button class="diff-tab" data-tab="stats">Statistics</button>' : ''}
   </div>
 
   <div class="diff-summary">
-    <span class="diff-badge unchanged">${esc(String(summary.unchanged))} unchanged</span>
-    <span class="diff-badge changed">${esc(String(summary.changed))} changed</span>
-    <span class="diff-badge added">${esc(String(summary.added))} added</span>
-    <span class="diff-badge removed">${esc(String(summary.removed))} removed</span>
+    <div class="diff-summary-filters" data-for="rows">
+      <span class="diff-badge-filter unchanged active" data-filter="unchanged">${esc(String(summary.unchanged))} unchanged</span>
+      <span class="diff-badge-filter changed active" data-filter="changed">${esc(String(summary.changed))} changed</span>
+      <span class="diff-badge-filter added active" data-filter="added">${esc(String(summary.added))} added</span>
+      <span class="diff-badge-filter removed active" data-filter="removed">${esc(String(summary.removed))} removed</span>
+    </div>
+    ${hasSchema ? `
+    <div class="diff-summary-filters hidden" data-for="schema">
+      <span class="diff-badge-filter differs active" data-filter="differs">${esc(String(schemaDiffers))} differs</span>
+      <span class="diff-badge-filter same active" data-filter="same">${esc(String(schemaSame))} same</span>
+    </div>
+    ` : ''}
+    ${hasStats ? `
+    <div class="diff-summary-filters hidden" data-for="stats">
+      <span class="diff-badge-filter differs active" data-filter="differs">${esc(String(statsDiffers))} differs</span>
+      <span class="diff-badge-filter same active" data-filter="same">${esc(String(statsSame))} same</span>
+    </div>
+    ` : ''}
+    <span class="diff-filter-hint" title="Shift+click a badge to toggle multiple at once">Click to filter · Shift+click for multi-select</span>
     <span class="diff-summary-spacer"></span>
     <button id="swapSides" title="Swap left and right sides">\u21C4 Swap</button>
     <button id="exportCsv">Export CSV</button>
@@ -180,14 +244,6 @@ export class DiffPanelManager {
   ${state.rowDiff.truncated ? '<div class="diff-truncated">Results truncated to row limit. Increase the limit to see all differences.</div>' : ''}
 
   <div id="panel-rows" class="diff-tab-panel active">
-    <div class="diff-filter-bar">
-      <span class="diff-filter-label">Filter:</span>
-      <button class="diff-filter-btn active" data-filter="all">All</button>
-      <button class="diff-filter-btn" data-filter="changed">Changed</button>
-      <button class="diff-filter-btn" data-filter="unchanged">Unchanged</button>
-      <button class="diff-filter-btn" data-filter="added">Added</button>
-      <button class="diff-filter-btn" data-filter="removed">Removed</button>
-    </div>
     <div class="diff-tables-container">
       <div class="diff-table-pane" id="leftPane">
         <div class="diff-table-pane-header" id="leftHeader">${esc(state.left.label)}</div>
@@ -208,28 +264,45 @@ export class DiffPanelManager {
 
   <div id="panel-schema" class="diff-tab-panel">
     ${hasSchema ? `
-    <div class="diff-schema-container">
-      <table class="diff-schema-table">
-        <thead>
-          <tr>
-            <th>Column</th>
-            <th>Left Type</th>
-            <th>Right Type</th>
-            <th>Left Nullable</th>
-            <th>Right Nullable</th>
-            <th>Left PK</th>
-            <th>Right PK</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="schemaTableBody"></tbody>
-      </table>
+    <div class="diff-schema-layout">
+      <div class="diff-schema-block diff-schema-columns-block">
+        <h3 class="diff-section-title">Columns</h3>
+        <div class="diff-schema-block-scroll">
+          <table class="diff-schema-table">
+            <thead>
+              <tr>
+                <th>Column</th>
+                <th>Type<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+                <th>Nullable<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+                <th>PK<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+                <th>Comment<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+                <th>Indexed by<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+              </tr>
+            </thead>
+            <tbody id="schemaTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="objectsDiffContainer"></div>
     </div>
     ` : '<div class="diff-no-schema">Schema diff not available (table info not provided)</div>'}
-    <div id="objectsDiffContainer"></div>
   </div>
 
+  ${hasStats ? `
+  <div id="panel-stats" class="diff-tab-panel">
+    <div class="diff-stats-container">
+      <div class="diff-stats-legend">
+        <span class="diff-stats-legend-item"><span class="diff-stats-swatch diff-stats-swatch-left"></span>${esc(state.left.label)}</span>
+        <span class="diff-stats-legend-item"><span class="diff-stats-swatch diff-stats-swatch-right"></span>${esc(state.right.label)}</span>
+      </div>
+      <div id="statsChart"></div>
+      <div id="statsNonNumeric"></div>
+    </div>
+  </div>
+  ` : ''}
+
   <script>window.diffData = ${safeJsonForScript(diffData)};</script>
+  ${hasStats ? `<script src="${echartsUri}"></script>` : ''}
   <script src="${jsUri}"></script>
 </body>
 </html>`;

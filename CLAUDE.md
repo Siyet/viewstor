@@ -31,7 +31,7 @@ F5 in VS Code → Extension Development Host. Reload Window picks up new `dist/`
 
 Required methods: `connect`, `disconnect`, `ping`, `execute`, `getSchema`, `getTableInfo`, `getTableData`.
 
-Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff).
+Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff), `getTableStatistics` (row count, sizes, vacuum info, scan counters — used by stats diff tab; PG uses `pg_table_size`/`pg_indexes_size` + `pg_stat_user_tables`, CH uses `system.tables` + `system.parts`, SQLite uses `COUNT(*)` + optional `dbstat` vtable).
 
 Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
 
@@ -101,13 +101,13 @@ Multi-source: `ChartDataSource` in config, resolved via `PinnedQueryProvider` (i
 Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana push.
 
 ### Data Diff
-`src/diff/diffEngine.ts` — pure functions: `computeRowDiff()` matches rows by key columns (PK or user-specified), compares all non-key columns by stringifying values. `computeSchemaDiff()` compares column names, types, nullability, PK status. `computeObjectsDiff()` compares indexes, constraints, triggers, sequences. `exportDiffAsCsv()` / `exportDiffAsJson()` for diff export. No vscode dependency, fully unit-tested.
+`src/diff/diffEngine.ts` — pure functions: `computeRowDiff()` matches rows by key columns (PK or user-specified), compares all non-key columns by stringifying values. `computeSchemaDiff()` compares column names, types, nullability, PK status. `computeObjectsDiff()` compares indexes, constraints, triggers, sequences. `computeStatsDiff()` compares table-level statistics key-by-key, computes numeric delta + percent, preserves `badWhen` hint for red/green coloring. `formatStatValue()` formats bytes/count/percent/date. `exportDiffAsCsv()` / `exportDiffAsJson()` for diff export. No vscode dependency, fully unit-tested.
 
-`src/diff/diffTypes.ts` — `DiffSource`, `DiffOptions`, `RowDiffResult`, `MatchedRow`, `SchemaDiffResult`, `ColumnCompare`, `ObjectsDiffResult`, `ObjectDiffItem`.
+`src/diff/diffTypes.ts` — `DiffSource`, `DiffOptions`, `RowDiffResult`, `MatchedRow`, `SchemaDiffResult`, `ColumnCompare`, `ObjectsDiffResult`, `ObjectDiffItem`, `StatsDiffResult`, `StatsDiffItem`.
 
-`src/diff/diffPanel.ts` — `DiffPanelManager`, webview panel for side-by-side diff visualization. Row diff tab (added/removed/changed rows with cell-level highlighting) and Schema diff tab (column comparison). Export as CSV/JSON. Swap sides button.
+`src/diff/diffPanel.ts` — `DiffPanelManager`, webview panel for side-by-side diff visualization. Row diff tab (added/removed/changed rows with cell-level highlighting), Schema diff tab (column comparison + objects), Statistics tab (horizontal bar chart built with ECharts — each row normalized to its own max so bytes/counts/percents are visually comparable; non-numeric metrics rendered in a small table below). Export as CSV/JSON. Swap sides button. Loads `dist/scripts/echarts.min.js` only when stats are present.
 
-`src/commands/diffCommands.ts` — `viewstor.compareWith` (context menu on tables), `viewstor.compareData` (command palette). Auto-detects PK columns; prompts user if no PK found. Fetches data from both sources, computes diff, opens panel.
+`src/commands/diffCommands.ts` — `viewstor.compareWith` (context menu on tables), `viewstor.compareData` (command palette). Auto-detects PK columns; prompts user if no PK found. Fetches data + objects + statistics from both sources (stats only when both connections are the same `type`), computes diff, opens panel.
 
 Settings: `viewstor.diffRowLimit` (default 10000, max 100000).
 

@@ -7,6 +7,11 @@ export interface SchemaObject {
   detail?: string;
   /** Mark as inaccessible (no permissions) — renders with error color */
   inaccessible?: boolean;
+  /** For column nodes: names of indexes that cover this column. Used for blue
+   *  tint in the tree and the "Show index DDL" context menu item. */
+  indexNames?: string[];
+  /** For column nodes: column is NOT NULL. Tree appends a "*" to the label. */
+  notNullable?: boolean;
 }
 
 export type SchemaObjectType =
@@ -47,6 +52,8 @@ export interface IndexInfo {
   type?: string;
   /** Partial index WHERE clause */
   predicate?: string;
+  /** Non-key "covering" columns from PG's INCLUDE (col1, col2) clause */
+  included?: string[];
 }
 
 export interface ConstraintInfo {
@@ -90,4 +97,23 @@ export interface TableObjects {
   constraints: ConstraintInfo[];
   triggers: TriggerInfo[];
   sequences: SequenceInfo[];
+}
+
+/** A single table-level statistic (row count, size, last vacuum, etc.) */
+export interface TableStatistic {
+  /** Stable identifier, e.g. "row_count", "table_size" */
+  key: string;
+  /** Human-readable label */
+  label: string;
+  /** Raw value (numbers compared for delta, strings compared as-is, null = not available) */
+  value: number | string | null;
+  /** Hint for formatting: bytes → KB/MB/GB, count → thousands separator, date → ISO timestamp */
+  unit?: 'bytes' | 'count' | 'percent' | 'date' | 'text';
+  /**
+   * For numeric stats, direction in which a larger value is considered "worse" (red):
+   *   "higher-is-worse" — dead tuples, seq scans
+   *   "lower-is-worse" — idx scans, row count (sometimes)
+   *   undefined — neutral, no color coding
+   */
+  badWhen?: 'higher' | 'lower';
 }

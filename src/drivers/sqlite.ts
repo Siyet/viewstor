@@ -2,7 +2,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
-import { SchemaObject, TableInfo, ColumnInfo, TableObjects, IndexInfo, ConstraintInfo, TriggerInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
 // Lazy-load better-sqlite3 to avoid crashing the entire extension on ABI mismatch.
@@ -363,6 +363,35 @@ export class SqliteDriver implements DatabaseDriver {
     return { indexes, constraints, triggers, sequences: [] };
   }
 
+  async getTableStatistics(name: string): Promise<TableStatistic[]> {
+    const rowCount = this.getRowCountSync(name);
+
+    // Count indexes for the table
+    const idxCount = this.db!.prepare(
+      'SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type = ? AND tbl_name = ?'
+    ).get('index', name) as { cnt: number };
+
+    const triggerCount = this.db!.prepare(
+      'SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type = ? AND tbl_name = ?'
+    ).get('trigger', name) as { cnt: number };
+
+    // dbstat is an optional virtual table — present when SQLite is built with SQLITE_ENABLE_DBSTAT_VTAB.
+    let tableSize: number | null = null;
+    try {
+      const row = this.db!.prepare(
+        'SELECT SUM(pgsize) AS sz FROM dbstat WHERE name = ?'
+      ).get(name) as { sz: number | null };
+      tableSize = row?.sz ?? null;
+    } catch { /* dbstat unavailable */ }
+
+    return [
+      { key: 'row_count', label: 'Row count', value: rowCount, unit: 'count' },
+      { key: 'table_size', label: 'Table size', value: tableSize, unit: 'bytes' },
+      { key: 'index_count', label: 'Index count', value: idxCount.cnt, unit: 'count' },
+      { key: 'trigger_count', label: 'Trigger count', value: triggerCount.cnt, unit: 'count' },
+    ];
+  }
+
   // --- Private helpers ---
 
   private getColumnsForTable(tableName: string): SchemaObject[] {
@@ -370,12 +399,32 @@ export class SqliteDriver implements DatabaseDriver {
       cid: number; name: string; type: string; notnull: number; dflt_value: string | null; pk: number;
     }>;
 
+    // Build column → index names map for this table
+    const idxList = this.db!.prepare(`PRAGMA index_list(${quoteIdentifier(tableName)})`).all() as Array<{
+      name: string;
+    }>;
+    const colToIndexes = new Map<string, string[]>();
+    for (const idx of idxList) {
+      const cols = this.db!.prepare(`PRAGMA index_info(${quoteIdentifier(idx.name)})`).all() as Array<{ name: string }>;
+      for (const col of cols) {
+        if (!colToIndexes.has(col.name)) colToIndexes.set(col.name, []);
+        colToIndexes.get(col.name)!.push(idx.name);
+      }
+    }
+
     return pragmaRows.map(row => {
       const badges: string[] = [];
       if (row.pk > 0) badges.push('PK');
-      if (row.notnull === 1 && row.pk === 0) badges.push('NOT NULL');
       const detail = `${row.type || 'TEXT'}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
-      return { name: row.name, type: 'column' as const, detail };
+      const indexNames = colToIndexes.get(row.name);
+      const notNullable = row.notnull === 1 && row.pk === 0;
+      return {
+        name: row.name,
+        type: 'column' as const,
+        detail,
+        indexNames: indexNames && indexNames.length > 0 ? indexNames : undefined,
+        notNullable: notNullable || undefined,
+      };
     });
   }
 

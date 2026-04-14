@@ -48,6 +48,7 @@ export interface ColumnDiffInfo {
   dataType: string;
   nullable: boolean;
   isPrimaryKey: boolean;
+  comment?: string;
 }
 
 export interface ColumnCompare {
@@ -61,21 +62,48 @@ export interface ColumnCompare {
   leftIsPK: boolean;
   rightIsPK: boolean;
   pkDiffers: boolean;
+  leftComment?: string;
+  rightComment?: string;
+  commentDiffers: boolean;
 }
 
 // --- Schema objects diff (indexes, constraints, triggers, sequences) ---
 
-export interface ObjectDiffItem {
+export interface ObjectDiffItem<T = unknown> {
   name: string;
   status: 'same' | 'differs' | 'added' | 'removed';
   leftDetail?: string;
   rightDetail?: string;
+  /** Structured info for the left side — the concrete type depends on which section this item belongs to. */
+  left?: T;
+  /** Structured info for the right side. */
+  right?: T;
   differences?: string[];
 }
 
 export interface ObjectsDiffResult {
-  indexes: ObjectDiffItem[];
-  constraints: ObjectDiffItem[];
-  triggers: ObjectDiffItem[];
-  sequences: ObjectDiffItem[];
+  indexes: ObjectDiffItem<import('../types/schema').IndexInfo>[];
+  constraints: ObjectDiffItem<import('../types/schema').ConstraintInfo>[];
+  triggers: ObjectDiffItem<import('../types/schema').TriggerInfo>[];
+  sequences: ObjectDiffItem<import('../types/schema').SequenceInfo>[];
+}
+
+// --- Statistics diff (row count, sizes, vacuum info, scan counters) ---
+
+export interface StatsDiffItem {
+  key: string;
+  label: string;
+  unit?: 'bytes' | 'count' | 'percent' | 'date' | 'text';
+  badWhen?: 'higher' | 'lower';
+  leftValue: number | string | null;
+  rightValue: number | string | null;
+  /** Absolute delta (right - left) for numeric values. Undefined if either side is non-numeric. */
+  delta?: number;
+  /** Percentage delta relative to left. Undefined when left is 0 or values non-numeric. */
+  deltaPercent?: number;
+  status: 'same' | 'differs' | 'leftOnly' | 'rightOnly' | 'missing';
+}
+
+export interface StatsDiffResult {
+  items: StatsDiffItem[];
 }

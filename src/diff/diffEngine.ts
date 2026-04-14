@@ -1,5 +1,5 @@
-import { ColumnInfo, TableObjects, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
-import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult } from './diffTypes';
+import { ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
+import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult } from './diffTypes';
 
 /**
  * Stringify a cell value for comparison.
@@ -124,6 +124,7 @@ export function computeSchemaDiff(leftColumns: ColumnInfo[], rightColumns: Colum
         dataType: leftCol.dataType,
         nullable: leftCol.nullable,
         isPrimaryKey: leftCol.isPrimaryKey,
+        comment: leftCol.comment,
       });
     } else {
       commonColumns.push({
@@ -137,6 +138,9 @@ export function computeSchemaDiff(leftColumns: ColumnInfo[], rightColumns: Colum
         leftIsPK: leftCol.isPrimaryKey,
         rightIsPK: rightCol.isPrimaryKey,
         pkDiffers: leftCol.isPrimaryKey !== rightCol.isPrimaryKey,
+        leftComment: leftCol.comment,
+        rightComment: rightCol.comment,
+        commentDiffers: (leftCol.comment || '') !== (rightCol.comment || ''),
       });
     }
   }
@@ -149,6 +153,7 @@ export function computeSchemaDiff(leftColumns: ColumnInfo[], rightColumns: Colum
         dataType: rightCol.dataType,
         nullable: rightCol.nullable,
         isPrimaryKey: rightCol.isPrimaryKey,
+        comment: rightCol.comment,
       });
     }
   }
@@ -175,10 +180,10 @@ export function computeObjectsDiff(
   };
 }
 
-function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): ObjectDiffItem[] {
+function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): ObjectDiffItem<IndexInfo>[] {
   const leftMap = new Map(leftIndexes.map(idx => [idx.name, idx]));
   const rightMap = new Map(rightIndexes.map(idx => [idx.name, idx]));
-  const result: ObjectDiffItem[] = [];
+  const result: ObjectDiffItem<IndexInfo>[] = [];
 
   for (const [name, leftIdx] of leftMap) {
     const rightIdx = rightMap.get(name);
@@ -187,6 +192,7 @@ function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): Objec
         name,
         status: 'removed',
         leftDetail: formatIndex(leftIdx),
+        left: leftIdx,
       });
     } else {
       const diffs: string[] = [];
@@ -202,11 +208,18 @@ function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): Objec
       if ((leftIdx.predicate || '') !== (rightIdx.predicate || '')) {
         diffs.push(`predicate: ${leftIdx.predicate || '—'} → ${rightIdx.predicate || '—'}`);
       }
+      const leftInc = (leftIdx.included || []).join(',');
+      const rightInc = (rightIdx.included || []).join(',');
+      if (leftInc !== rightInc) {
+        diffs.push(`included: (${leftInc || '—'}) → (${rightInc || '—'})`);
+      }
       result.push({
         name,
         status: diffs.length > 0 ? 'differs' : 'same',
         leftDetail: formatIndex(leftIdx),
         rightDetail: formatIndex(rightIdx),
+        left: leftIdx,
+        right: rightIdx,
         differences: diffs.length > 0 ? diffs : undefined,
       });
     }
@@ -218,6 +231,7 @@ function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): Objec
         name,
         status: 'added',
         rightDetail: formatIndex(rightIdx),
+        right: rightIdx,
       });
     }
   }
@@ -231,15 +245,15 @@ function formatIndex(idx: IndexInfo): string {
   return parts.filter(Boolean).join(' ').trim();
 }
 
-function diffConstraints(leftConstraints: ConstraintInfo[], rightConstraints: ConstraintInfo[]): ObjectDiffItem[] {
+function diffConstraints(leftConstraints: ConstraintInfo[], rightConstraints: ConstraintInfo[]): ObjectDiffItem<ConstraintInfo>[] {
   const leftMap = new Map(leftConstraints.map(constraint => [constraint.name, constraint]));
   const rightMap = new Map(rightConstraints.map(constraint => [constraint.name, constraint]));
-  const result: ObjectDiffItem[] = [];
+  const result: ObjectDiffItem<ConstraintInfo>[] = [];
 
   for (const [name, leftCon] of leftMap) {
     const rightCon = rightMap.get(name);
     if (!rightCon) {
-      result.push({ name, status: 'removed', leftDetail: formatConstraint(leftCon) });
+      result.push({ name, status: 'removed', leftDetail: formatConstraint(leftCon), left: leftCon });
     } else {
       const diffs: string[] = [];
       if (leftCon.type !== rightCon.type) diffs.push(`type: ${leftCon.type} → ${rightCon.type}`);
@@ -263,6 +277,8 @@ function diffConstraints(leftConstraints: ConstraintInfo[], rightConstraints: Co
         status: diffs.length > 0 ? 'differs' : 'same',
         leftDetail: formatConstraint(leftCon),
         rightDetail: formatConstraint(rightCon),
+        left: leftCon,
+        right: rightCon,
         differences: diffs.length > 0 ? diffs : undefined,
       });
     }
@@ -270,7 +286,7 @@ function diffConstraints(leftConstraints: ConstraintInfo[], rightConstraints: Co
 
   for (const [name, rightCon] of rightMap) {
     if (!leftMap.has(name)) {
-      result.push({ name, status: 'added', rightDetail: formatConstraint(rightCon) });
+      result.push({ name, status: 'added', rightDetail: formatConstraint(rightCon), right: rightCon });
     }
   }
 
@@ -284,15 +300,15 @@ function formatConstraint(constraint: ConstraintInfo): string {
   return detail;
 }
 
-function diffTriggers(leftTriggers: TriggerInfo[], rightTriggers: TriggerInfo[]): ObjectDiffItem[] {
+function diffTriggers(leftTriggers: TriggerInfo[], rightTriggers: TriggerInfo[]): ObjectDiffItem<TriggerInfo>[] {
   const leftMap = new Map(leftTriggers.map(trigger => [trigger.name, trigger]));
   const rightMap = new Map(rightTriggers.map(trigger => [trigger.name, trigger]));
-  const result: ObjectDiffItem[] = [];
+  const result: ObjectDiffItem<TriggerInfo>[] = [];
 
   for (const [name, leftTrig] of leftMap) {
     const rightTrig = rightMap.get(name);
     if (!rightTrig) {
-      result.push({ name, status: 'removed', leftDetail: formatTrigger(leftTrig) });
+      result.push({ name, status: 'removed', leftDetail: formatTrigger(leftTrig), left: leftTrig });
     } else {
       const diffs: string[] = [];
       if (leftTrig.timing !== rightTrig.timing) diffs.push(`timing: ${leftTrig.timing} → ${rightTrig.timing}`);
@@ -303,6 +319,8 @@ function diffTriggers(leftTriggers: TriggerInfo[], rightTriggers: TriggerInfo[])
         status: diffs.length > 0 ? 'differs' : 'same',
         leftDetail: formatTrigger(leftTrig),
         rightDetail: formatTrigger(rightTrig),
+        left: leftTrig,
+        right: rightTrig,
         differences: diffs.length > 0 ? diffs : undefined,
       });
     }
@@ -310,7 +328,7 @@ function diffTriggers(leftTriggers: TriggerInfo[], rightTriggers: TriggerInfo[])
 
   for (const [name, rightTrig] of rightMap) {
     if (!leftMap.has(name)) {
-      result.push({ name, status: 'added', rightDetail: formatTrigger(rightTrig) });
+      result.push({ name, status: 'added', rightDetail: formatTrigger(rightTrig), right: rightTrig });
     }
   }
 
@@ -321,15 +339,15 @@ function formatTrigger(trigger: TriggerInfo): string {
   return `${trigger.timing} ${trigger.events}${trigger.definition ? ` → ${trigger.definition}` : ''}`;
 }
 
-function diffSequences(leftSequences: SequenceInfo[], rightSequences: SequenceInfo[]): ObjectDiffItem[] {
+function diffSequences(leftSequences: SequenceInfo[], rightSequences: SequenceInfo[]): ObjectDiffItem<SequenceInfo>[] {
   const leftMap = new Map(leftSequences.map(seq => [seq.name, seq]));
   const rightMap = new Map(rightSequences.map(seq => [seq.name, seq]));
-  const result: ObjectDiffItem[] = [];
+  const result: ObjectDiffItem<SequenceInfo>[] = [];
 
   for (const [name, leftSeq] of leftMap) {
     const rightSeq = rightMap.get(name);
     if (!rightSeq) {
-      result.push({ name, status: 'removed', leftDetail: formatSequence(leftSeq) });
+      result.push({ name, status: 'removed', leftDetail: formatSequence(leftSeq), left: leftSeq });
     } else {
       const diffs: string[] = [];
       if (leftSeq.increment !== rightSeq.increment) diffs.push(`increment: ${leftSeq.increment} → ${rightSeq.increment}`);
@@ -339,6 +357,8 @@ function diffSequences(leftSequences: SequenceInfo[], rightSequences: SequenceIn
         status: diffs.length > 0 ? 'differs' : 'same',
         leftDetail: formatSequence(leftSeq),
         rightDetail: formatSequence(rightSeq),
+        left: leftSeq,
+        right: rightSeq,
         differences: diffs.length > 0 ? diffs : undefined,
       });
     }
@@ -346,7 +366,7 @@ function diffSequences(leftSequences: SequenceInfo[], rightSequences: SequenceIn
 
   for (const [name, rightSeq] of rightMap) {
     if (!leftMap.has(name)) {
-      result.push({ name, status: 'added', rightDetail: formatSequence(rightSeq) });
+      result.push({ name, status: 'added', rightDetail: formatSequence(rightSeq), right: rightSeq });
     }
   }
 
@@ -359,6 +379,132 @@ function formatSequence(seq: SequenceInfo): string {
   if (seq.startValue !== undefined) parts.push(`start=${seq.startValue}`);
   if (seq.increment !== undefined) parts.push(`inc=${seq.increment}`);
   return parts.join(', ') || seq.name;
+}
+
+/**
+ * Apply a badge-filter click to a set of toggleable filters.
+ *
+ * Plain click: solo — activate only the clicked key, deactivate all others.
+ * Shift+click: additive toggle — flip the clicked key, leave others as-is.
+ *   Blocked from emptying the state: if the toggle would leave everything
+ *   off, the previous state is returned unchanged.
+ *
+ * Unknown keys are ignored (state returned unchanged).
+ *
+ * Pure function — the same logic lives in the webview JS by necessity
+ * (different bundle), so changes here must be mirrored in diff-panel.js.
+ */
+export function toggleFilter(
+  state: Record<string, boolean>,
+  key: string,
+  shift: boolean,
+): Record<string, boolean> {
+  if (!(key in state)) return state;
+
+  if (shift) {
+    const next = { ...state, [key]: !state[key] };
+    const hasAny = Object.keys(next).some(k => next[k]);
+    return hasAny ? next : state;
+  }
+
+  const result: Record<string, boolean> = {};
+  for (const k of Object.keys(state)) {
+    result[k] = k === key;
+  }
+  return result;
+}
+
+/**
+ * Compute diff between two lists of table statistics.
+ * Matches items by key, preserves order of left (right-only items appended at the end).
+ */
+export function computeStatsDiff(
+  leftStats: TableStatistic[] | undefined,
+  rightStats: TableStatistic[] | undefined,
+): StatsDiffResult {
+  const left = leftStats || [];
+  const right = rightStats || [];
+  const rightMap = new Map(right.map(stat => [stat.key, stat]));
+
+  const items: StatsDiffItem[] = [];
+  const seen = new Set<string>();
+
+  for (const leftStat of left) {
+    seen.add(leftStat.key);
+    const rightStat = rightMap.get(leftStat.key);
+    items.push(buildStatsDiffItem(leftStat, rightStat));
+  }
+
+  for (const rightStat of right) {
+    if (seen.has(rightStat.key)) continue;
+    items.push(buildStatsDiffItem(undefined, rightStat));
+  }
+
+  return { items };
+}
+
+function buildStatsDiffItem(leftStat: TableStatistic | undefined, rightStat: TableStatistic | undefined): StatsDiffItem {
+  const ref = leftStat || rightStat!;
+  const leftValue = leftStat ? leftStat.value : null;
+  const rightValue = rightStat ? rightStat.value : null;
+
+  let status: StatsDiffItem['status'];
+  if (!leftStat) status = 'rightOnly';
+  else if (!rightStat) status = 'leftOnly';
+  else if (leftValue === null && rightValue === null) status = 'missing';
+  else if (String(leftValue) === String(rightValue)) status = 'same';
+  else status = 'differs';
+
+  let delta: number | undefined;
+  let deltaPercent: number | undefined;
+  if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+    delta = rightValue - leftValue;
+    if (leftValue !== 0) {
+      deltaPercent = (delta / Math.abs(leftValue)) * 100;
+    }
+  }
+
+  return {
+    key: ref.key,
+    label: ref.label,
+    unit: ref.unit,
+    badWhen: ref.badWhen,
+    leftValue,
+    rightValue,
+    delta,
+    deltaPercent,
+    status,
+  };
+}
+
+/**
+ * Format a statistic value for display. Pure function, used by both host and webview.
+ */
+export function formatStatValue(value: number | string | null, unit?: TableStatistic['unit']): string {
+  if (value === null || value === undefined) return '—';
+  if (unit === 'date') {
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? String(value) : date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z');
+  }
+  if (typeof value === 'string') return value;
+  if (unit === 'bytes') return formatBytes(value);
+  if (unit === 'count') return formatCount(value);
+  if (unit === 'percent') return `${value.toFixed(2)}%`;
+  return String(value);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const abs = Math.abs(bytes);
+  if (abs >= 1_099_511_627_776) return `${(bytes / 1_099_511_627_776).toFixed(2)} TB`;
+  if (abs >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(2)} GB`;
+  if (abs >= 1_048_576) return `${(bytes / 1_048_576).toFixed(2)} MB`;
+  if (abs >= 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+  return `${bytes} B`;
+}
+
+function formatCount(count: number): string {
+  return count.toLocaleString('en-US');
 }
 
 /**
