@@ -53,19 +53,43 @@
   });
 
   // ---- Badge-as-filter clicks ----
+  // Plain click = solo (only the clicked badge stays on).
+  // Shift+click = additive toggle (flip the clicked, keep the rest).
+  // Mirror of toggleFilter() in src/diff/diffEngine.ts — keep them in sync.
+  function applyToggle(state, key, shift) {
+    if (!(key in state)) return state;
+    if (shift) {
+      var next = Object.assign({}, state);
+      next[key] = !next[key];
+      var hasAny = false;
+      for (var k in next) if (next[k]) { hasAny = true; break; }
+      return hasAny ? next : state;
+    }
+    var result = {};
+    for (var k2 in state) result[k2] = (k2 === key);
+    return result;
+  }
+
+  function syncBadgeStates(tabKey) {
+    var group = document.querySelector('.diff-summary-filters[data-for="' + tabKey + '"]');
+    if (!group) return;
+    var state = activeFilters[tabKey];
+    group.querySelectorAll('.diff-badge-filter').forEach(function (b) {
+      b.classList.toggle('active', !!state[b.dataset.filter]);
+    });
+  }
+
   const filterBadges = document.querySelectorAll('.diff-badge-filter');
   filterBadges.forEach(function (badge) {
-    badge.addEventListener('click', function () {
+    badge.addEventListener('click', function (evt) {
       var tabKey = badge.parentElement.dataset.for;
       var filterKey = badge.dataset.filter;
       var state = activeFilters[tabKey];
       if (!state) return;
-      // Prevent turning off the last active filter in a group — leaves at least one visible
-      var activeCount = 0;
-      for (var k in state) if (state[k]) activeCount++;
-      if (state[filterKey] && activeCount === 1) return;
-      state[filterKey] = !state[filterKey];
-      badge.classList.toggle('active', state[filterKey]);
+      var nextState = applyToggle(state, filterKey, !!evt.shiftKey);
+      if (nextState === state) return; // no-op (blocked or unknown key)
+      activeFilters[tabKey] = nextState;
+      syncBadgeStates(tabKey);
       if (tabKey === 'rows') renderRowDiff();
       else if (tabKey === 'schema') { renderSchemaDiff(); renderObjectsDiff(); }
       else if (tabKey === 'stats' && window.__diffStatsRendered) renderStatsDiff();

@@ -234,6 +234,7 @@ export class DiffPanelManager {
       <span class="diff-badge-filter same active" data-filter="same">${esc(String(statsSame))} same</span>
     </div>
     ` : ''}
+    <span class="diff-filter-hint" title="Shift+click a badge to toggle multiple at once">Click to filter · Shift+click for multi-select</span>
     <span class="diff-summary-spacer"></span>
     <button id="swapSides" title="Swap left and right sides">\u21C4 Swap</button>
     <button id="exportCsv">Export CSV</button>

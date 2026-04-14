@@ -147,6 +147,13 @@ body {
   flex: 1;
 }
 
+.diff-filter-hint {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+  margin-left: 4px;
+}
+
 .diff-summary button {
   background: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);

@@ -362,6 +362,39 @@ function formatSequence(seq: SequenceInfo): string {
 }
 
 /**
+ * Apply a badge-filter click to a set of toggleable filters.
+ *
+ * Plain click: solo — activate only the clicked key, deactivate all others.
+ * Shift+click: additive toggle — flip the clicked key, leave others as-is.
+ *   Blocked from emptying the state: if the toggle would leave everything
+ *   off, the previous state is returned unchanged.
+ *
+ * Unknown keys are ignored (state returned unchanged).
+ *
+ * Pure function — the same logic lives in the webview JS by necessity
+ * (different bundle), so changes here must be mirrored in diff-panel.js.
+ */
+export function toggleFilter(
+  state: Record<string, boolean>,
+  key: string,
+  shift: boolean,
+): Record<string, boolean> {
+  if (!(key in state)) return state;
+
+  if (shift) {
+    const next = { ...state, [key]: !state[key] };
+    const hasAny = Object.keys(next).some(k => next[k]);
+    return hasAny ? next : state;
+  }
+
+  const result: Record<string, boolean> = {};
+  for (const k of Object.keys(state)) {
+    result[k] = k === key;
+  }
+  return result;
+}
+
+/**
  * Compute diff between two lists of table statistics.
  * Matches items by key, preserves order of left (right-only items appended at the end).
  */

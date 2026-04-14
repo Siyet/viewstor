@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, formatStatValue, exportDiffAsCsv, exportDiffAsJson } from '../diff/diffEngine';
+import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, formatStatValue, toggleFilter, exportDiffAsCsv, exportDiffAsJson } from '../diff/diffEngine';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
 import { ColumnInfo, TableStatistic } from '../types/schema';
 
@@ -737,5 +737,68 @@ describe('formatStatValue', () => {
 
   it('text values returned as-is', () => {
     expect(formatStatValue('MergeTree', 'text')).toBe('MergeTree');
+  });
+});
+
+// --- toggleFilter ---
+
+describe('toggleFilter', () => {
+  const rowFilters = () => ({ unchanged: true, changed: true, added: true, removed: true });
+  const twoFilters = () => ({ differs: true, same: true });
+
+  describe('plain click (solo)', () => {
+    it('activates only the clicked key, deactivates others', () => {
+      const result = toggleFilter(rowFilters(), 'changed', false);
+      expect(result).toEqual({ unchanged: false, changed: true, added: false, removed: false });
+    });
+
+    it('clicking an already-solo key keeps it solo', () => {
+      const soloState = { unchanged: false, changed: true, added: false, removed: false };
+      const result = toggleFilter(soloState, 'changed', false);
+      expect(result).toEqual(soloState);
+    });
+
+    it('works on two-filter groups (schema/stats tabs)', () => {
+      const result = toggleFilter(twoFilters(), 'differs', false);
+      expect(result).toEqual({ differs: true, same: false });
+    });
+  });
+
+  describe('shift+click (additive toggle)', () => {
+    it('toggles the clicked key, preserves others', () => {
+      const result = toggleFilter(rowFilters(), 'changed', true);
+      expect(result).toEqual({ unchanged: true, changed: false, added: true, removed: true });
+    });
+
+    it('re-activating a previously-off key preserves other state', () => {
+      const state = { unchanged: false, changed: true, added: false, removed: false };
+      const result = toggleFilter(state, 'added', true);
+      expect(result).toEqual({ unchanged: false, changed: true, added: true, removed: false });
+    });
+
+    it('blocks turning off the last active filter', () => {
+      const state = { unchanged: false, changed: true, added: false, removed: false };
+      const result = toggleFilter(state, 'changed', true);
+      expect(result).toEqual(state); // unchanged — click was blocked
+    });
+
+    it('on two-filter group, blocks emptying', () => {
+      const state = { differs: true, same: false };
+      const result = toggleFilter(state, 'differs', true);
+      expect(result).toEqual(state);
+    });
+  });
+
+  it('unknown key is ignored', () => {
+    const state = rowFilters();
+    expect(toggleFilter(state, 'nonexistent', false)).toBe(state);
+    expect(toggleFilter(state, 'nonexistent', true)).toBe(state);
+  });
+
+  it('returns a new object (does not mutate input) on successful toggle', () => {
+    const state = rowFilters();
+    const result = toggleFilter(state, 'changed', false);
+    expect(result).not.toBe(state);
+    expect(state).toEqual(rowFilters()); // original untouched
   });
 });
