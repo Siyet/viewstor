@@ -340,15 +340,28 @@ body {
 .diff-schema-columns,
 .diff-schema-objects {
   min-width: 0;
+  overflow-x: auto;
 }
 
 @media (min-width: 1400px) {
   .diff-schema-layout {
     flex-direction: row;
     align-items: flex-start;
+    gap: 24px;
   }
-  .diff-schema-columns { flex: 1 1 60%; }
-  .diff-schema-objects { flex: 1 1 40%; }
+  .diff-schema-columns { flex: 1 1 0; min-width: 0; }
+  .diff-schema-objects { flex: 1 1 0; min-width: 0; }
+}
+
+/* Gray italic second-line source labels under column headers */
+.diff-th-sub {
+  display: block;
+  font-weight: normal;
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  margin-top: 2px;
+  white-space: nowrap;
 }
 
 /* ---- Schema diff table ---- */

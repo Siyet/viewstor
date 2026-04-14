@@ -271,11 +271,11 @@ export class DiffPanelManager {
           <thead>
             <tr>
               <th>Column</th>
-              <th>Type (${esc(state.left.label)} / ${esc(state.right.label)})</th>
-              <th>Nullable (${esc(state.left.label)} / ${esc(state.right.label)})</th>
-              <th>PK (${esc(state.left.label)} / ${esc(state.right.label)})</th>
-              <th>Comment (${esc(state.left.label)} / ${esc(state.right.label)})</th>
-              <th>Indexed by (${esc(state.left.label)} / ${esc(state.right.label)})</th>
+              <th>Type<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+              <th>Nullable<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+              <th>PK<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+              <th>Comment<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+              <th>Indexed by<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
             </tr>
           </thead>
           <tbody id="schemaTableBody"></tbody>

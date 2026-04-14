@@ -382,6 +382,10 @@
       return arr && arr.length > 0 ? arr.join(', ') : '';
     }
 
+    // Source-labelled table header for "left / right" cells
+    var sub = '<span class="diff-th-sub">' + escapeHtml(leftLabel) + ' / ' + escapeHtml(rightLabel) + '</span>';
+    function pairTh(title) { return '<th>' + escapeHtml(title) + sub + '</th>'; }
+
     var html = '';
 
     // --- Indexes ---
@@ -389,7 +393,7 @@
     if (indexItems.length > 0) {
       html += '<h3 class="diff-section-title">Indexes (' + indexItems.length + ')</h3>';
       html += '<table class="diff-schema-table"><thead><tr>';
-      html += '<th>Name</th><th>Unique</th><th>Type</th><th>Columns</th><th>Included</th><th>Predicate</th>';
+      html += '<th>Name</th>' + pairTh('Unique') + pairTh('Type') + pairTh('Columns') + pairTh('Included') + pairTh('Predicate');
       html += '</tr></thead><tbody>';
       for (var ii = 0; ii < indexItems.length; ii++) {
         var idx = indexItems[ii];
@@ -416,7 +420,7 @@
     if (conItems.length > 0) {
       html += '<h3 class="diff-section-title">Constraints (' + conItems.length + ')</h3>';
       html += '<table class="diff-schema-table"><thead><tr>';
-      html += '<th>Name</th><th>Type</th><th>Columns</th><th>References</th><th>On Delete</th><th>On Update</th><th>Check</th>';
+      html += '<th>Name</th>' + pairTh('Type') + pairTh('Columns') + pairTh('References') + pairTh('On Delete') + pairTh('On Update') + pairTh('Check');
       html += '</tr></thead><tbody>';
       for (var ci = 0; ci < conItems.length; ci++) {
         var con = conItems[ci];
@@ -445,7 +449,7 @@
     if (trgItems.length > 0) {
       html += '<h3 class="diff-section-title">Triggers (' + trgItems.length + ')</h3>';
       html += '<table class="diff-schema-table"><thead><tr>';
-      html += '<th>Name</th><th>Timing</th><th>Events</th><th>Definition</th>';
+      html += '<th>Name</th>' + pairTh('Timing') + pairTh('Events') + pairTh('Definition');
       html += '</tr></thead><tbody>';
       for (var ti = 0; ti < trgItems.length; ti++) {
         var trg = trgItems[ti];
@@ -467,7 +471,7 @@
     if (seqItems.length > 0) {
       html += '<h3 class="diff-section-title">Sequences (' + seqItems.length + ')</h3>';
       html += '<table class="diff-schema-table"><thead><tr>';
-      html += '<th>Name</th><th>Data type</th><th>Start</th><th>Increment</th>';
+      html += '<th>Name</th>' + pairTh('Data type') + pairTh('Start') + pairTh('Increment');
       html += '</tr></thead><tbody>';
       for (var si = 0; si < seqItems.length; si++) {
         var seq = seqItems[si];
