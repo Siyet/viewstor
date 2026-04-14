@@ -91,3 +91,22 @@ export interface TableObjects {
   triggers: TriggerInfo[];
   sequences: SequenceInfo[];
 }
+
+/** A single table-level statistic (row count, size, last vacuum, etc.) */
+export interface TableStatistic {
+  /** Stable identifier, e.g. "row_count", "table_size" */
+  key: string;
+  /** Human-readable label */
+  label: string;
+  /** Raw value (numbers compared for delta, strings compared as-is, null = not available) */
+  value: number | string | null;
+  /** Hint for formatting: bytes → KB/MB/GB, count → thousands separator, date → ISO timestamp */
+  unit?: 'bytes' | 'count' | 'percent' | 'date' | 'text';
+  /**
+   * For numeric stats, direction in which a larger value is considered "worse" (red):
+   *   "higher-is-worse" — dead tuples, seq scans
+   *   "lower-is-worse" — idx scans, row count (sometimes)
+   *   undefined — neutral, no color coding
+   */
+  badWhen?: 'higher' | 'lower';
+}

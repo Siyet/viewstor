@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffResult } from './diffTypes';
-import { computeRowDiff, computeSchemaDiff, computeObjectsDiff, exportDiffAsCsv, exportDiffAsJson } from './diffEngine';
-import { ColumnInfo, TableObjects } from '../types/schema';
+import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffResult, StatsDiffResult } from './diffTypes';
+import { computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, exportDiffAsCsv, exportDiffAsJson } from './diffEngine';
+import { ColumnInfo, TableObjects, TableStatistic } from '../types/schema';
 
 interface DiffState {
   panel: vscode.WebviewPanel;
@@ -12,10 +12,13 @@ interface DiffState {
   rowDiff: RowDiffResult;
   schemaDiff: SchemaDiffResult | null;
   objectsDiff: ObjectsDiffResult | null;
+  statsDiff: StatsDiffResult | null;
   leftTableInfo?: { columns: ColumnInfo[] };
   rightTableInfo?: { columns: ColumnInfo[] };
   leftObjects?: TableObjects;
   rightObjects?: TableObjects;
+  leftStats?: TableStatistic[];
+  rightStats?: TableStatistic[];
   disposable: vscode.Disposable;
 }
 
@@ -32,6 +35,8 @@ export class DiffPanelManager {
     rightTableInfo?: { columns: ColumnInfo[] },
     leftObjects?: TableObjects,
     rightObjects?: TableObjects,
+    leftStats?: TableStatistic[],
+    rightStats?: TableStatistic[],
   ) {
     const rowDiff = computeRowDiff(left, right, options);
     const schemaDiff = leftTableInfo && rightTableInfo
@@ -39,6 +44,9 @@ export class DiffPanelManager {
       : null;
     const objectsDiff = (leftObjects || rightObjects)
       ? computeObjectsDiff(leftObjects, rightObjects)
+      : null;
+    const statsDiff = (leftStats || rightStats)
+      ? computeStatsDiff(leftStats, rightStats)
       : null;
 
     const panelTitle = `Diff \u2014 ${left.label} \u2194 ${right.label}`;
@@ -53,10 +61,13 @@ export class DiffPanelManager {
       state.rowDiff = rowDiff;
       state.schemaDiff = schemaDiff;
       state.objectsDiff = objectsDiff;
+      state.statsDiff = statsDiff;
       state.leftTableInfo = leftTableInfo;
       state.rightTableInfo = rightTableInfo;
       state.leftObjects = leftObjects;
       state.rightObjects = rightObjects;
+      state.leftStats = leftStats;
+      state.rightStats = rightStats;
     } else {
       const panel = vscode.window.createWebviewPanel(
         'viewstor.diff',
@@ -82,10 +93,13 @@ export class DiffPanelManager {
         rowDiff,
         schemaDiff,
         objectsDiff,
+        statsDiff,
         leftTableInfo,
         rightTableInfo,
         leftObjects,
         rightObjects,
+        leftStats,
+        rightStats,
         disposable: new vscode.Disposable(() => {}),
       };
       this.diffs.set(panelKey, state);
@@ -122,13 +136,17 @@ export class DiffPanelManager {
 
         case 'swapSides': {
           // Swap left and right sources and re-compute
-          const swappedLeft = state.right;
-          const swappedRight = state.left;
-          const swappedLeftInfo = state.rightTableInfo;
-          const swappedRightInfo = state.leftTableInfo;
-          const swappedLeftObjects = state.rightObjects;
-          const swappedRightObjects = state.leftObjects;
-          this.show(swappedLeft, swappedRight, state.options, swappedLeftInfo, swappedRightInfo, swappedLeftObjects, swappedRightObjects);
+          this.show(
+            state.right,
+            state.left,
+            state.options,
+            state.rightTableInfo,
+            state.leftTableInfo,
+            state.rightObjects,
+            state.leftObjects,
+            state.rightStats,
+            state.leftStats,
+          );
           break;
         }
       }
@@ -145,6 +163,7 @@ export class DiffPanelManager {
       rowDiff: state.rowDiff,
       schemaDiff: state.schemaDiff,
       objectsDiff: state.objectsDiff,
+      statsDiff: state.statsDiff,
       leftLabel: state.left.label,
       rightLabel: state.right.label,
       keyColumns: state.options.keyColumns,
@@ -152,6 +171,7 @@ export class DiffPanelManager {
 
     const summary = state.rowDiff.summary;
     const hasSchema = !!state.schemaDiff;
+    const hasStats = !!state.statsDiff;
 
     return `<!DOCTYPE html>
 <html>
@@ -164,6 +184,7 @@ export class DiffPanelManager {
   <div class="diff-tab-bar">
     <button class="diff-tab active" data-tab="rows">Row Diff</button>
     <button class="diff-tab" data-tab="schema">Schema Diff</button>
+    ${hasStats ? '<button class="diff-tab" data-tab="stats">Statistics</button>' : ''}
   </div>
 
   <div class="diff-summary">
@@ -228,6 +249,25 @@ export class DiffPanelManager {
     ` : '<div class="diff-no-schema">Schema diff not available (table info not provided)</div>'}
     <div id="objectsDiffContainer"></div>
   </div>
+
+  ${hasStats ? `
+  <div id="panel-stats" class="diff-tab-panel">
+    <div class="diff-schema-container">
+      <table class="diff-schema-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>${esc(state.left.label)}</th>
+            <th>${esc(state.right.label)}</th>
+            <th>Delta</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="statsTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+  ` : ''}
 
   <script>window.diffData = ${safeJsonForScript(diffData)};</script>
   <script src="${jsUri}"></script>

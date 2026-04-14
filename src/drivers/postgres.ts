@@ -3,7 +3,7 @@ import { DatabaseDriver } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { CompletionItem } from '../types/driver';
-import { SchemaObject, TableInfo, ColumnInfo, TableObjects, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
 import { createSSHTunnel, createSocks5Connection, TunnelInfo } from '../connections/tunnel';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
@@ -696,6 +696,76 @@ export class PostgresDriver implements DatabaseDriver {
     }));
 
     return { indexes, constraints, triggers, sequences };
+  }
+
+  async getTableStatistics(name: string, schema = 'public'): Promise<TableStatistic[]> {
+    const qualified = `${quoteIdentifier(schema)}.${quoteIdentifier(name)}`;
+
+    const sizesRes = await this.client!.query(
+      `SELECT
+         pg_table_size($1::regclass)::bigint AS table_size,
+         pg_indexes_size($1::regclass)::bigint AS indexes_size,
+         pg_total_relation_size($1::regclass)::bigint AS total_size,
+         (SELECT reltuples::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $2 AND c.relname = $3) AS est_rows`,
+      [qualified, schema, name],
+    );
+    const sizes = sizesRes.rows[0] || {};
+
+    // pg_stat_user_tables is only available for tables the user can select from;
+    // for views or inaccessible tables this returns no rows — treat as missing.
+    const statRes = await this.client!.query(
+      `SELECT n_live_tup::bigint AS live_tup,
+              n_dead_tup::bigint AS dead_tup,
+              last_vacuum, last_autovacuum, last_analyze, last_autoanalyze,
+              seq_scan::bigint AS seq_scan,
+              idx_scan::bigint AS idx_scan,
+              n_tup_ins::bigint AS n_tup_ins,
+              n_tup_upd::bigint AS n_tup_upd,
+              n_tup_del::bigint AS n_tup_del
+       FROM pg_stat_user_tables
+       WHERE schemaname = $1 AND relname = $2`,
+      [schema, name],
+    );
+    const stat = statRes.rows[0] || {};
+
+    const toNumber = (value: unknown): number | null => {
+      if (value === null || value === undefined) return null;
+      const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const toDate = (value: unknown): string | null => {
+      if (!value) return null;
+      if (value instanceof Date) return value.toISOString();
+      return String(value);
+    };
+
+    const liveTuples = toNumber(stat.live_tup);
+    const deadTuples = toNumber(stat.dead_tup);
+    const deadPct = liveTuples !== null && deadTuples !== null && liveTuples + deadTuples > 0
+      ? (deadTuples / (liveTuples + deadTuples)) * 100
+      : null;
+
+    const lastVacuum = toDate(stat.last_vacuum) || toDate(stat.last_autovacuum);
+    const lastAnalyze = toDate(stat.last_analyze) || toDate(stat.last_autoanalyze);
+
+    return [
+      { key: 'row_count', label: 'Row count (estimated)', value: toNumber(sizes.est_rows), unit: 'count' },
+      { key: 'live_tuples', label: 'Live tuples', value: liveTuples, unit: 'count' },
+      { key: 'dead_tuples', label: 'Dead tuples', value: deadTuples, unit: 'count', badWhen: 'higher' },
+      { key: 'dead_tuples_pct', label: 'Dead tuples %', value: deadPct !== null ? Number(deadPct.toFixed(2)) : null, unit: 'percent', badWhen: 'higher' },
+      { key: 'table_size', label: 'Table size', value: toNumber(sizes.table_size), unit: 'bytes' },
+      { key: 'indexes_size', label: 'Indexes size', value: toNumber(sizes.indexes_size), unit: 'bytes' },
+      { key: 'total_size', label: 'Total size', value: toNumber(sizes.total_size), unit: 'bytes' },
+      { key: 'last_vacuum', label: 'Last vacuum', value: lastVacuum, unit: 'date' },
+      { key: 'last_analyze', label: 'Last analyze', value: lastAnalyze, unit: 'date' },
+      { key: 'seq_scan', label: 'Sequential scans', value: toNumber(stat.seq_scan), unit: 'count', badWhen: 'higher' },
+      { key: 'idx_scan', label: 'Index scans', value: toNumber(stat.idx_scan), unit: 'count', badWhen: 'lower' },
+      { key: 'tup_inserted', label: 'Tuples inserted', value: toNumber(stat.n_tup_ins), unit: 'count' },
+      { key: 'tup_updated', label: 'Tuples updated', value: toNumber(stat.n_tup_upd), unit: 'count' },
+      { key: 'tup_deleted', label: 'Tuples deleted', value: toNumber(stat.n_tup_del), unit: 'count' },
+    ];
   }
 
   async getCompletions(): Promise<CompletionItem[]> {

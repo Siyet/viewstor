@@ -9,6 +9,7 @@
   const rowDiff = data.rowDiff;
   const schemaDiff = data.schemaDiff;
   const objectsDiff = data.objectsDiff;
+  const statsDiff = data.statsDiff;
   const leftLabel = data.leftLabel || 'Left';
   const rightLabel = data.rightLabel || 'Right';
   const keyColumns = data.keyColumns || [];
@@ -305,6 +306,82 @@
     container.innerHTML = html;
   }
 
+  // ---- Format statistic value ----
+  function formatStatValue(value, unit) {
+    if (value === null || value === undefined) return '<span class="diff-cell-empty">\u2014</span>';
+    if (unit === 'date') {
+      var date = new Date(value);
+      return escapeHtml(isNaN(date.getTime()) ? String(value) : date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z'));
+    }
+    if (typeof value === 'string') return escapeHtml(value);
+    if (unit === 'bytes') return escapeHtml(formatBytes(value));
+    if (unit === 'count') return escapeHtml(value.toLocaleString('en-US'));
+    if (unit === 'percent') return escapeHtml(value.toFixed(2) + '%');
+    return escapeHtml(String(value));
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    var abs = Math.abs(bytes);
+    if (abs >= 1099511627776) return (bytes / 1099511627776).toFixed(2) + ' TB';
+    if (abs >= 1073741824) return (bytes / 1073741824).toFixed(2) + ' GB';
+    if (abs >= 1048576) return (bytes / 1048576).toFixed(2) + ' MB';
+    if (abs >= 1024) return (bytes / 1024).toFixed(2) + ' KB';
+    return bytes + ' B';
+  }
+
+  function formatDelta(item) {
+    if (item.delta === undefined) return '<span class="diff-cell-empty">\u2014</span>';
+    if (item.delta === 0) return '0';
+    var sign = item.delta > 0 ? '+' : '';
+    var deltaStr;
+    if (item.unit === 'bytes') deltaStr = sign + formatBytes(item.delta);
+    else if (item.unit === 'percent') deltaStr = sign + item.delta.toFixed(2) + 'pp';
+    else deltaStr = sign + item.delta.toLocaleString('en-US');
+    if (item.deltaPercent !== undefined && item.unit !== 'percent') {
+      deltaStr += ' (' + (item.deltaPercent > 0 ? '+' : '') + item.deltaPercent.toFixed(1) + '%)';
+    }
+    return escapeHtml(deltaStr);
+  }
+
+  function deltaColorClass(item) {
+    if (item.delta === undefined || item.delta === 0 || !item.badWhen) return '';
+    var worse = (item.badWhen === 'higher' && item.delta > 0) || (item.badWhen === 'lower' && item.delta < 0);
+    return worse ? 'diff-stat-worse' : 'diff-stat-better';
+  }
+
+  // ---- Render stats diff ----
+  function renderStatsDiff() {
+    var body = document.getElementById('statsTableBody');
+    if (!body || !statsDiff) return;
+
+    var html = '';
+    for (var statIdx = 0; statIdx < statsDiff.items.length; statIdx++) {
+      var item = statsDiff.items[statIdx];
+      var rowClass = '';
+      if (item.status === 'leftOnly') rowClass = 'diff-removed';
+      else if (item.status === 'rightOnly') rowClass = 'diff-added';
+      else if (item.status === 'differs') rowClass = 'diff-changed';
+
+      var statusClass = 'diff-status-' + (item.status === 'same' ? 'same'
+        : item.status === 'differs' ? 'differs'
+        : item.status === 'leftOnly' ? 'removed'
+        : item.status === 'rightOnly' ? 'added'
+        : 'same');
+
+      var deltaClass = deltaColorClass(item);
+
+      html += '<tr' + (rowClass ? ' class="' + rowClass + '"' : '') + '>';
+      html += '<td>' + escapeHtml(item.label) + '</td>';
+      html += '<td>' + formatStatValue(item.leftValue, item.unit) + '</td>';
+      html += '<td>' + formatStatValue(item.rightValue, item.unit) + '</td>';
+      html += '<td' + (deltaClass ? ' class="' + deltaClass + '"' : '') + '>' + formatDelta(item) + '</td>';
+      html += '<td class="' + statusClass + '">' + escapeHtml(item.status === 'missing' ? 'n/a' : item.status) + '</td>';
+      html += '</tr>';
+    }
+    body.innerHTML = html;
+  }
+
   // ---- Handle messages from host ----
   window.addEventListener('message', function (event) {
     var msg = event.data;
@@ -337,4 +414,5 @@
   renderRowDiff();
   renderSchemaDiff();
   renderObjectsDiff();
+  renderStatsDiff();
 })();

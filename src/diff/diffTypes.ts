@@ -79,3 +79,23 @@ export interface ObjectsDiffResult {
   triggers: ObjectDiffItem[];
   sequences: ObjectDiffItem[];
 }
+
+// --- Statistics diff (row count, sizes, vacuum info, scan counters) ---
+
+export interface StatsDiffItem {
+  key: string;
+  label: string;
+  unit?: 'bytes' | 'count' | 'percent' | 'date' | 'text';
+  badWhen?: 'higher' | 'lower';
+  leftValue: number | string | null;
+  rightValue: number | string | null;
+  /** Absolute delta (right - left) for numeric values. Undefined if either side is non-numeric. */
+  delta?: number;
+  /** Percentage delta relative to left. Undefined when left is 0 or values non-numeric. */
+  deltaPercent?: number;
+  status: 'same' | 'differs' | 'leftOnly' | 'rightOnly' | 'missing';
+}
+
+export interface StatsDiffResult {
+  items: StatsDiffItem[];
+}

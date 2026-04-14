@@ -339,6 +339,17 @@ body {
   color: var(--vscode-descriptionForeground);
 }
 
+/* ---- Stats diff delta coloring ---- */
+.diff-stat-worse {
+  color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39);
+  font-weight: 600;
+}
+
+.diff-stat-better {
+  color: var(--vscode-gitDecoration-addedResourceForeground, #81b88b);
+  font-weight: 600;
+}
+
 /* ---- Key column indicator ---- */
 .diff-key-col {
   color: var(--vscode-symbolIcon-keyForeground, var(--vscode-foreground));

@@ -58,6 +58,18 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             ]);
           } catch { /* schema objects unavailable — diff will show columns only */ }
 
+          // Fetch table statistics — only when both drivers are the same type and both support it
+          let leftStats, rightStats;
+          const sameType = leftState.config.type === connectionManager.get(picked.connectionId)?.config.type;
+          if (sameType && leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
+            try {
+              [leftStats, rightStats] = await Promise.all([
+                leftDriver.getTableStatistics(item.schemaObject!.name, item.schemaObject!.schema),
+                rightDriver.getTableStatistics(picked.tableName, picked.schema),
+              ]);
+            } catch { /* statistics unavailable — diff will omit stats tab */ }
+          }
+
           // Auto-detect key columns from left table PKs
           const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
           let keyColumns = pkColumns;
@@ -100,6 +112,8 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             { columns: rightInfo.columns },
             leftObjects,
             rightObjects,
+            leftStats,
+            rightStats,
           );
         },
       );
@@ -160,6 +174,19 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             ]);
           } catch { /* schema objects unavailable — diff will show columns only */ }
 
+          let leftStats, rightStats;
+          const leftStateCfg = connectionManager.get(leftPick.connectionId);
+          const rightStateCfg = connectionManager.get(rightPick.connectionId);
+          const sameType = leftStateCfg?.config.type === rightStateCfg?.config.type;
+          if (sameType && leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
+            try {
+              [leftStats, rightStats] = await Promise.all([
+                leftDriver.getTableStatistics(leftPick.tableName, leftPick.schema),
+                rightDriver.getTableStatistics(rightPick.tableName, rightPick.schema),
+              ]);
+            } catch { /* statistics unavailable — diff will omit stats tab */ }
+          }
+
           const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
           let keyColumns = pkColumns;
 
@@ -198,6 +225,8 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             { columns: rightInfo.columns },
             leftObjects,
             rightObjects,
+            leftStats,
+            rightStats,
           );
         },
       );

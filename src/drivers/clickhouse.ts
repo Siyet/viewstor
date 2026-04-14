@@ -2,7 +2,7 @@ import { createClient, type ClickHouseClient } from '@clickhouse/client';
 import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
-import { SchemaObject, TableInfo, ColumnInfo, TableObjects, IndexInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
 export class ClickHouseDriver implements DatabaseDriver {
@@ -252,6 +252,78 @@ export class ClickHouseDriver implements DatabaseDriver {
 
     // ClickHouse has no constraints, triggers, or sequences
     return { indexes, constraints: [], triggers: [], sequences: [] };
+  }
+
+  async getTableStatistics(name: string, schema?: string): Promise<TableStatistic[]> {
+    const db = schema || this.database || 'default';
+
+    const result = await this.client!.query({
+      query: `SELECT total_rows, total_bytes,
+                     total_bytes_uncompressed,
+                     lifetime_rows, lifetime_bytes,
+                     engine, metadata_modification_time
+              FROM system.tables
+              WHERE database = {db:String} AND name = {name:String}`,
+      format: 'JSONEachRow',
+      query_params: { db, name },
+    });
+    const rows = await result.json<{
+      total_rows: string | number | null;
+      total_bytes: string | number | null;
+      total_bytes_uncompressed: string | number | null;
+      lifetime_rows: string | number | null;
+      lifetime_bytes: string | number | null;
+      engine: string | null;
+      metadata_modification_time: string | null;
+    }[]>();
+    const row = rows[0];
+
+    // Part stats are only populated for MergeTree-family engines.
+    let activeParts: number | null = null;
+    let totalParts: number | null = null;
+    try {
+      const partsRes = await this.client!.query({
+        query: `SELECT
+                  countIf(active) AS active_parts,
+                  count() AS total_parts
+                FROM system.parts
+                WHERE database = {db:String} AND table = {name:String}`,
+        format: 'JSONEachRow',
+        query_params: { db, name },
+      });
+      const partsRows = await partsRes.json<{ active_parts: string | number; total_parts: string | number }[]>();
+      if (partsRows[0]) {
+        activeParts = parseInt(String(partsRows[0].active_parts), 10);
+        totalParts = parseInt(String(partsRows[0].total_parts), 10);
+        if (!Number.isFinite(activeParts)) activeParts = null;
+        if (!Number.isFinite(totalParts)) totalParts = null;
+      }
+    } catch { /* system.parts unavailable for non-MergeTree tables */ }
+
+    const toNumber = (value: unknown): number | null => {
+      if (value === null || value === undefined) return null;
+      const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const totalBytes = toNumber(row?.total_bytes);
+    const uncompressedBytes = toNumber(row?.total_bytes_uncompressed);
+    const compressionRatio = totalBytes !== null && uncompressedBytes !== null && totalBytes > 0
+      ? Number((uncompressedBytes / totalBytes).toFixed(2))
+      : null;
+
+    return [
+      { key: 'row_count', label: 'Row count', value: toNumber(row?.total_rows), unit: 'count' },
+      { key: 'total_size', label: 'Total size (compressed)', value: totalBytes, unit: 'bytes' },
+      { key: 'uncompressed_size', label: 'Total size (uncompressed)', value: uncompressedBytes, unit: 'bytes' },
+      { key: 'compression_ratio', label: 'Compression ratio', value: compressionRatio, unit: 'text' },
+      { key: 'active_parts', label: 'Active parts', value: activeParts, unit: 'count' },
+      { key: 'total_parts', label: 'Total parts', value: totalParts, unit: 'count' },
+      { key: 'lifetime_rows', label: 'Lifetime rows inserted', value: toNumber(row?.lifetime_rows), unit: 'count' },
+      { key: 'lifetime_bytes', label: 'Lifetime bytes inserted', value: toNumber(row?.lifetime_bytes), unit: 'bytes' },
+      { key: 'engine', label: 'Engine', value: row?.engine ?? null, unit: 'text' },
+      { key: 'metadata_modified', label: 'Metadata modified', value: row?.metadata_modification_time ?? null, unit: 'date' },
+    ];
   }
 
   async getCompletions(): Promise<CompletionItem[]> {

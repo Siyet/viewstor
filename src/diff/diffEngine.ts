@@ -1,5 +1,5 @@
-import { ColumnInfo, TableObjects, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
-import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult } from './diffTypes';
+import { ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
+import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult } from './diffTypes';
 
 /**
  * Stringify a cell value for comparison.
@@ -359,6 +359,99 @@ function formatSequence(seq: SequenceInfo): string {
   if (seq.startValue !== undefined) parts.push(`start=${seq.startValue}`);
   if (seq.increment !== undefined) parts.push(`inc=${seq.increment}`);
   return parts.join(', ') || seq.name;
+}
+
+/**
+ * Compute diff between two lists of table statistics.
+ * Matches items by key, preserves order of left (right-only items appended at the end).
+ */
+export function computeStatsDiff(
+  leftStats: TableStatistic[] | undefined,
+  rightStats: TableStatistic[] | undefined,
+): StatsDiffResult {
+  const left = leftStats || [];
+  const right = rightStats || [];
+  const rightMap = new Map(right.map(stat => [stat.key, stat]));
+
+  const items: StatsDiffItem[] = [];
+  const seen = new Set<string>();
+
+  for (const leftStat of left) {
+    seen.add(leftStat.key);
+    const rightStat = rightMap.get(leftStat.key);
+    items.push(buildStatsDiffItem(leftStat, rightStat));
+  }
+
+  for (const rightStat of right) {
+    if (seen.has(rightStat.key)) continue;
+    items.push(buildStatsDiffItem(undefined, rightStat));
+  }
+
+  return { items };
+}
+
+function buildStatsDiffItem(leftStat: TableStatistic | undefined, rightStat: TableStatistic | undefined): StatsDiffItem {
+  const ref = leftStat || rightStat!;
+  const leftValue = leftStat ? leftStat.value : null;
+  const rightValue = rightStat ? rightStat.value : null;
+
+  let status: StatsDiffItem['status'];
+  if (!leftStat) status = 'rightOnly';
+  else if (!rightStat) status = 'leftOnly';
+  else if (leftValue === null && rightValue === null) status = 'missing';
+  else if (String(leftValue) === String(rightValue)) status = 'same';
+  else status = 'differs';
+
+  let delta: number | undefined;
+  let deltaPercent: number | undefined;
+  if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+    delta = rightValue - leftValue;
+    if (leftValue !== 0) {
+      deltaPercent = (delta / Math.abs(leftValue)) * 100;
+    }
+  }
+
+  return {
+    key: ref.key,
+    label: ref.label,
+    unit: ref.unit,
+    badWhen: ref.badWhen,
+    leftValue,
+    rightValue,
+    delta,
+    deltaPercent,
+    status,
+  };
+}
+
+/**
+ * Format a statistic value for display. Pure function, used by both host and webview.
+ */
+export function formatStatValue(value: number | string | null, unit?: TableStatistic['unit']): string {
+  if (value === null || value === undefined) return '—';
+  if (unit === 'date') {
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? String(value) : date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z');
+  }
+  if (typeof value === 'string') return value;
+  if (unit === 'bytes') return formatBytes(value);
+  if (unit === 'count') return formatCount(value);
+  if (unit === 'percent') return `${value.toFixed(2)}%`;
+  return String(value);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const abs = Math.abs(bytes);
+  if (abs >= 1_099_511_627_776) return `${(bytes / 1_099_511_627_776).toFixed(2)} TB`;
+  if (abs >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(2)} GB`;
+  if (abs >= 1_048_576) return `${(bytes / 1_048_576).toFixed(2)} MB`;
+  if (abs >= 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+  return `${bytes} B`;
+}
+
+function formatCount(count: number): string {
+  return count.toLocaleString('en-US');
 }
 
 /**
