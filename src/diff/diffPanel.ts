@@ -157,6 +157,7 @@ export class DiffPanelManager {
     const distUri = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
     const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'diff-panel.css'));
     const jsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'diff-panel.js'));
+    const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
     const cspSource = webview.cspSource;
 
     const diffData = {
@@ -252,24 +253,19 @@ export class DiffPanelManager {
 
   ${hasStats ? `
   <div id="panel-stats" class="diff-tab-panel">
-    <div class="diff-schema-container">
-      <table class="diff-schema-table">
-        <thead>
-          <tr>
-            <th>Metric</th>
-            <th>${esc(state.left.label)}</th>
-            <th>${esc(state.right.label)}</th>
-            <th>Delta</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="statsTableBody"></tbody>
-      </table>
+    <div class="diff-stats-container">
+      <div class="diff-stats-legend">
+        <span class="diff-stats-legend-item"><span class="diff-stats-swatch diff-stats-swatch-left"></span>${esc(state.left.label)}</span>
+        <span class="diff-stats-legend-item"><span class="diff-stats-swatch diff-stats-swatch-right"></span>${esc(state.right.label)}</span>
+      </div>
+      <div id="statsChart"></div>
+      <div id="statsNonNumeric"></div>
     </div>
   </div>
   ` : ''}
 
   <script>window.diffData = ${safeJsonForScript(diffData)};</script>
+  ${hasStats ? `<script src="${echartsUri}"></script>` : ''}
   <script src="${jsUri}"></script>
 </body>
 </html>`;

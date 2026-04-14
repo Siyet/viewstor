@@ -105,7 +105,7 @@ Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana pus
 
 `src/diff/diffTypes.ts` — `DiffSource`, `DiffOptions`, `RowDiffResult`, `MatchedRow`, `SchemaDiffResult`, `ColumnCompare`, `ObjectsDiffResult`, `ObjectDiffItem`, `StatsDiffResult`, `StatsDiffItem`.
 
-`src/diff/diffPanel.ts` — `DiffPanelManager`, webview panel for side-by-side diff visualization. Row diff tab (added/removed/changed rows with cell-level highlighting), Schema diff tab (column comparison + objects), Statistics tab (metrics with delta + delta % + status). Export as CSV/JSON. Swap sides button.
+`src/diff/diffPanel.ts` — `DiffPanelManager`, webview panel for side-by-side diff visualization. Row diff tab (added/removed/changed rows with cell-level highlighting), Schema diff tab (column comparison + objects), Statistics tab (horizontal bar chart built with ECharts — each row normalized to its own max so bytes/counts/percents are visually comparable; non-numeric metrics rendered in a small table below). Export as CSV/JSON. Swap sides button. Loads `dist/scripts/echarts.min.js` only when stats are present.
 
 `src/commands/diffCommands.ts` — `viewstor.compareWith` (context menu on tables), `viewstor.compareData` (command palette). Auto-detects PK columns; prompts user if no PK found. Fetches data + objects + statistics from both sources (stats only when both connections are the same `type`), computes diff, opens panel.
 

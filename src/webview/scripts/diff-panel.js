@@ -330,38 +330,153 @@
     return bytes + ' B';
   }
 
-  function formatDelta(item) {
-    if (item.delta === undefined) return '<span class="diff-cell-empty">\u2014</span>';
-    if (item.delta === 0) return '0';
-    var sign = item.delta > 0 ? '+' : '';
-    var deltaStr;
-    if (item.unit === 'bytes') deltaStr = sign + formatBytes(item.delta);
-    else if (item.unit === 'percent') deltaStr = sign + item.delta.toFixed(2) + 'pp';
-    else deltaStr = sign + item.delta.toLocaleString('en-US');
-    if (item.deltaPercent !== undefined && item.unit !== 'percent') {
-      deltaStr += ' (' + (item.deltaPercent > 0 ? '+' : '') + item.deltaPercent.toFixed(1) + '%)';
-    }
-    return escapeHtml(deltaStr);
-  }
-
-  function deltaColorClass(item) {
-    if (item.delta === undefined || item.delta === 0 || !item.badWhen) return '';
-    var worse = (item.badWhen === 'higher' && item.delta > 0) || (item.badWhen === 'lower' && item.delta < 0);
-    return worse ? 'diff-stat-worse' : 'diff-stat-better';
-  }
-
-  // ---- Render stats diff ----
+  // ---- Render stats diff (chart for numeric, small list for non-numeric) ----
   function renderStatsDiff() {
-    var body = document.getElementById('statsTableBody');
-    if (!body || !statsDiff) return;
+    if (!statsDiff) return;
+    renderStatsChart();
+    renderStatsNonNumeric();
+  }
 
-    var html = '';
-    for (var statIdx = 0; statIdx < statsDiff.items.length; statIdx++) {
-      var item = statsDiff.items[statIdx];
-      var rowClass = '';
-      if (item.status === 'leftOnly') rowClass = 'diff-removed';
-      else if (item.status === 'rightOnly') rowClass = 'diff-added';
-      else if (item.status === 'differs') rowClass = 'diff-changed';
+  function isNumericStat(item) {
+    if (item.unit === 'date' || item.unit === 'text') return false;
+    var hasNum = typeof item.leftValue === 'number' || typeof item.rightValue === 'number';
+    return hasNum;
+  }
+
+  function renderStatsChart() {
+    var container = document.getElementById('statsChart');
+    if (!container || !statsDiff) return;
+    if (!window.echarts) {
+      container.innerHTML = '<div class="diff-stats-empty">ECharts not loaded</div>';
+      return;
+    }
+
+    var numericItems = [];
+    for (var idx = 0; idx < statsDiff.items.length; idx++) {
+      if (isNumericStat(statsDiff.items[idx])) numericItems.push(statsDiff.items[idx]);
+    }
+    if (numericItems.length === 0) {
+      container.style.display = 'none';
+      return;
+    }
+
+    // yAxis categories render bottom-to-top in ECharts, so reverse
+    // to make the first metric appear at the top of the chart.
+    var labels = [], leftNorm = [], rightNorm = [], leftRaw = [], rightRaw = [], units = [];
+    for (var itemIdx = numericItems.length - 1; itemIdx >= 0; itemIdx--) {
+      var item = numericItems[itemIdx];
+      var leftNum = typeof item.leftValue === 'number' ? item.leftValue : null;
+      var rightNum = typeof item.rightValue === 'number' ? item.rightValue : null;
+      var maxAbs = Math.max(Math.abs(leftNum || 0), Math.abs(rightNum || 0));
+      labels.push(item.label);
+      units.push(item.unit);
+      leftRaw.push(leftNum);
+      rightRaw.push(rightNum);
+      leftNorm.push(maxAbs === 0 || leftNum === null ? 0 : leftNum / maxAbs);
+      rightNorm.push(maxAbs === 0 || rightNum === null ? 0 : rightNum / maxAbs);
+    }
+
+    var rowHeight = 32;
+    container.style.height = (numericItems.length * rowHeight + 20) + 'px';
+
+    var fg = getCssVar('--vscode-foreground') || '#cccccc';
+    var fgMuted = getCssVar('--vscode-descriptionForeground') || '#808080';
+    var leftColor = getCssVar('--vscode-charts-blue') || '#3794ff';
+    var rightColor = getCssVar('--vscode-charts-green') || '#89d185';
+
+    var chart = window.echarts.init(container, null, { renderer: 'svg' });
+
+    var option = {
+      animation: false,
+      grid: { left: 220, right: 12, top: 4, bottom: 4, containLabel: false },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        formatter: function (params) {
+          var dataIdx = params[0].dataIndex;
+          var html = '<b>' + escapeHtml(labels[dataIdx]) + '</b><br/>';
+          html += escapeHtml(leftLabel) + ': ' + formatStatValue(leftRaw[dataIdx], units[dataIdx]) + '<br/>';
+          html += escapeHtml(rightLabel) + ': ' + formatStatValue(rightRaw[dataIdx], units[dataIdx]);
+          return html;
+        },
+      },
+      xAxis: { type: 'value', min: 0, max: 1.15, show: false },
+      yAxis: {
+        type: 'category',
+        data: labels,
+        axisLabel: { color: fg, fontSize: 12, width: 210, overflow: 'truncate', margin: 14 },
+        axisTick: { show: false },
+        axisLine: { show: false },
+        splitLine: { show: false },
+      },
+      series: [
+        {
+          name: leftLabel,
+          type: 'bar',
+          data: leftNorm,
+          itemStyle: { color: leftColor },
+          barCategoryGap: '30%',
+          label: {
+            show: true,
+            position: 'right',
+            color: fgMuted,
+            fontSize: 11,
+            formatter: function (params) {
+              var raw = leftRaw[params.dataIndex];
+              return raw === null ? '\u2014' : stripHtml(formatStatValue(raw, units[params.dataIndex]));
+            },
+          },
+        },
+        {
+          name: rightLabel,
+          type: 'bar',
+          data: rightNorm,
+          itemStyle: { color: rightColor },
+          label: {
+            show: true,
+            position: 'right',
+            color: fgMuted,
+            fontSize: 11,
+            formatter: function (params) {
+              var raw = rightRaw[params.dataIndex];
+              return raw === null ? '\u2014' : stripHtml(formatStatValue(raw, units[params.dataIndex]));
+            },
+          },
+        },
+      ],
+    };
+    chart.setOption(option);
+
+    if (window.__diffStatsChart) {
+      try { window.__diffStatsChart.dispose(); } catch (e) { /* noop */ }
+    }
+    window.__diffStatsChart = chart;
+
+    if (!window.__diffStatsResize) {
+      window.__diffStatsResize = true;
+      window.addEventListener('resize', function () {
+        if (window.__diffStatsChart) window.__diffStatsChart.resize();
+      });
+    }
+  }
+
+  // formatStatValue returns HTML for null — strip it before using in chart labels
+  function stripHtml(str) {
+    return String(str).replace(/<[^>]*>/g, '');
+  }
+
+  function getCssVar(name) {
+    return getComputedStyle(document.body).getPropertyValue(name).trim();
+  }
+
+  function renderStatsNonNumeric() {
+    var container = document.getElementById('statsNonNumeric');
+    if (!container || !statsDiff) return;
+
+    var rows = '';
+    for (var idx = 0; idx < statsDiff.items.length; idx++) {
+      var item = statsDiff.items[idx];
+      if (isNumericStat(item)) continue;
 
       var statusClass = 'diff-status-' + (item.status === 'same' ? 'same'
         : item.status === 'differs' ? 'differs'
@@ -369,17 +484,21 @@
         : item.status === 'rightOnly' ? 'added'
         : 'same');
 
-      var deltaClass = deltaColorClass(item);
-
-      html += '<tr' + (rowClass ? ' class="' + rowClass + '"' : '') + '>';
-      html += '<td>' + escapeHtml(item.label) + '</td>';
-      html += '<td>' + formatStatValue(item.leftValue, item.unit) + '</td>';
-      html += '<td>' + formatStatValue(item.rightValue, item.unit) + '</td>';
-      html += '<td' + (deltaClass ? ' class="' + deltaClass + '"' : '') + '>' + formatDelta(item) + '</td>';
-      html += '<td class="' + statusClass + '">' + escapeHtml(item.status === 'missing' ? 'n/a' : item.status) + '</td>';
-      html += '</tr>';
+      rows += '<tr>';
+      rows += '<td>' + escapeHtml(item.label) + '</td>';
+      rows += '<td>' + formatStatValue(item.leftValue, item.unit) + '</td>';
+      rows += '<td>' + formatStatValue(item.rightValue, item.unit) + '</td>';
+      rows += '<td class="' + statusClass + '">' + escapeHtml(item.status === 'missing' ? 'n/a' : item.status) + '</td>';
+      rows += '</tr>';
     }
-    body.innerHTML = html;
+
+    if (!rows) { container.innerHTML = ''; return; }
+
+    container.innerHTML =
+      '<h3 class="diff-section-title">Other</h3>' +
+      '<table class="diff-schema-table">' +
+      '<thead><tr><th>Metric</th><th>' + escapeHtml(leftLabel) + '</th><th>' + escapeHtml(rightLabel) + '</th><th>Status</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>';
   }
 
   // ---- Handle messages from host ----
