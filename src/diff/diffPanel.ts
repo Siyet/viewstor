@@ -174,6 +174,33 @@ export class DiffPanelManager {
     const hasSchema = !!state.schemaDiff;
     const hasStats = !!state.statsDiff;
 
+    // Counts for Schema Diff tab: "differs" bundles type/nullable/pk diffs + added/removed columns + non-same objects
+    let schemaDiffers = 0, schemaSame = 0;
+    if (state.schemaDiff) {
+      for (const col of state.schemaDiff.commonColumns) {
+        if (col.typeDiffers || col.nullableDiffers || col.pkDiffers) schemaDiffers++;
+        else schemaSame++;
+      }
+      schemaDiffers += state.schemaDiff.leftOnlyColumns.length + state.schemaDiff.rightOnlyColumns.length;
+    }
+    if (state.objectsDiff) {
+      for (const group of [state.objectsDiff.indexes, state.objectsDiff.constraints, state.objectsDiff.triggers, state.objectsDiff.sequences]) {
+        for (const item of group) {
+          if (item.status === 'same') schemaSame++;
+          else schemaDiffers++;
+        }
+      }
+    }
+
+    // Counts for Statistics tab
+    let statsDiffers = 0, statsSame = 0;
+    if (state.statsDiff) {
+      for (const item of state.statsDiff.items) {
+        if (item.status === 'same' || item.status === 'missing') statsSame++;
+        else statsDiffers++;
+      }
+    }
+
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -189,10 +216,24 @@ export class DiffPanelManager {
   </div>
 
   <div class="diff-summary">
-    <span class="diff-badge unchanged">${esc(String(summary.unchanged))} unchanged</span>
-    <span class="diff-badge changed">${esc(String(summary.changed))} changed</span>
-    <span class="diff-badge added">${esc(String(summary.added))} added</span>
-    <span class="diff-badge removed">${esc(String(summary.removed))} removed</span>
+    <div class="diff-summary-filters" data-for="rows">
+      <span class="diff-badge-filter unchanged active" data-filter="unchanged">${esc(String(summary.unchanged))} unchanged</span>
+      <span class="diff-badge-filter changed active" data-filter="changed">${esc(String(summary.changed))} changed</span>
+      <span class="diff-badge-filter added active" data-filter="added">${esc(String(summary.added))} added</span>
+      <span class="diff-badge-filter removed active" data-filter="removed">${esc(String(summary.removed))} removed</span>
+    </div>
+    ${hasSchema ? `
+    <div class="diff-summary-filters hidden" data-for="schema">
+      <span class="diff-badge-filter differs active" data-filter="differs">${esc(String(schemaDiffers))} differs</span>
+      <span class="diff-badge-filter same active" data-filter="same">${esc(String(schemaSame))} same</span>
+    </div>
+    ` : ''}
+    ${hasStats ? `
+    <div class="diff-summary-filters hidden" data-for="stats">
+      <span class="diff-badge-filter differs active" data-filter="differs">${esc(String(statsDiffers))} differs</span>
+      <span class="diff-badge-filter same active" data-filter="same">${esc(String(statsSame))} same</span>
+    </div>
+    ` : ''}
     <span class="diff-summary-spacer"></span>
     <button id="swapSides" title="Swap left and right sides">\u21C4 Swap</button>
     <button id="exportCsv">Export CSV</button>
@@ -202,14 +243,6 @@ export class DiffPanelManager {
   ${state.rowDiff.truncated ? '<div class="diff-truncated">Results truncated to row limit. Increase the limit to see all differences.</div>' : ''}
 
   <div id="panel-rows" class="diff-tab-panel active">
-    <div class="diff-filter-bar">
-      <span class="diff-filter-label">Filter:</span>
-      <button class="diff-filter-btn active" data-filter="all">All</button>
-      <button class="diff-filter-btn" data-filter="changed">Changed</button>
-      <button class="diff-filter-btn" data-filter="unchanged">Unchanged</button>
-      <button class="diff-filter-btn" data-filter="added">Added</button>
-      <button class="diff-filter-btn" data-filter="removed">Removed</button>
-    </div>
     <div class="diff-tables-container">
       <div class="diff-table-pane" id="leftPane">
         <div class="diff-table-pane-header" id="leftHeader">${esc(state.left.label)}</div>

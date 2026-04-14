@@ -15,17 +15,29 @@
   const keyColumns = data.keyColumns || [];
 
   let activeTab = 'rows';
-  let activeFilter = 'all';
+  const activeFilters = {
+    rows: { unchanged: true, changed: true, added: true, removed: true },
+    schema: { differs: true, same: true },
+    stats: { differs: true, same: true },
+  };
 
   // ---- Tab switching ----
   const tabs = document.querySelectorAll('.diff-tab');
   const panels = document.querySelectorAll('.diff-tab-panel');
+  const summaryFilterGroups = document.querySelectorAll('.diff-summary-filters');
+
+  function updateSummaryFilterGroups(target) {
+    summaryFilterGroups.forEach(function (group) {
+      group.classList.toggle('hidden', group.dataset.for !== target);
+    });
+  }
 
   tabs.forEach(function (tab) {
     tab.addEventListener('click', function () {
       const target = tab.dataset.tab;
       tabs.forEach(function (tabEl) { tabEl.classList.toggle('active', tabEl.dataset.tab === target); });
       panels.forEach(function (panelEl) { panelEl.classList.toggle('active', panelEl.id === 'panel-' + target); });
+      updateSummaryFilterGroups(target);
       activeTab = target;
       // Stats chart needs deferred init because ECharts measures container width at init time;
       // when the tab was display:none on initial render the chart got 0 width.
@@ -40,13 +52,23 @@
     });
   });
 
-  // ---- Filter buttons ----
-  const filterBtns = document.querySelectorAll('.diff-filter-btn');
-  filterBtns.forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      activeFilter = btn.dataset.filter;
-      filterBtns.forEach(function (filterBtnEl) { filterBtnEl.classList.toggle('active', filterBtnEl.dataset.filter === activeFilter); });
-      renderRowDiff();
+  // ---- Badge-as-filter clicks ----
+  const filterBadges = document.querySelectorAll('.diff-badge-filter');
+  filterBadges.forEach(function (badge) {
+    badge.addEventListener('click', function () {
+      var tabKey = badge.parentElement.dataset.for;
+      var filterKey = badge.dataset.filter;
+      var state = activeFilters[tabKey];
+      if (!state) return;
+      // Prevent turning off the last active filter in a group — leaves at least one visible
+      var activeCount = 0;
+      for (var k in state) if (state[k]) activeCount++;
+      if (state[filterKey] && activeCount === 1) return;
+      state[filterKey] = !state[filterKey];
+      badge.classList.toggle('active', state[filterKey]);
+      if (tabKey === 'rows') renderRowDiff();
+      else if (tabKey === 'schema') { renderSchemaDiff(); renderObjectsDiff(); }
+      else if (tabKey === 'stats' && window.__diffStatsRendered) renderStatsDiff();
     });
   });
 
@@ -102,14 +124,15 @@
     var rightHtml = '';
     var columns = rowDiff.allColumns;
 
+    var rowFilters = activeFilters.rows;
+
     // Matched rows (changed + unchanged)
     for (var matchIdx = 0; matchIdx < rowDiff.matched.length; matchIdx++) {
       var match = rowDiff.matched[matchIdx];
       var isUnchanged = match.changedColumns.length === 0;
       var rowCategory = isUnchanged ? 'unchanged' : 'changed';
 
-      // Apply filter
-      if (activeFilter !== 'all' && activeFilter !== rowCategory) continue;
+      if (!rowFilters[rowCategory]) continue;
 
       var rowClass = isUnchanged ? 'diff-unchanged' : 'diff-changed';
       leftHtml += '<tr class="' + rowClass + '">';
@@ -126,7 +149,7 @@
     }
 
     // Removed rows (left only)
-    if (activeFilter === 'all' || activeFilter === 'removed') {
+    if (rowFilters.removed) {
       for (var removedIdx = 0; removedIdx < rowDiff.leftOnly.length; removedIdx++) {
         var removedRow = rowDiff.leftOnly[removedIdx];
         leftHtml += '<tr class="diff-removed">';
@@ -142,7 +165,7 @@
     }
 
     // Added rows (right only)
-    if (activeFilter === 'all' || activeFilter === 'added') {
+    if (rowFilters.added) {
       for (var addedIdx = 0; addedIdx < rowDiff.rightOnly.length; addedIdx++) {
         var addedRow = rowDiff.rightOnly[addedIdx];
         leftHtml += '<tr class="diff-added">';
@@ -217,11 +240,14 @@
     }
 
     var html = '';
+    var schemaFilters = activeFilters.schema;
 
     // Common columns
     for (var commonIdx = 0; commonIdx < schemaDiff.commonColumns.length; commonIdx++) {
       var col = schemaDiff.commonColumns[commonIdx];
       var hasDiff = col.typeDiffers || col.nullableDiffers || col.pkDiffers;
+      if (hasDiff && !schemaFilters.differs) continue;
+      if (!hasDiff && !schemaFilters.same) continue;
       var statusParts = [];
       if (col.typeDiffers) statusParts.push('type');
       if (col.nullableDiffers) statusParts.push('nullable');
@@ -242,7 +268,7 @@
     }
 
     // Left-only columns (removed from right) — use em dash for the missing side
-    for (var leftIdx = 0; leftIdx < schemaDiff.leftOnlyColumns.length; leftIdx++) {
+    if (schemaFilters.differs) for (var leftIdx = 0; leftIdx < schemaDiff.leftOnlyColumns.length; leftIdx++) {
       var leftCol = schemaDiff.leftOnlyColumns[leftIdx];
       html += '<tr class="diff-removed">';
       html += '<td>' + escapeHtml(leftCol.name) + '</td>';
@@ -254,7 +280,7 @@
     }
 
     // Right-only columns (added)
-    for (var rightIdx = 0; rightIdx < schemaDiff.rightOnlyColumns.length; rightIdx++) {
+    if (schemaFilters.differs) for (var rightIdx = 0; rightIdx < schemaDiff.rightOnlyColumns.length; rightIdx++) {
       var rightCol = schemaDiff.rightOnlyColumns[rightIdx];
       html += '<tr class="diff-added">';
       html += '<td>' + escapeHtml(rightCol.name) + '</td>';
@@ -280,11 +306,20 @@
       { key: 'sequences', title: 'Sequences' },
     ];
 
+    var schemaFilters = activeFilters.schema;
     var html = '';
     for (var secIdx = 0; secIdx < sections.length; secIdx++) {
       var section = sections[secIdx];
-      var items = objectsDiff[section.key];
-      if (!items || items.length === 0) continue;
+      var allItems = objectsDiff[section.key] || [];
+      // Apply filter based on item.status
+      var items = [];
+      for (var filterIdx = 0; filterIdx < allItems.length; filterIdx++) {
+        var isSame = allItems[filterIdx].status === 'same';
+        if (isSame && !schemaFilters.same) continue;
+        if (!isSame && !schemaFilters.differs) continue;
+        items.push(allItems[filterIdx]);
+      }
+      if (items.length === 0) continue;
 
       html += '<h3 class="diff-section-title">' + escapeHtml(section.title) + ' (' + items.length + ')</h3>';
       html += '<table class="diff-schema-table">';
@@ -355,14 +390,22 @@
       return;
     }
 
+    var statsFilters = activeFilters.stats;
     var numericItems = [];
     for (var idx = 0; idx < statsDiff.items.length; idx++) {
-      if (isNumericStat(statsDiff.items[idx])) numericItems.push(statsDiff.items[idx]);
+      var statItem = statsDiff.items[idx];
+      if (!isNumericStat(statItem)) continue;
+      var statIsSame = statItem.status === 'same' || statItem.status === 'missing';
+      if (statIsSame && !statsFilters.same) continue;
+      if (!statIsSame && !statsFilters.differs) continue;
+      numericItems.push(statItem);
     }
     if (numericItems.length === 0) {
       container.style.display = 'none';
+      if (window.__diffStatsChart) { try { window.__diffStatsChart.dispose(); } catch(e){} window.__diffStatsChart = null; }
       return;
     }
+    container.style.display = '';
 
     var fg = getCssVar('--vscode-foreground') || '#cccccc';
     var fgMuted = getCssVar('--vscode-descriptionForeground') || '#808080';
@@ -532,9 +575,13 @@
     if (!container || !statsDiff) return;
 
     var rows = '';
+    var nnStatsFilters = activeFilters.stats;
     for (var idx = 0; idx < statsDiff.items.length; idx++) {
       var item = statsDiff.items[idx];
       if (isNumericStat(item)) continue;
+      var isSame = item.status === 'same' || item.status === 'missing';
+      if (isSame && !nnStatsFilters.same) continue;
+      if (!isSame && !nnStatsFilters.differs) continue;
 
       var rowClass = '';
       if (item.status === 'differs') rowClass = 'diff-stats-row-differs';
