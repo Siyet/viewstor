@@ -328,8 +328,10 @@ body {
 }
 
 /* ---- Schema diff layout ---- */
-/* Blocks stack vertically; the stack itself is width-capped so tables don't
-   stretch across a full ultrawide screen (unreadable). Centered horizontally. */
+/* Blocks stack vertically, left-aligned. Each block is shrink-to-fit on the
+   cross-axis so narrow tables don't get stretched to full width. If a table
+   is wider than the container, the block caps at 100% and its inner scroller
+   kicks in — otherwise no horizontal scroll. */
 .diff-schema-layout {
   flex: 1;
   overflow: auto;
@@ -337,11 +339,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  align-items: stretch;
-  max-width: 1400px;
-  width: 100%;
-  margin: 0 auto;
-  box-sizing: border-box;
+  align-items: flex-start;
 }
 
 /* JS renders object sections into this wrapper — flatten into the flex column. */
@@ -350,6 +348,10 @@ body {
 }
 
 .diff-schema-block {
+  /* Shrink-to-fit to the table's natural width, but never exceed the container
+     (in which case the inner scroller handles overflow, not the block). */
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
   border: 1px solid var(--vscode-panel-border);
   border-radius: 4px;
