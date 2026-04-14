@@ -370,102 +370,120 @@
       return;
     }
 
-    // yAxis categories render bottom-to-top in ECharts, so reverse
-    // to make the first metric appear at the top of the chart.
-    var labels = [], statuses = [], leftNorm = [], rightNorm = [], leftRaw = [], rightRaw = [], units = [];
-    for (var itemIdx = numericItems.length - 1; itemIdx >= 0; itemIdx--) {
-      var item = numericItems[itemIdx];
-      var leftNum = typeof item.leftValue === 'number' ? item.leftValue : null;
-      var rightNum = typeof item.rightValue === 'number' ? item.rightValue : null;
-      var maxAbs = Math.max(Math.abs(leftNum || 0), Math.abs(rightNum || 0));
-      labels.push(item.label);
-      statuses.push(item.status);
-      units.push(item.unit);
-      leftRaw.push(leftNum);
-      rightRaw.push(rightNum);
-      leftNorm.push(maxAbs === 0 || leftNum === null ? 0 : leftNum / maxAbs);
-      rightNorm.push(maxAbs === 0 || rightNum === null ? 0 : rightNum / maxAbs);
-    }
-
-    var rowHeight = 36;
-    container.style.height = (numericItems.length * rowHeight + 20) + 'px';
-
     var fg = getCssVar('--vscode-foreground') || '#cccccc';
     var fgMuted = getCssVar('--vscode-descriptionForeground') || '#808080';
     var warnColor = getCssVar('--vscode-editorWarning-foreground') || '#cca700';
     var leftColor = getCssVar('--vscode-charts-blue') || '#3794ff';
     var rightColor = getCssVar('--vscode-charts-green') || '#89d185';
 
+    // Matrix layout: one mini-chart per metric, up to 4 columns wide
+    var cols = Math.min(4, numericItems.length);
+    var rows = Math.ceil(numericItems.length / cols);
+    var cellHeight = 170;
+    var titleH = 22;
+    var bottomPad = 18;
+    var totalHeight = rows * cellHeight;
+    container.style.height = (totalHeight + 8) + 'px';
+
+    var titles = [], grids = [], xAxes = [], yAxes = [], serieses = [];
+    var hPad = 1.5; // % horizontal padding inside each cell
+    var cellWidthPct = 100 / cols;
+
+    for (var i = 0; i < numericItems.length; i++) {
+      var item = numericItems[i];
+      var col = i % cols;
+      var row = Math.floor(i / cols);
+
+      var leftNum = typeof item.leftValue === 'number' ? item.leftValue : null;
+      var rightNum = typeof item.rightValue === 'number' ? item.rightValue : null;
+      var maxAbs = Math.max(Math.abs(leftNum || 0), Math.abs(rightNum || 0));
+      var yMax = maxAbs === 0 ? 1 : maxAbs * 1.25; // headroom for value label above bar
+
+      titles.push({
+        text: item.label,
+        left: ((col + 0.5) * cellWidthPct) + '%',
+        top: row * cellHeight + 2,
+        textAlign: 'center',
+        textStyle: {
+          fontSize: 12,
+          color: item.status === 'differs' ? warnColor : fg,
+          fontWeight: item.status === 'differs' ? 'bold' : 'normal',
+        },
+      });
+
+      grids.push({
+        left: (col * cellWidthPct + hPad) + '%',
+        right: ((cols - col - 1) * cellWidthPct + hPad) + '%',
+        top: row * cellHeight + titleH,
+        bottom: totalHeight - (row + 1) * cellHeight + bottomPad,
+        containLabel: false,
+      });
+
+      xAxes.push({
+        type: 'category',
+        gridIndex: i,
+        data: ['', ''],
+        axisLine: { show: true, lineStyle: { color: fgMuted } },
+        axisTick: { show: false },
+        axisLabel: { show: false },
+      });
+
+      yAxes.push({
+        type: 'value',
+        gridIndex: i,
+        show: false,
+        min: 0,
+        max: yMax,
+      });
+
+      // IIFE to capture per-series unit/raw values for label formatter
+      serieses.push({
+        type: 'bar',
+        xAxisIndex: i,
+        yAxisIndex: i,
+        barCategoryGap: '40%',
+        data: [
+          { value: leftNum === null ? 0 : leftNum, itemStyle: { color: leftColor } },
+          { value: rightNum === null ? 0 : rightNum, itemStyle: { color: rightColor } },
+        ],
+        label: {
+          show: true,
+          position: 'top',
+          color: fgMuted,
+          fontSize: 11,
+          formatter: (function (unit, leftRaw, rightRaw) {
+            return function (params) {
+              var raw = params.dataIndex === 0 ? leftRaw : rightRaw;
+              return raw === null ? '\u2014' : stripHtml(formatStatValue(raw, unit));
+            };
+          })(item.unit, leftNum, rightNum),
+        },
+      });
+    }
+
     var chart = window.echarts.init(container, null, { renderer: 'svg' });
 
     var option = {
       animation: false,
-      grid: { left: 200, right: 80, top: 4, bottom: 4, containLabel: false },
+      title: titles,
+      grid: grids,
+      xAxis: xAxes,
+      yAxis: yAxes,
+      series: serieses,
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
         formatter: function (params) {
-          var dataIdx = params[0].dataIndex;
-          var html = '<b>' + escapeHtml(labels[dataIdx]) + '</b><br/>';
-          html += escapeHtml(leftLabel) + ': ' + formatStatValue(leftRaw[dataIdx], units[dataIdx]) + '<br/>';
-          html += escapeHtml(rightLabel) + ': ' + formatStatValue(rightRaw[dataIdx], units[dataIdx]);
+          if (!params || !params.length) return '';
+          var seriesIdx = params[0].seriesIndex;
+          var item = numericItems[seriesIdx];
+          if (!item) return '';
+          var html = '<b>' + escapeHtml(item.label) + '</b><br/>';
+          html += escapeHtml(leftLabel) + ': ' + formatStatValue(item.leftValue, item.unit) + '<br/>';
+          html += escapeHtml(rightLabel) + ': ' + formatStatValue(item.rightValue, item.unit);
           return html;
         },
       },
-      xAxis: { type: 'value', min: 0, max: 1, show: false },
-      yAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: {
-          fontSize: 12,
-          margin: 10,
-          formatter: function (value, index) {
-            return statuses[index] === 'differs' ? '{warn|' + value + '}' : '{normal|' + value + '}';
-          },
-          rich: {
-            normal: { color: fg, fontSize: 12, align: 'right' },
-            warn: { color: warnColor, fontSize: 12, fontWeight: 'bold', align: 'right' },
-          },
-        },
-        axisTick: { show: false },
-        axisLine: { show: false },
-        splitLine: { show: false },
-      },
-      series: [
-        {
-          name: leftLabel,
-          type: 'bar',
-          data: leftNorm,
-          itemStyle: { color: leftColor },
-          barCategoryGap: '30%',
-          label: {
-            show: true,
-            position: 'right',
-            color: fgMuted,
-            fontSize: 11,
-            formatter: function (params) {
-              var raw = leftRaw[params.dataIndex];
-              return raw === null ? '\u2014' : stripHtml(formatStatValue(raw, units[params.dataIndex]));
-            },
-          },
-        },
-        {
-          name: rightLabel,
-          type: 'bar',
-          data: rightNorm,
-          itemStyle: { color: rightColor },
-          label: {
-            show: true,
-            position: 'right',
-            color: fgMuted,
-            fontSize: 11,
-            formatter: function (params) {
-              var raw = rightRaw[params.dataIndex];
-              return raw === null ? '\u2014' : stripHtml(formatStatValue(raw, units[params.dataIndex]));
-            },
-          },
-        },
-      ],
     };
     chart.setOption(option);
 
