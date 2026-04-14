@@ -415,14 +415,15 @@ export class SqliteDriver implements DatabaseDriver {
     return pragmaRows.map(row => {
       const badges: string[] = [];
       if (row.pk > 0) badges.push('PK');
-      const requiredMark = (row.notnull === 1 && row.pk === 0) ? '\u2009*' : '';
-      const detail = `${row.type || 'TEXT'}${requiredMark}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
+      const detail = `${row.type || 'TEXT'}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
       const indexNames = colToIndexes.get(row.name);
+      const notNullable = row.notnull === 1 && row.pk === 0;
       return {
         name: row.name,
         type: 'column' as const,
         detail,
         indexNames: indexNames && indexNames.length > 0 ? indexNames : undefined,
+        notNullable: notNullable || undefined,
       };
     });
   }

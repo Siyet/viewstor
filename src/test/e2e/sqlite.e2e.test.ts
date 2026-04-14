@@ -188,8 +188,10 @@ describe('SQLite Driver E2E', () => {
 
     const nameCol = columns.find(c => c.name === 'name')!;
     expect(nameCol.detail).toContain('TEXT');
-    // NOT NULL is rendered as a trailing asterisk (form-style "required" marker)
-    expect(nameCol.detail).toContain('*');
+    // NOT NULL is now exposed as a notNullable flag (the tree appends "*" to the label);
+    // detail no longer carries the marker.
+    expect(nameCol.notNullable).toBe(true);
+    expect(nameCol.detail).not.toContain('*');
 
     // Indexes group
     const indexesGroup = usersTable.children!.find(c => c.name === 'Indexes' && c.type === 'group')!;

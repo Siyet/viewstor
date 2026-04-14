@@ -231,17 +231,16 @@ export class PostgresDriver implements DatabaseDriver {
       const badges = [];
       if (row.is_pk) badges.push('PK');
       const displayType = row.data_type === 'USER-DEFINED' ? row.udt_name : row.data_type;
-      // A trailing asterisk marks "required" (NOT NULL) — universal form-field convention,
-      // single glyph, renders cleanly in any font.
-      const requiredMark = (row.is_nullable === 'NO' && !row.is_pk) ? '\u2009*' : '';
-      const detail = `${displayType}${requiredMark}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
+      const detail = `${displayType}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
       const indexNames = columnIndexesMap.get(`${row.table_schema}.${row.table_name}.${row.column_name}`);
+      const notNullable = row.is_nullable === 'NO' && !row.is_pk;
       columnsMap.get(key)!.push({
         name: row.column_name,
         type: 'column',
         schema: row.table_schema,
         detail,
         indexNames: indexNames && indexNames.length > 0 ? indexNames : undefined,
+        notNullable: notNullable || undefined,
       });
     }
 

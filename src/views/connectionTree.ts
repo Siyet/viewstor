@@ -263,7 +263,9 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
       ? vscode.TreeItemCollapsibleState.Collapsed
       : vscode.TreeItemCollapsibleState.None;
 
-    const item = new ConnectionTreeItem(obj.name, collapsible);
+    // Append a "*" to the column name when NOT NULL — universal "required" marker.
+    const label = obj.type === 'column' && obj.notNullable ? `${obj.name}\u2009*` : obj.name;
+    const item = new ConnectionTreeItem(label, collapsible);
     item.connectionId = connectionId;
     item.schemaObject = obj;
     // Indexed columns get a distinct contextValue so menus can target them

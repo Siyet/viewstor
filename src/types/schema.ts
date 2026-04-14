@@ -10,6 +10,8 @@ export interface SchemaObject {
   /** For column nodes: names of indexes that cover this column. Used for blue
    *  tint in the tree and the "Show index DDL" context menu item. */
   indexNames?: string[];
+  /** For column nodes: column is NOT NULL. Tree appends a "*" to the label. */
+  notNullable?: boolean;
 }
 
 export type SchemaObjectType =

@@ -204,7 +204,7 @@
       },
       {
         "command": "viewstor.showColumnIndexDDL",
-        "title": "Show Index DDL",
+        "title": "Show column indexes",
         "category": "Viewstor",
         "enablement": "viewItem == column-indexed"
       },
