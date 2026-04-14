@@ -349,10 +349,13 @@ body {
 
 .diff-schema-block {
   /* Shrink-to-fit to the table's natural width, but never exceed the container
-     (in which case the inner scroller handles overflow, not the block). */
+     (in which case the inner scroller handles overflow horizontally). */
   width: fit-content;
   max-width: 100%;
   min-width: 0;
+  /* Keep natural height — don't let flex shrink compress blocks vertically.
+     When they don't all fit, .diff-schema-layout (overflow: auto) scrolls. */
+  flex-shrink: 0;
   border: 1px solid var(--vscode-panel-border);
   border-radius: 4px;
   background: var(--vscode-editor-background);
@@ -370,7 +373,10 @@ body {
 }
 
 .diff-schema-block-scroll {
-  overflow-x: auto;
+  /* overflow: auto hidden — scroll horizontally, clip vertically.
+     Plain overflow-x:auto would promote overflow-y:visible to auto
+     per CSS spec, producing an unwanted vertical scrollbar. */
+  overflow: auto hidden;
   min-width: 0;
 }
 

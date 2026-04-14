@@ -85,7 +85,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
           }
 
           const leftSource: DiffSource = {
-            label: `${item.schemaObject!.name} — ${leftState.config.name}`,
+            label: `${leftState.config.name} → ${item.schemaObject!.name}`,
             columns: leftData.columns,
             rows: leftData.rows,
             connectionId: item.connectionId,
@@ -96,7 +96,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
 
           const rightState = connectionManager.get(picked.connectionId);
           const rightSource: DiffSource = {
-            label: `${picked.tableName} — ${rightState?.config.name || 'Unknown'}`,
+            label: `${rightState?.config.name || 'Unknown'} → ${picked.tableName}`,
             columns: rightData.columns,
             rows: rightData.rows,
             connectionId: picked.connectionId,
@@ -203,7 +203,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
           const rightState = connectionManager.get(rightPick.connectionId);
 
           const leftSource: DiffSource = {
-            label: `${leftPick.tableName} — ${leftState?.config.name || 'Unknown'}`,
+            label: `${leftState?.config.name || 'Unknown'} → ${leftPick.tableName}`,
             columns: leftData.columns,
             rows: leftData.rows,
             connectionId: leftPick.connectionId,
@@ -212,7 +212,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
           };
 
           const rightSource: DiffSource = {
-            label: `${rightPick.tableName} — ${rightState?.config.name || 'Unknown'}`,
+            label: `${rightState?.config.name || 'Unknown'} → ${rightPick.tableName}`,
             columns: rightData.columns,
             rows: rightData.rows,
             connectionId: rightPick.connectionId,
