@@ -266,18 +266,25 @@
     var html = '';
     var schemaFilters = activeFilters.schema;
 
+    // Compute covering indexes per column once — used in the "Indexed by" column for both sides
+    var leftIndexByColumn = indexCoverageMap(objectsDiff, 'left');
+    var rightIndexByColumn = indexCoverageMap(objectsDiff, 'right');
+
+    function indexedByCell(columnName, typeDiffersFlag) {
+      var leftIdx = (leftIndexByColumn[columnName] || []).join(', ') || '\u2014';
+      var rightIdx = (rightIndexByColumn[columnName] || []).join(', ') || '\u2014';
+      var differs = leftIdx !== rightIdx;
+      return '<td' + (differs ? ' class="diff-cell-changed"' : '') + '>'
+        + escapeHtml(leftIdx) + ' / ' + escapeHtml(rightIdx) + '</td>';
+      void typeDiffersFlag;
+    }
+
     // Common columns
     for (var commonIdx = 0; commonIdx < schemaDiff.commonColumns.length; commonIdx++) {
       var col = schemaDiff.commonColumns[commonIdx];
-      var hasDiff = col.typeDiffers || col.nullableDiffers || col.pkDiffers;
+      var hasDiff = col.typeDiffers || col.nullableDiffers || col.pkDiffers || col.commentDiffers;
       if (hasDiff && !schemaFilters.differs) continue;
       if (!hasDiff && !schemaFilters.same) continue;
-      var statusParts = [];
-      if (col.typeDiffers) statusParts.push('type');
-      if (col.nullableDiffers) statusParts.push('nullable');
-      if (col.pkDiffers) statusParts.push('pk');
-      var statusText = hasDiff ? statusParts.join(', ') + ' differs' : 'same';
-      var statusClass = hasDiff ? 'diff-status-differs' : 'diff-status-same';
 
       html += '<tr>';
       html += '<td>' + escapeHtml(col.name) + '</td>';
@@ -287,7 +294,9 @@
         + (col.leftNullable ? 'YES' : 'NO') + ' / ' + (col.rightNullable ? 'YES' : 'NO') + '</td>';
       html += '<td' + (col.pkDiffers ? ' class="diff-cell-changed"' : '') + '>'
         + (col.leftIsPK ? 'YES' : 'NO') + ' / ' + (col.rightIsPK ? 'YES' : 'NO') + '</td>';
-      html += '<td class="' + statusClass + '">' + statusText + '</td>';
+      html += '<td' + (col.commentDiffers ? ' class="diff-cell-changed"' : '') + '>'
+        + escapeHtml(col.leftComment || '\u2014') + ' / ' + escapeHtml(col.rightComment || '\u2014') + '</td>';
+      html += indexedByCell(col.name);
       html += '</tr>';
     }
 
@@ -299,7 +308,8 @@
       html += '<td>' + escapeHtml(leftCol.dataType) + ' / \u2014</td>';
       html += '<td>' + (leftCol.nullable ? 'YES' : 'NO') + ' / \u2014</td>';
       html += '<td>' + (leftCol.isPrimaryKey ? 'YES' : 'NO') + ' / \u2014</td>';
-      html += '<td class="diff-status-removed">removed</td>';
+      html += '<td>' + escapeHtml(leftCol.comment || '\u2014') + ' / \u2014</td>';
+      html += indexedByCell(leftCol.name);
       html += '</tr>';
     }
 
@@ -311,56 +321,166 @@
       html += '<td>\u2014 / ' + escapeHtml(rightCol.dataType) + '</td>';
       html += '<td>\u2014 / ' + (rightCol.nullable ? 'YES' : 'NO') + '</td>';
       html += '<td>\u2014 / ' + (rightCol.isPrimaryKey ? 'YES' : 'NO') + '</td>';
-      html += '<td class="diff-status-added">added</td>';
+      html += '<td>\u2014 / ' + escapeHtml(rightCol.comment || '\u2014') + '</td>';
+      html += indexedByCell(rightCol.name);
       html += '</tr>';
     }
 
     schemaBody.innerHTML = html;
   }
 
+  // Build { columnName -> [indexName, ...] } from objectsDiff for a given side.
+  function indexCoverageMap(objDiff, side) {
+    var result = {};
+    if (!objDiff || !objDiff.indexes) return result;
+    for (var i = 0; i < objDiff.indexes.length; i++) {
+      var item = objDiff.indexes[i];
+      var info = item[side];
+      if (!info || !info.columns) continue;
+      for (var c = 0; c < info.columns.length; c++) {
+        var colName = info.columns[c];
+        if (!result[colName]) result[colName] = [];
+        result[colName].push(item.name);
+      }
+    }
+    return result;
+  }
+
   // ---- Render objects diff (indexes, constraints, triggers, sequences) ----
+  // Each section has its own column set. No Status column — row color carries the status.
   function renderObjectsDiff() {
     var container = document.getElementById('objectsDiffContainer');
     if (!container || !objectsDiff) return;
 
-    var sections = [
-      { key: 'indexes', title: 'Indexes' },
-      { key: 'constraints', title: 'Constraints' },
-      { key: 'triggers', title: 'Triggers' },
-      { key: 'sequences', title: 'Sequences' },
-    ];
-
     var schemaFilters = activeFilters.schema;
-    var html = '';
-    for (var secIdx = 0; secIdx < sections.length; secIdx++) {
-      var section = sections[secIdx];
-      var allItems = objectsDiff[section.key] || [];
-      // Apply filter based on item.status
-      var items = [];
-      for (var filterIdx = 0; filterIdx < allItems.length; filterIdx++) {
-        var isSame = allItems[filterIdx].status === 'same';
+
+    function filterBySchemaStatus(items) {
+      var out = [];
+      for (var i = 0; i < items.length; i++) {
+        var isSame = items[i].status === 'same';
         if (isSame && !schemaFilters.same) continue;
         if (!isSame && !schemaFilters.differs) continue;
-        items.push(allItems[filterIdx]);
+        out.push(items[i]);
       }
-      if (items.length === 0) continue;
+      return out;
+    }
 
-      html += '<h3 class="diff-section-title">' + escapeHtml(section.title) + ' (' + items.length + ')</h3>';
-      html += '<table class="diff-schema-table">';
-      html += '<thead><tr><th>Name</th><th>Left</th><th>Right</th><th>Status</th></tr></thead>';
-      html += '<tbody>';
-      for (var itemIdx = 0; itemIdx < items.length; itemIdx++) {
-        var item = items[itemIdx];
-        var rowClass = item.status === 'added' ? 'diff-added' : item.status === 'removed' ? 'diff-removed' : '';
-        var statusText = item.status;
-        if (item.differences && item.differences.length > 0) {
-          statusText += ': ' + item.differences.join(', ');
-        }
-        html += '<tr' + (rowClass ? ' class="' + rowClass + '"' : '') + '>';
-        html += '<td>' + escapeHtml(item.name) + '</td>';
-        html += '<td>' + escapeHtml(item.leftDetail || '') + '</td>';
-        html += '<td>' + escapeHtml(item.rightDetail || '') + '</td>';
-        html += '<td class="diff-status-' + escapeHtml(item.status) + '">' + escapeHtml(statusText) + '</td>';
+    function rowClassFor(status) {
+      if (status === 'differs') return 'diff-stats-row-differs';
+      if (status === 'added') return 'diff-added';
+      if (status === 'removed') return 'diff-removed';
+      return '';
+    }
+
+    function pairCell(leftVal, rightVal, differs) {
+      var l = (leftVal === undefined || leftVal === null || leftVal === '') ? '\u2014' : String(leftVal);
+      var r = (rightVal === undefined || rightVal === null || rightVal === '') ? '\u2014' : String(rightVal);
+      return '<td' + (differs ? ' class="diff-cell-changed"' : '') + '>' + escapeHtml(l) + ' / ' + escapeHtml(r) + '</td>';
+    }
+
+    function joinCols(arr) {
+      return arr && arr.length > 0 ? arr.join(', ') : '';
+    }
+
+    var html = '';
+
+    // --- Indexes ---
+    var indexItems = filterBySchemaStatus(objectsDiff.indexes || []);
+    if (indexItems.length > 0) {
+      html += '<h3 class="diff-section-title">Indexes (' + indexItems.length + ')</h3>';
+      html += '<table class="diff-schema-table"><thead><tr>';
+      html += '<th>Name</th><th>Unique</th><th>Type</th><th>Columns</th><th>Included</th><th>Predicate</th>';
+      html += '</tr></thead><tbody>';
+      for (var ii = 0; ii < indexItems.length; ii++) {
+        var idx = indexItems[ii];
+        var iL = idx.left || {};
+        var iR = idx.right || {};
+        html += '<tr class="' + rowClassFor(idx.status) + '">';
+        html += '<td>' + escapeHtml(idx.name) + '</td>';
+        html += pairCell(iL.unique ? 'YES' : (idx.left ? 'NO' : ''), iR.unique ? 'YES' : (idx.right ? 'NO' : ''),
+          !!idx.left && !!idx.right && iL.unique !== iR.unique);
+        html += pairCell(iL.type, iR.type, !!idx.left && !!idx.right && (iL.type || '') !== (iR.type || ''));
+        html += pairCell(joinCols(iL.columns), joinCols(iR.columns),
+          !!idx.left && !!idx.right && joinCols(iL.columns) !== joinCols(iR.columns));
+        html += pairCell(joinCols(iL.included), joinCols(iR.included),
+          !!idx.left && !!idx.right && joinCols(iL.included) !== joinCols(iR.included));
+        html += pairCell(iL.predicate, iR.predicate,
+          !!idx.left && !!idx.right && (iL.predicate || '') !== (iR.predicate || ''));
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+
+    // --- Constraints ---
+    var conItems = filterBySchemaStatus(objectsDiff.constraints || []);
+    if (conItems.length > 0) {
+      html += '<h3 class="diff-section-title">Constraints (' + conItems.length + ')</h3>';
+      html += '<table class="diff-schema-table"><thead><tr>';
+      html += '<th>Name</th><th>Type</th><th>Columns</th><th>References</th><th>On Delete</th><th>On Update</th><th>Check</th>';
+      html += '</tr></thead><tbody>';
+      for (var ci = 0; ci < conItems.length; ci++) {
+        var con = conItems[ci];
+        var cL = con.left || {};
+        var cR = con.right || {};
+        html += '<tr class="' + rowClassFor(con.status) + '">';
+        html += '<td>' + escapeHtml(con.name) + '</td>';
+        html += pairCell(cL.type, cR.type, !!con.left && !!con.right && cL.type !== cR.type);
+        html += pairCell(joinCols(cL.columns), joinCols(cR.columns),
+          !!con.left && !!con.right && joinCols(cL.columns) !== joinCols(cR.columns));
+        html += pairCell(cL.referencedTable, cR.referencedTable,
+          !!con.left && !!con.right && (cL.referencedTable || '') !== (cR.referencedTable || ''));
+        html += pairCell(cL.onDelete, cR.onDelete,
+          !!con.left && !!con.right && (cL.onDelete || '') !== (cR.onDelete || ''));
+        html += pairCell(cL.onUpdate, cR.onUpdate,
+          !!con.left && !!con.right && (cL.onUpdate || '') !== (cR.onUpdate || ''));
+        html += pairCell(cL.checkExpression, cR.checkExpression,
+          !!con.left && !!con.right && (cL.checkExpression || '') !== (cR.checkExpression || ''));
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+
+    // --- Triggers ---
+    var trgItems = filterBySchemaStatus(objectsDiff.triggers || []);
+    if (trgItems.length > 0) {
+      html += '<h3 class="diff-section-title">Triggers (' + trgItems.length + ')</h3>';
+      html += '<table class="diff-schema-table"><thead><tr>';
+      html += '<th>Name</th><th>Timing</th><th>Events</th><th>Definition</th>';
+      html += '</tr></thead><tbody>';
+      for (var ti = 0; ti < trgItems.length; ti++) {
+        var trg = trgItems[ti];
+        var tL = trg.left || {};
+        var tR = trg.right || {};
+        html += '<tr class="' + rowClassFor(trg.status) + '">';
+        html += '<td>' + escapeHtml(trg.name) + '</td>';
+        html += pairCell(tL.timing, tR.timing, !!trg.left && !!trg.right && tL.timing !== tR.timing);
+        html += pairCell(tL.events, tR.events, !!trg.left && !!trg.right && tL.events !== tR.events);
+        html += pairCell(tL.definition, tR.definition,
+          !!trg.left && !!trg.right && (tL.definition || '') !== (tR.definition || ''));
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+
+    // --- Sequences ---
+    var seqItems = filterBySchemaStatus(objectsDiff.sequences || []);
+    if (seqItems.length > 0) {
+      html += '<h3 class="diff-section-title">Sequences (' + seqItems.length + ')</h3>';
+      html += '<table class="diff-schema-table"><thead><tr>';
+      html += '<th>Name</th><th>Data type</th><th>Start</th><th>Increment</th>';
+      html += '</tr></thead><tbody>';
+      for (var si = 0; si < seqItems.length; si++) {
+        var seq = seqItems[si];
+        var sL = seq.left || {};
+        var sR = seq.right || {};
+        html += '<tr class="' + rowClassFor(seq.status) + '">';
+        html += '<td>' + escapeHtml(seq.name) + '</td>';
+        html += pairCell(sL.dataType, sR.dataType,
+          !!seq.left && !!seq.right && (sL.dataType || '') !== (sR.dataType || ''));
+        html += pairCell(sL.startValue, sR.startValue,
+          !!seq.left && !!seq.right && sL.startValue !== sR.startValue);
+        html += pairCell(sL.increment, sR.increment,
+          !!seq.left && !!seq.right && sL.increment !== sR.increment);
         html += '</tr>';
       }
       html += '</tbody></table>';

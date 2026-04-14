@@ -480,7 +480,11 @@ export class PostgresDriver implements DatabaseDriver {
         c.data_type,
         c.is_nullable,
         c.column_default,
-        CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk
+        CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk,
+        col_description(
+          (quote_ident(c.table_schema) || '.' || quote_ident(c.table_name))::regclass::oid,
+          c.ordinal_position::int
+        ) AS comment
       FROM information_schema.columns c
       LEFT JOIN (
         SELECT ku.column_name
@@ -499,6 +503,7 @@ export class PostgresDriver implements DatabaseDriver {
       nullable: row.is_nullable === 'YES',
       isPrimaryKey: row.is_pk,
       defaultValue: row.column_default,
+      comment: row.comment ?? undefined,
     }));
 
     return { name, schema, columns };
@@ -582,10 +587,12 @@ export class PostgresDriver implements DatabaseDriver {
   }
 
   async getTableObjects(name: string, schema = 'public'): Promise<TableObjects> {
-    // Indexes (excluding primary key indexes)
+    // Indexes (excluding primary key indexes).
+    // indnkeyatts < indnatts means the trailing columns are INCLUDE'd (covering), not key columns.
     const indexesRes = await this.client!.query(`
       SELECT i.relname AS index_name,
-             array_agg(a.attname ORDER BY k.ordinality) AS columns,
+             array_agg(a.attname ORDER BY k.ordinality) AS all_columns,
+             ix.indnkeyatts AS nkey_atts,
              ix.indisunique AS is_unique,
              am.amname AS index_type,
              pg_get_expr(ix.indpred, ix.indrelid) AS predicate
@@ -598,17 +605,23 @@ export class PostgresDriver implements DatabaseDriver {
       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
       WHERE n.nspname = $1 AND t.relname = $2
         AND NOT ix.indisprimary
-      GROUP BY i.relname, ix.indisunique, am.amname, ix.indpred, ix.indrelid
+      GROUP BY i.relname, ix.indisunique, am.amname, ix.indpred, ix.indrelid, ix.indnkeyatts
       ORDER BY i.relname
     `, [schema, name]);
 
-    const indexes: IndexInfo[] = indexesRes.rows.map((row: any) => ({
-      name: row.index_name,
-      columns: toStringArray(row.columns),
-      unique: row.is_unique,
-      type: row.index_type,
-      predicate: row.predicate ?? undefined,
-    }));
+    const indexes: IndexInfo[] = indexesRes.rows.map((row: any) => {
+      const allCols = toStringArray(row.all_columns);
+      const nkey = parseInt(String(row.nkey_atts), 10) || allCols.length;
+      const included = allCols.slice(nkey);
+      return {
+        name: row.index_name,
+        columns: allCols.slice(0, nkey),
+        included: included.length > 0 ? included : undefined,
+        unique: row.is_unique,
+        type: row.index_type,
+        predicate: row.predicate ?? undefined,
+      };
+    });
 
     // Constraints
     const constraintsRes = await this.client!.query(`

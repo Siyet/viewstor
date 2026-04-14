@@ -174,11 +174,11 @@ export class DiffPanelManager {
     const hasSchema = !!state.schemaDiff;
     const hasStats = !!state.statsDiff;
 
-    // Counts for Schema Diff tab: "differs" bundles type/nullable/pk diffs + added/removed columns + non-same objects
+    // Counts for Schema Diff tab: "differs" bundles type/nullable/pk/comment diffs + added/removed columns + non-same objects
     let schemaDiffers = 0, schemaSame = 0;
     if (state.schemaDiff) {
       for (const col of state.schemaDiff.commonColumns) {
-        if (col.typeDiffers || col.nullableDiffers || col.pkDiffers) schemaDiffers++;
+        if (col.typeDiffers || col.nullableDiffers || col.pkDiffers || col.commentDiffers) schemaDiffers++;
         else schemaSame++;
       }
       schemaDiffers += state.schemaDiff.leftOnlyColumns.length + state.schemaDiff.rightOnlyColumns.length;
@@ -264,22 +264,26 @@ export class DiffPanelManager {
 
   <div id="panel-schema" class="diff-tab-panel">
     ${hasSchema ? `
-    <div class="diff-schema-container">
-      <table class="diff-schema-table">
-        <thead>
-          <tr>
-            <th>Column</th>
-            <th>Type (${esc(state.left.label)} / ${esc(state.right.label)})</th>
-            <th>Nullable (${esc(state.left.label)} / ${esc(state.right.label)})</th>
-            <th>PK (${esc(state.left.label)} / ${esc(state.right.label)})</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="schemaTableBody"></tbody>
-      </table>
+    <div class="diff-schema-layout">
+      <div class="diff-schema-columns">
+        <h3 class="diff-section-title">Columns</h3>
+        <table class="diff-schema-table">
+          <thead>
+            <tr>
+              <th>Column</th>
+              <th>Type (${esc(state.left.label)} / ${esc(state.right.label)})</th>
+              <th>Nullable (${esc(state.left.label)} / ${esc(state.right.label)})</th>
+              <th>PK (${esc(state.left.label)} / ${esc(state.right.label)})</th>
+              <th>Comment (${esc(state.left.label)} / ${esc(state.right.label)})</th>
+              <th>Indexed by (${esc(state.left.label)} / ${esc(state.right.label)})</th>
+            </tr>
+          </thead>
+          <tbody id="schemaTableBody"></tbody>
+        </table>
+      </div>
+      <div class="diff-schema-objects" id="objectsDiffContainer"></div>
     </div>
     ` : '<div class="diff-no-schema">Schema diff not available (table info not provided)</div>'}
-    <div id="objectsDiffContainer"></div>
   </div>
 
   ${hasStats ? `

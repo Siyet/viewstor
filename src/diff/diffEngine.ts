@@ -124,6 +124,7 @@ export function computeSchemaDiff(leftColumns: ColumnInfo[], rightColumns: Colum
         dataType: leftCol.dataType,
         nullable: leftCol.nullable,
         isPrimaryKey: leftCol.isPrimaryKey,
+        comment: leftCol.comment,
       });
     } else {
       commonColumns.push({
@@ -137,6 +138,9 @@ export function computeSchemaDiff(leftColumns: ColumnInfo[], rightColumns: Colum
         leftIsPK: leftCol.isPrimaryKey,
         rightIsPK: rightCol.isPrimaryKey,
         pkDiffers: leftCol.isPrimaryKey !== rightCol.isPrimaryKey,
+        leftComment: leftCol.comment,
+        rightComment: rightCol.comment,
+        commentDiffers: (leftCol.comment || '') !== (rightCol.comment || ''),
       });
     }
   }
@@ -149,6 +153,7 @@ export function computeSchemaDiff(leftColumns: ColumnInfo[], rightColumns: Colum
         dataType: rightCol.dataType,
         nullable: rightCol.nullable,
         isPrimaryKey: rightCol.isPrimaryKey,
+        comment: rightCol.comment,
       });
     }
   }
@@ -175,10 +180,10 @@ export function computeObjectsDiff(
   };
 }
 
-function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): ObjectDiffItem[] {
+function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): ObjectDiffItem<IndexInfo>[] {
   const leftMap = new Map(leftIndexes.map(idx => [idx.name, idx]));
   const rightMap = new Map(rightIndexes.map(idx => [idx.name, idx]));
-  const result: ObjectDiffItem[] = [];
+  const result: ObjectDiffItem<IndexInfo>[] = [];
 
   for (const [name, leftIdx] of leftMap) {
     const rightIdx = rightMap.get(name);
@@ -187,6 +192,7 @@ function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): Objec
         name,
         status: 'removed',
         leftDetail: formatIndex(leftIdx),
+        left: leftIdx,
       });
     } else {
       const diffs: string[] = [];
@@ -202,11 +208,18 @@ function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): Objec
       if ((leftIdx.predicate || '') !== (rightIdx.predicate || '')) {
         diffs.push(`predicate: ${leftIdx.predicate || '—'} → ${rightIdx.predicate || '—'}`);
       }
+      const leftInc = (leftIdx.included || []).join(',');
+      const rightInc = (rightIdx.included || []).join(',');
+      if (leftInc !== rightInc) {
+        diffs.push(`included: (${leftInc || '—'}) → (${rightInc || '—'})`);
+      }
       result.push({
         name,
         status: diffs.length > 0 ? 'differs' : 'same',
         leftDetail: formatIndex(leftIdx),
         rightDetail: formatIndex(rightIdx),
+        left: leftIdx,
+        right: rightIdx,
         differences: diffs.length > 0 ? diffs : undefined,
       });
     }
@@ -218,6 +231,7 @@ function diffIndexes(leftIndexes: IndexInfo[], rightIndexes: IndexInfo[]): Objec
         name,
         status: 'added',
         rightDetail: formatIndex(rightIdx),
+        right: rightIdx,
       });
     }
   }
@@ -231,15 +245,15 @@ function formatIndex(idx: IndexInfo): string {
   return parts.filter(Boolean).join(' ').trim();
 }
 
-function diffConstraints(leftConstraints: ConstraintInfo[], rightConstraints: ConstraintInfo[]): ObjectDiffItem[] {
+function diffConstraints(leftConstraints: ConstraintInfo[], rightConstraints: ConstraintInfo[]): ObjectDiffItem<ConstraintInfo>[] {
   const leftMap = new Map(leftConstraints.map(constraint => [constraint.name, constraint]));
   const rightMap = new Map(rightConstraints.map(constraint => [constraint.name, constraint]));
-  const result: ObjectDiffItem[] = [];
+  const result: ObjectDiffItem<ConstraintInfo>[] = [];
 
   for (const [name, leftCon] of leftMap) {
     const rightCon = rightMap.get(name);
     if (!rightCon) {
-      result.push({ name, status: 'removed', leftDetail: formatConstraint(leftCon) });
+      result.push({ name, status: 'removed', leftDetail: formatConstraint(leftCon), left: leftCon });
     } else {
       const diffs: string[] = [];
       if (leftCon.type !== rightCon.type) diffs.push(`type: ${leftCon.type} → ${rightCon.type}`);
@@ -263,6 +277,8 @@ function diffConstraints(leftConstraints: ConstraintInfo[], rightConstraints: Co
         status: diffs.length > 0 ? 'differs' : 'same',
         leftDetail: formatConstraint(leftCon),
         rightDetail: formatConstraint(rightCon),
+        left: leftCon,
+        right: rightCon,
         differences: diffs.length > 0 ? diffs : undefined,
       });
     }
@@ -270,7 +286,7 @@ function diffConstraints(leftConstraints: ConstraintInfo[], rightConstraints: Co
 
   for (const [name, rightCon] of rightMap) {
     if (!leftMap.has(name)) {
-      result.push({ name, status: 'added', rightDetail: formatConstraint(rightCon) });
+      result.push({ name, status: 'added', rightDetail: formatConstraint(rightCon), right: rightCon });
     }
   }
 
@@ -284,15 +300,15 @@ function formatConstraint(constraint: ConstraintInfo): string {
   return detail;
 }
 
-function diffTriggers(leftTriggers: TriggerInfo[], rightTriggers: TriggerInfo[]): ObjectDiffItem[] {
+function diffTriggers(leftTriggers: TriggerInfo[], rightTriggers: TriggerInfo[]): ObjectDiffItem<TriggerInfo>[] {
   const leftMap = new Map(leftTriggers.map(trigger => [trigger.name, trigger]));
   const rightMap = new Map(rightTriggers.map(trigger => [trigger.name, trigger]));
-  const result: ObjectDiffItem[] = [];
+  const result: ObjectDiffItem<TriggerInfo>[] = [];
 
   for (const [name, leftTrig] of leftMap) {
     const rightTrig = rightMap.get(name);
     if (!rightTrig) {
-      result.push({ name, status: 'removed', leftDetail: formatTrigger(leftTrig) });
+      result.push({ name, status: 'removed', leftDetail: formatTrigger(leftTrig), left: leftTrig });
     } else {
       const diffs: string[] = [];
       if (leftTrig.timing !== rightTrig.timing) diffs.push(`timing: ${leftTrig.timing} → ${rightTrig.timing}`);
@@ -303,6 +319,8 @@ function diffTriggers(leftTriggers: TriggerInfo[], rightTriggers: TriggerInfo[])
         status: diffs.length > 0 ? 'differs' : 'same',
         leftDetail: formatTrigger(leftTrig),
         rightDetail: formatTrigger(rightTrig),
+        left: leftTrig,
+        right: rightTrig,
         differences: diffs.length > 0 ? diffs : undefined,
       });
     }
@@ -310,7 +328,7 @@ function diffTriggers(leftTriggers: TriggerInfo[], rightTriggers: TriggerInfo[])
 
   for (const [name, rightTrig] of rightMap) {
     if (!leftMap.has(name)) {
-      result.push({ name, status: 'added', rightDetail: formatTrigger(rightTrig) });
+      result.push({ name, status: 'added', rightDetail: formatTrigger(rightTrig), right: rightTrig });
     }
   }
 
@@ -321,15 +339,15 @@ function formatTrigger(trigger: TriggerInfo): string {
   return `${trigger.timing} ${trigger.events}${trigger.definition ? ` → ${trigger.definition}` : ''}`;
 }
 
-function diffSequences(leftSequences: SequenceInfo[], rightSequences: SequenceInfo[]): ObjectDiffItem[] {
+function diffSequences(leftSequences: SequenceInfo[], rightSequences: SequenceInfo[]): ObjectDiffItem<SequenceInfo>[] {
   const leftMap = new Map(leftSequences.map(seq => [seq.name, seq]));
   const rightMap = new Map(rightSequences.map(seq => [seq.name, seq]));
-  const result: ObjectDiffItem[] = [];
+  const result: ObjectDiffItem<SequenceInfo>[] = [];
 
   for (const [name, leftSeq] of leftMap) {
     const rightSeq = rightMap.get(name);
     if (!rightSeq) {
-      result.push({ name, status: 'removed', leftDetail: formatSequence(leftSeq) });
+      result.push({ name, status: 'removed', leftDetail: formatSequence(leftSeq), left: leftSeq });
     } else {
       const diffs: string[] = [];
       if (leftSeq.increment !== rightSeq.increment) diffs.push(`increment: ${leftSeq.increment} → ${rightSeq.increment}`);
@@ -339,6 +357,8 @@ function diffSequences(leftSequences: SequenceInfo[], rightSequences: SequenceIn
         status: diffs.length > 0 ? 'differs' : 'same',
         leftDetail: formatSequence(leftSeq),
         rightDetail: formatSequence(rightSeq),
+        left: leftSeq,
+        right: rightSeq,
         differences: diffs.length > 0 ? diffs : undefined,
       });
     }
@@ -346,7 +366,7 @@ function diffSequences(leftSequences: SequenceInfo[], rightSequences: SequenceIn
 
   for (const [name, rightSeq] of rightMap) {
     if (!leftMap.has(name)) {
-      result.push({ name, status: 'added', rightDetail: formatSequence(rightSeq) });
+      result.push({ name, status: 'added', rightDetail: formatSequence(rightSeq), right: rightSeq });
     }
   }
 

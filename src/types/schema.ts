@@ -47,6 +47,8 @@ export interface IndexInfo {
   type?: string;
   /** Partial index WHERE clause */
   predicate?: string;
+  /** Non-key "covering" columns from PG's INCLUDE (col1, col2) clause */
+  included?: string[];
 }
 
 export interface ConstraintInfo {

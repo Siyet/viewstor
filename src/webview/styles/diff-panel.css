@@ -327,6 +327,30 @@ body {
   margin-top: 8px;
 }
 
+/* ---- Schema diff layout ---- */
+.diff-schema-layout {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.diff-schema-columns,
+.diff-schema-objects {
+  min-width: 0;
+}
+
+@media (min-width: 1400px) {
+  .diff-schema-layout {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+  .diff-schema-columns { flex: 1 1 60%; }
+  .diff-schema-objects { flex: 1 1 40%; }
+}
+
 /* ---- Schema diff table ---- */
 .diff-schema-container {
   flex: 1;
