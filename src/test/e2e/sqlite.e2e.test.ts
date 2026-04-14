@@ -188,7 +188,8 @@ describe('SQLite Driver E2E', () => {
 
     const nameCol = columns.find(c => c.name === 'name')!;
     expect(nameCol.detail).toContain('TEXT');
-    expect(nameCol.detail).toContain('NOT NULL');
+    // NOT NULL is rendered as strikethrough NULL using Unicode combining strokes
+    expect(nameCol.detail).toContain('N\u0336U\u0336L\u0336L\u0336');
 
     // Indexes group
     const indexesGroup = usersTable.children!.find(c => c.name === 'Indexes' && c.type === 'group')!;
