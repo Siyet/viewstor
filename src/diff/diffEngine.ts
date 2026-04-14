@@ -1,5 +1,14 @@
 import { ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
+import { quoteTable } from '../utils/queryHelpers';
 import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult } from './diffTypes';
+
+/**
+ * Generate the default diff query for a given table.
+ * Pure function — unit-tested, no driver/vscode dependency.
+ */
+export function buildDefaultDiffQuery(tableName: string, schema: string | undefined, rowLimit: number): string {
+  return `SELECT * FROM ${quoteTable(tableName, schema)} LIMIT ${rowLimit}`;
+}
 
 /**
  * Stringify a cell value for comparison.

@@ -118,6 +118,90 @@
     });
   }
 
+  // ---- Custom query editor ----
+  var queryLeftEl = document.getElementById('diffQueryLeft');
+  var queryRightEl = document.getElementById('diffQueryRight');
+  var querySyncEl = document.getElementById('diffQuerySync');
+  var queryRunEl = document.getElementById('diffRunQuery');
+  var queryStatusEl = document.getElementById('diffQueryStatus');
+  var queryLeftErrEl = document.getElementById('diffQueryLeftError');
+  var queryRightErrEl = document.getElementById('diffQueryRightError');
+
+  function setQueryStatus(text) {
+    if (queryStatusEl) queryStatusEl.textContent = text || '';
+  }
+
+  function clearQueryErrors() {
+    if (queryLeftErrEl) { queryLeftErrEl.textContent = ''; queryLeftErrEl.style.display = 'none'; }
+    if (queryRightErrEl) { queryRightErrEl.textContent = ''; queryRightErrEl.style.display = 'none'; }
+  }
+
+  function isSyncOn() {
+    return !!(querySyncEl && querySyncEl.checked);
+  }
+
+  function sendQueryState() {
+    if (!queryLeftEl || !queryRightEl) return;
+    vscode.postMessage({
+      type: 'updateQueries',
+      leftQuery: queryLeftEl.value,
+      rightQuery: queryRightEl.value,
+      syncMode: isSyncOn(),
+    });
+  }
+
+  if (queryLeftEl && queryRightEl && queryRunEl) {
+    // Mirror between panes while sync is ON
+    var mirroring = false;
+    queryLeftEl.addEventListener('input', function () {
+      if (isSyncOn() && !mirroring) {
+        mirroring = true;
+        queryRightEl.value = queryLeftEl.value;
+        mirroring = false;
+      }
+      sendQueryState();
+    });
+    queryRightEl.addEventListener('input', function () {
+      if (isSyncOn() && !mirroring) {
+        mirroring = true;
+        queryLeftEl.value = queryRightEl.value;
+        mirroring = false;
+      }
+      sendQueryState();
+    });
+    if (querySyncEl) {
+      querySyncEl.addEventListener('change', function () {
+        if (isSyncOn()) {
+          // Snap right to match left when re-enabling sync
+          queryRightEl.value = queryLeftEl.value;
+        }
+        sendQueryState();
+      });
+    }
+
+    queryRunEl.addEventListener('click', function () {
+      clearQueryErrors();
+      setQueryStatus('Running\u2026');
+      queryRunEl.disabled = true;
+      vscode.postMessage({
+        type: 'runDiffQuery',
+        leftQuery: queryLeftEl.value,
+        rightQuery: queryRightEl.value,
+        syncMode: isSyncOn(),
+      });
+    });
+
+    // Ctrl/Cmd+Enter in either textarea runs the diff
+    function runOnCtrlEnter(e) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter')) {
+        e.preventDefault();
+        queryRunEl.click();
+      }
+    }
+    queryLeftEl.addEventListener('keydown', runOnCtrlEnter);
+    queryRightEl.addEventListener('keydown', runOnCtrlEnter);
+  }
+
   // ---- Helpers ----
   function escapeHtml(str) {
     if (str === null || str === undefined) return '';
@@ -774,9 +858,14 @@
       case 'updateDiff':
         // Host sent updated diff data after swap or refresh
         if (msg.rowDiff) {
+          // Replace rather than merge — matched/leftOnly/rightOnly arrays
+          // from a previous run must not bleed into the new result.
+          for (var k in rowDiff) { if (Object.prototype.hasOwnProperty.call(rowDiff, k)) delete rowDiff[k]; }
           Object.assign(rowDiff, msg.rowDiff);
           buildRowHeaders();
           renderRowDiff();
+          updateSummaryCounts(msg.rowDiff.summary);
+          updateTruncatedBanner(!!msg.truncated);
         }
         if (msg.schemaDiff) {
           Object.assign(schemaDiff, msg.schemaDiff);
@@ -788,9 +877,46 @@
           if (leftHeader && msg.leftLabel) leftHeader.textContent = msg.leftLabel;
           if (rightHeader && msg.rightLabel) rightHeader.textContent = msg.rightLabel;
         }
+        if (queryRunEl) { queryRunEl.disabled = false; setQueryStatus(''); clearQueryErrors(); }
+        break;
+
+      case 'diffQueryRunning':
+        if (queryRunEl) queryRunEl.disabled = true;
+        setQueryStatus('Running\u2026');
+        clearQueryErrors();
+        break;
+
+      case 'diffQueryError':
+        if (queryRunEl) queryRunEl.disabled = false;
+        setQueryStatus('Error');
+        if (queryLeftErrEl && msg.leftError) {
+          queryLeftErrEl.textContent = msg.leftError;
+          queryLeftErrEl.style.display = 'block';
+        }
+        if (queryRightErrEl && msg.rightError) {
+          queryRightErrEl.textContent = msg.rightError;
+          queryRightErrEl.style.display = 'block';
+        }
         break;
     }
   });
+
+  function updateSummaryCounts(summary) {
+    if (!summary) return;
+    var group = document.querySelector('.diff-summary-filters[data-for="rows"]');
+    if (!group) return;
+    var mapping = { unchanged: summary.unchanged, changed: summary.changed, added: summary.added, removed: summary.removed };
+    group.querySelectorAll('.diff-badge-filter').forEach(function (badge) {
+      var key = badge.dataset.filter;
+      if (key in mapping) badge.textContent = mapping[key] + ' ' + key;
+    });
+  }
+
+  function updateTruncatedBanner(truncated) {
+    var banner = document.getElementById('diff-truncated-banner');
+    if (!banner) return;
+    banner.style.display = truncated ? '' : 'none';
+  }
 
   // ---- Initial render ----
   buildRowHeaders();

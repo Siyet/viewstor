@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffResult, StatsDiffResult } from './diffTypes';
-import { computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, exportDiffAsCsv, exportDiffAsJson } from './diffEngine';
+import { buildDefaultDiffQuery, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, exportDiffAsCsv, exportDiffAsJson } from './diffEngine';
 import { ColumnInfo, TableObjects, TableStatistic } from '../types/schema';
+import type { ConnectionManager } from '../connections/connectionManager';
 
 interface DiffState {
   panel: vscode.WebviewPanel;
@@ -19,13 +20,19 @@ interface DiffState {
   rightObjects?: TableObjects;
   leftStats?: TableStatistic[];
   rightStats?: TableStatistic[];
+  leftQuery: string;
+  rightQuery: string;
+  syncMode: boolean;
   disposable: vscode.Disposable;
 }
 
 export class DiffPanelManager {
   private diffs = new Map<string, DiffState>();
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly connectionManager?: ConnectionManager,
+  ) {}
 
   show(
     left: DiffSource,
@@ -37,6 +44,7 @@ export class DiffPanelManager {
     rightObjects?: TableObjects,
     leftStats?: TableStatistic[],
     rightStats?: TableStatistic[],
+    queryState?: { leftQuery?: string; rightQuery?: string; syncMode?: boolean },
   ) {
     const rowDiff = computeRowDiff(left, right, options);
     const schemaDiff = leftTableInfo && rightTableInfo
@@ -51,6 +59,14 @@ export class DiffPanelManager {
 
     const panelTitle = `Diff \u2014 ${left.label} \u2194 ${right.label}`;
     const panelKey = `diff:${panelTitle}`;
+
+    const defaultLeftQuery = left.tableName ? buildDefaultDiffQuery(left.tableName, left.schema, options.rowLimit) : '';
+    const defaultRightQuery = right.tableName ? buildDefaultDiffQuery(right.tableName, right.schema, options.rowLimit) : '';
+    const leftQuery = queryState?.leftQuery ?? defaultLeftQuery;
+    const rightQuery = queryState?.rightQuery ?? defaultRightQuery;
+    const leftType = left.connectionId ? this.connectionManager?.get(left.connectionId)?.config.type : undefined;
+    const rightType = right.connectionId ? this.connectionManager?.get(right.connectionId)?.config.type : undefined;
+    const syncMode = queryState?.syncMode ?? !!(leftType && rightType && leftType === rightType);
 
     let state = this.diffs.get(panelKey);
     if (state) {
@@ -68,6 +84,9 @@ export class DiffPanelManager {
       state.rightObjects = rightObjects;
       state.leftStats = leftStats;
       state.rightStats = rightStats;
+      state.leftQuery = leftQuery;
+      state.rightQuery = rightQuery;
+      state.syncMode = syncMode;
     } else {
       const panel = vscode.window.createWebviewPanel(
         'viewstor.diff',
@@ -100,6 +119,9 @@ export class DiffPanelManager {
         rightObjects,
         leftStats,
         rightStats,
+        leftQuery,
+        rightQuery,
+        syncMode,
         disposable: new vscode.Disposable(() => {}),
       };
       this.diffs.set(panelKey, state);
@@ -135,7 +157,9 @@ export class DiffPanelManager {
         }
 
         case 'swapSides': {
-          // Swap left and right sources and re-compute
+          // Swap left and right sources + any edited queries, then recompute.
+          const swappedLeftQuery = state.rightQuery;
+          const swappedRightQuery = state.leftQuery;
           this.show(
             state.right,
             state.left,
@@ -146,10 +170,120 @@ export class DiffPanelManager {
             state.leftObjects,
             state.rightStats,
             state.leftStats,
+            { leftQuery: swappedLeftQuery, rightQuery: swappedRightQuery, syncMode: state.syncMode },
           );
           break;
         }
+
+        case 'runDiffQuery': {
+          // Persist editor state so swap/refresh preserves it
+          if (typeof msg.leftQuery === 'string') state.leftQuery = msg.leftQuery;
+          if (typeof msg.rightQuery === 'string') state.rightQuery = msg.rightQuery;
+          if (typeof msg.syncMode === 'boolean') state.syncMode = msg.syncMode;
+          await this.runDiffQuery(state);
+          break;
+        }
+
+        case 'updateQueries': {
+          if (typeof msg.leftQuery === 'string') state.leftQuery = msg.leftQuery;
+          if (typeof msg.rightQuery === 'string') state.rightQuery = msg.rightQuery;
+          if (typeof msg.syncMode === 'boolean') state.syncMode = msg.syncMode;
+          break;
+        }
       }
+    });
+  }
+
+  /**
+   * Execute the current leftQuery/rightQuery against their respective drivers,
+   * recompute the row diff, and push the result to the webview.
+   * Schema / objects / stats diffs are unaffected because they describe the
+   * underlying table definition, not the arbitrary query result.
+   */
+  private async runDiffQuery(state: DiffState): Promise<void> {
+    const cm = this.connectionManager;
+    if (!cm) {
+      state.panel.webview.postMessage({
+        type: 'diffQueryError',
+        side: 'both',
+        message: 'Custom queries are not available (connection manager missing).',
+      });
+      return;
+    }
+
+    const getDriver = async (source: DiffSource) => {
+      if (!source.connectionId) return undefined;
+      if (source.databaseName) {
+        return cm.getDriverForDatabase(source.connectionId, source.databaseName);
+      }
+      return cm.getDriver(source.connectionId);
+    };
+
+    state.panel.webview.postMessage({ type: 'diffQueryRunning' });
+
+    let leftError: string | undefined;
+    let rightError: string | undefined;
+
+    const [leftResult, rightResult] = await Promise.all([
+      (async () => {
+        try {
+          const driver = await getDriver(state.left);
+          if (!driver) throw new Error('left driver unavailable');
+          return await driver.execute(state.leftQuery);
+        } catch (err) {
+          leftError = err instanceof Error ? err.message : String(err);
+          return undefined;
+        }
+      })(),
+      (async () => {
+        try {
+          const driver = await getDriver(state.right);
+          if (!driver) throw new Error('right driver unavailable');
+          return await driver.execute(state.rightQuery);
+        } catch (err) {
+          rightError = err instanceof Error ? err.message : String(err);
+          return undefined;
+        }
+      })(),
+    ]);
+
+    if (leftError || rightError) {
+      state.panel.webview.postMessage({
+        type: 'diffQueryError',
+        side: leftError && rightError ? 'both' : leftError ? 'left' : 'right',
+        leftError,
+        rightError,
+      });
+      return;
+    }
+
+    // Verify both result sets carry the key columns — otherwise matching is meaningless
+    const keyColumns = state.options.keyColumns;
+    const missingLeftKeys = keyColumns.filter(k => !leftResult!.columns.some(c => c.name === k));
+    const missingRightKeys = keyColumns.filter(k => !rightResult!.columns.some(c => c.name === k));
+    if (missingLeftKeys.length > 0 || missingRightKeys.length > 0) {
+      const parts: string[] = [];
+      if (missingLeftKeys.length > 0) parts.push(`left query missing key column(s): ${missingLeftKeys.join(', ')}`);
+      if (missingRightKeys.length > 0) parts.push(`right query missing key column(s): ${missingRightKeys.join(', ')}`);
+      state.panel.webview.postMessage({
+        type: 'diffQueryError',
+        side: missingLeftKeys.length > 0 && missingRightKeys.length > 0 ? 'both' : missingLeftKeys.length > 0 ? 'left' : 'right',
+        leftError: missingLeftKeys.length > 0 ? `Query results must include key column(s): ${missingLeftKeys.join(', ')}` : undefined,
+        rightError: missingRightKeys.length > 0 ? `Query results must include key column(s): ${missingRightKeys.join(', ')}` : undefined,
+        message: parts.join('; '),
+      });
+      return;
+    }
+
+    // Swap in the new rows/columns and recompute
+    state.left = { ...state.left, columns: leftResult!.columns, rows: leftResult!.rows };
+    state.right = { ...state.right, columns: rightResult!.columns, rows: rightResult!.rows };
+    state.rowDiff = computeRowDiff(state.left, state.right, state.options);
+
+    state.panel.webview.postMessage({
+      type: 'updateDiff',
+      rowDiff: state.rowDiff,
+      truncated: state.rowDiff.truncated,
     });
   }
 
@@ -160,6 +294,8 @@ export class DiffPanelManager {
     const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
     const cspSource = webview.cspSource;
 
+    const canEditQueries = !!(state.left.connectionId && state.right.connectionId && this.connectionManager);
+
     const diffData = {
       rowDiff: state.rowDiff,
       schemaDiff: state.schemaDiff,
@@ -168,6 +304,10 @@ export class DiffPanelManager {
       leftLabel: state.left.label,
       rightLabel: state.right.label,
       keyColumns: state.options.keyColumns,
+      leftQuery: state.leftQuery,
+      rightQuery: state.rightQuery,
+      syncMode: state.syncMode,
+      canEditQueries,
     };
 
     const summary = state.rowDiff.summary;
@@ -241,9 +381,42 @@ export class DiffPanelManager {
     <button id="exportJson">Export JSON</button>
   </div>
 
-  ${state.rowDiff.truncated ? '<div class="diff-truncated">Results truncated to row limit. Increase the limit to see all differences.</div>' : ''}
+  ${state.rowDiff.truncated ? '<div class="diff-truncated" id="diff-truncated-banner">Results truncated to row limit. Increase the limit to see all differences.</div>' : '<div class="diff-truncated" id="diff-truncated-banner" style="display:none;">Results truncated to row limit. Increase the limit to see all differences.</div>'}
 
   <div id="panel-rows" class="diff-tab-panel active">
+    ${canEditQueries ? `
+    <details class="diff-query-editor" id="diffQueryEditor">
+      <summary class="diff-query-editor-summary">
+        <span class="diff-query-editor-chevron">\u25B8</span>
+        <span>Edit Queries</span>
+        <span class="diff-query-editor-hint">Customize the SQL that feeds this diff</span>
+      </summary>
+      <div class="diff-query-editor-body">
+        <div class="diff-query-editor-toolbar">
+          <label class="diff-query-editor-sync">
+            <input type="checkbox" id="diffQuerySync" ${state.syncMode ? 'checked' : ''}>
+            <span class="diff-query-editor-sync-label">\u{1F517} Synced</span>
+          </label>
+          <span class="diff-query-editor-sync-hint">When on, edits to either side are mirrored to the other.</span>
+          <span class="diff-query-editor-spacer"></span>
+          <span class="diff-query-editor-status" id="diffQueryStatus"></span>
+          <button id="diffRunQuery" class="diff-query-editor-run">\u25B6 Run Diff</button>
+        </div>
+        <div class="diff-query-editor-panes">
+          <div class="diff-query-editor-pane">
+            <div class="diff-query-editor-label">${esc(state.left.label)}</div>
+            <textarea class="diff-query-editor-textarea" id="diffQueryLeft" spellcheck="false">${esc(state.leftQuery)}</textarea>
+            <div class="diff-query-editor-error" id="diffQueryLeftError"></div>
+          </div>
+          <div class="diff-query-editor-pane">
+            <div class="diff-query-editor-label">${esc(state.right.label)}</div>
+            <textarea class="diff-query-editor-textarea" id="diffQueryRight" spellcheck="false">${esc(state.rightQuery)}</textarea>
+            <div class="diff-query-editor-error" id="diffQueryRightError"></div>
+          </div>
+        </div>
+      </div>
+    </details>
+    ` : ''}
     <div class="diff-tables-container">
       <div class="diff-table-pane" id="leftPane">
         <div class="diff-table-pane-header" id="leftHeader">${esc(state.left.label)}</div>

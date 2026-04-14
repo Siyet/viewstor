@@ -44,7 +44,7 @@ export function activate(context: vscode.ExtensionContext) {
     chartPanelManager.setPinnedQueryProvider(queryHistoryProvider);
     chartPanelManager.setConnectionManager(connectionManager);
     setChartOutputChannel(outputChannel);
-    const diffPanelManager = new DiffPanelManager(context);
+    const diffPanelManager = new DiffPanelManager(context, connectionManager);
     tempFileManager = new TempFileManager(context, queryFileManager);
     tempFileManager.setPostMessage((key, msg) => resultPanelManager.postMessage(key, msg));
     resultPanelManager.setTempFileManager(tempFileManager);
