@@ -272,15 +272,19 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     item.contextValue = isIndexedColumn ? 'column-indexed' : obj.type;
     if (databaseName) item.databaseName = databaseName;
 
-    // Inaccessible items get error color; indexed columns get blue tint.
+    // Inaccessible items get error color. Indexed columns keep the default
+    // (white/foreground) icon to stand out; non-indexed columns get a muted
+    // gray to fade into the background.
     if (obj.inaccessible) {
       item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type), new vscode.ThemeColor('errorForeground'));
       item.tooltip = `${obj.name} — no access`;
-    } else if (isIndexedColumn) {
-      item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type), new vscode.ThemeColor('charts.blue'));
-      item.tooltip = `${obj.name} — indexed by ${obj.indexNames!.join(', ')}`;
+    } else if (obj.type === 'column' && !isIndexedColumn) {
+      item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type), new vscode.ThemeColor('descriptionForeground'));
     } else {
       item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type));
+      if (isIndexedColumn) {
+        item.tooltip = `${obj.name} — indexed by ${obj.indexNames!.join(', ')}`;
+      }
     }
 
     if (obj.detail) {

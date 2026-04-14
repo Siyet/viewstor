@@ -162,9 +162,11 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY schemaname, viewname
     `);
 
-    // Columns per table/view
+    // Columns per table/view.
+    // For ENUM/composite types information_schema.data_type is just "USER-DEFINED";
+    // udt_name carries the actual type name (e.g. "quote_status") — surface that.
     const columnsRes = await this.client!.query(`
-      SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.is_nullable,
+      SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.udt_name, c.is_nullable,
              c.column_default,
              CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk
       FROM information_schema.columns c
@@ -228,11 +230,11 @@ export class PostgresDriver implements DatabaseDriver {
       if (!columnsMap.has(key)) columnsMap.set(key, []);
       const badges = [];
       if (row.is_pk) badges.push('PK');
-      // Compact "not nullable" badge using the logical-not sign (U+00AC) — ¬NULL.
-      // Earlier attempt with combining strokes (\u0336) didn't render reliably
-      // in VS Code's tree font. ¬ is a single glyph, universally supported.
-      if (row.is_nullable === 'NO' && !row.is_pk) badges.push('\u00ACNULL');
-      const detail = `${row.data_type}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
+      const displayType = row.data_type === 'USER-DEFINED' ? row.udt_name : row.data_type;
+      // A trailing asterisk marks "required" (NOT NULL) — universal form-field convention,
+      // single glyph, renders cleanly in any font.
+      const requiredMark = (row.is_nullable === 'NO' && !row.is_pk) ? '\u2009*' : '';
+      const detail = `${displayType}${requiredMark}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
       const indexNames = columnIndexesMap.get(`${row.table_schema}.${row.table_name}.${row.column_name}`);
       columnsMap.get(key)!.push({
         name: row.column_name,
@@ -501,6 +503,7 @@ export class PostgresDriver implements DatabaseDriver {
       SELECT
         c.column_name,
         c.data_type,
+        c.udt_name,
         c.is_nullable,
         c.column_default,
         CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk,
@@ -522,7 +525,7 @@ export class PostgresDriver implements DatabaseDriver {
 
     const columns: ColumnInfo[] = res.rows.map(row => ({
       name: row.column_name,
-      dataType: row.data_type,
+      dataType: row.data_type === 'USER-DEFINED' ? row.udt_name : row.data_type,
       nullable: row.is_nullable === 'YES',
       isPrimaryKey: row.is_pk,
       defaultValue: row.column_default,
