@@ -11,6 +11,16 @@ import { quoteIdentifier } from '../utils/queryHelpers';
 types.setTypeParser(20, (val: string) => val); // int8
 types.setTypeParser(1700, (val: string) => val); // numeric
 
+/**
+ * PG array_agg can come back as a JS array or as a `{curly,brace}` string
+ * depending on the driver/query; normalize both to string[].
+ */
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+  if (typeof value === 'string') return value.replace(/^\{|\}$/g, '').split(',').filter(Boolean);
+  return [];
+}
+
 export class PostgresDriver implements DatabaseDriver {
   private client: Client | undefined;
   private tunnel: TunnelInfo | undefined;
@@ -359,7 +369,7 @@ export class PostgresDriver implements DatabaseDriver {
           GROUP BY tc.constraint_name
         `, [schema, name]);
         for (const r of uniqueRes.rows) {
-          colDefs.push(`  CONSTRAINT "${r.constraint_name}" UNIQUE (${(r.columns as string[]).map((c: string) => `"${c}"`).join(', ')})`);
+          colDefs.push(`  CONSTRAINT "${r.constraint_name}" UNIQUE (${toStringArray(r.columns).map(c => `"${c}"`).join(', ')})`);
         }
 
         // Foreign keys
@@ -591,13 +601,6 @@ export class PostgresDriver implements DatabaseDriver {
       GROUP BY i.relname, ix.indisunique, am.amname, ix.indpred, ix.indrelid
       ORDER BY i.relname
     `, [schema, name]);
-
-    // PG array_agg can return JS array or PG {curly,brace} string depending on driver/query
-    const toStringArray = (value: unknown): string[] => {
-      if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
-      if (typeof value === 'string') return value.replace(/[{}]/g, '').split(',').filter(Boolean);
-      return [];
-    };
 
     const indexes: IndexInfo[] = indexesRes.rows.map((row: any) => ({
       name: row.index_name,
