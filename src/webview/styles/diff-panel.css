@@ -390,6 +390,11 @@ body {
   margin-top: 16px;
 }
 
+.diff-stats-row-differs td {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  font-weight: 600;
+}
+
 /* ---- Key column indicator ---- */
 .diff-key-col {
   color: var(--vscode-symbolIcon-keyForeground, var(--vscode-foreground));

@@ -27,6 +27,16 @@
       tabs.forEach(function (tabEl) { tabEl.classList.toggle('active', tabEl.dataset.tab === target); });
       panels.forEach(function (panelEl) { panelEl.classList.toggle('active', panelEl.id === 'panel-' + target); });
       activeTab = target;
+      // Stats chart needs deferred init because ECharts measures container width at init time;
+      // when the tab was display:none on initial render the chart got 0 width.
+      if (target === 'stats') {
+        if (!window.__diffStatsRendered) {
+          renderStatsDiff();
+          window.__diffStatsRendered = true;
+        } else if (window.__diffStatsChart) {
+          window.__diffStatsChart.resize();
+        }
+      }
     });
   });
 
@@ -362,13 +372,14 @@
 
     // yAxis categories render bottom-to-top in ECharts, so reverse
     // to make the first metric appear at the top of the chart.
-    var labels = [], leftNorm = [], rightNorm = [], leftRaw = [], rightRaw = [], units = [];
+    var labels = [], statuses = [], leftNorm = [], rightNorm = [], leftRaw = [], rightRaw = [], units = [];
     for (var itemIdx = numericItems.length - 1; itemIdx >= 0; itemIdx--) {
       var item = numericItems[itemIdx];
       var leftNum = typeof item.leftValue === 'number' ? item.leftValue : null;
       var rightNum = typeof item.rightValue === 'number' ? item.rightValue : null;
       var maxAbs = Math.max(Math.abs(leftNum || 0), Math.abs(rightNum || 0));
       labels.push(item.label);
+      statuses.push(item.status);
       units.push(item.unit);
       leftRaw.push(leftNum);
       rightRaw.push(rightNum);
@@ -376,11 +387,12 @@
       rightNorm.push(maxAbs === 0 || rightNum === null ? 0 : rightNum / maxAbs);
     }
 
-    var rowHeight = 32;
+    var rowHeight = 36;
     container.style.height = (numericItems.length * rowHeight + 20) + 'px';
 
     var fg = getCssVar('--vscode-foreground') || '#cccccc';
     var fgMuted = getCssVar('--vscode-descriptionForeground') || '#808080';
+    var warnColor = getCssVar('--vscode-editorWarning-foreground') || '#cca700';
     var leftColor = getCssVar('--vscode-charts-blue') || '#3794ff';
     var rightColor = getCssVar('--vscode-charts-green') || '#89d185';
 
@@ -388,7 +400,7 @@
 
     var option = {
       animation: false,
-      grid: { left: 220, right: 12, top: 4, bottom: 4, containLabel: false },
+      grid: { left: 200, right: 80, top: 4, bottom: 4, containLabel: false },
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
@@ -400,11 +412,21 @@
           return html;
         },
       },
-      xAxis: { type: 'value', min: 0, max: 1.15, show: false },
+      xAxis: { type: 'value', min: 0, max: 1, show: false },
       yAxis: {
         type: 'category',
         data: labels,
-        axisLabel: { color: fg, fontSize: 12, width: 210, overflow: 'truncate', margin: 14 },
+        axisLabel: {
+          fontSize: 12,
+          margin: 10,
+          formatter: function (value, index) {
+            return statuses[index] === 'differs' ? '{warn|' + value + '}' : '{normal|' + value + '}';
+          },
+          rich: {
+            normal: { color: fg, fontSize: 12, align: 'right' },
+            warn: { color: warnColor, fontSize: 12, fontWeight: 'bold', align: 'right' },
+          },
+        },
         axisTick: { show: false },
         axisLine: { show: false },
         splitLine: { show: false },
@@ -478,17 +500,15 @@
       var item = statsDiff.items[idx];
       if (isNumericStat(item)) continue;
 
-      var statusClass = 'diff-status-' + (item.status === 'same' ? 'same'
-        : item.status === 'differs' ? 'differs'
-        : item.status === 'leftOnly' ? 'removed'
-        : item.status === 'rightOnly' ? 'added'
-        : 'same');
+      var rowClass = '';
+      if (item.status === 'differs') rowClass = 'diff-stats-row-differs';
+      else if (item.status === 'leftOnly') rowClass = 'diff-removed';
+      else if (item.status === 'rightOnly') rowClass = 'diff-added';
 
-      rows += '<tr>';
+      rows += '<tr' + (rowClass ? ' class="' + rowClass + '"' : '') + '>';
       rows += '<td>' + escapeHtml(item.label) + '</td>';
       rows += '<td>' + formatStatValue(item.leftValue, item.unit) + '</td>';
       rows += '<td>' + formatStatValue(item.rightValue, item.unit) + '</td>';
-      rows += '<td class="' + statusClass + '">' + escapeHtml(item.status === 'missing' ? 'n/a' : item.status) + '</td>';
       rows += '</tr>';
     }
 
@@ -497,7 +517,7 @@
     container.innerHTML =
       '<h3 class="diff-section-title">Other</h3>' +
       '<table class="diff-schema-table">' +
-      '<thead><tr><th>Metric</th><th>' + escapeHtml(leftLabel) + '</th><th>' + escapeHtml(rightLabel) + '</th><th>Status</th></tr></thead>' +
+      '<thead><tr><th>Metric</th><th>' + escapeHtml(leftLabel) + '</th><th>' + escapeHtml(rightLabel) + '</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table>';
   }
 
@@ -533,5 +553,5 @@
   renderRowDiff();
   renderSchemaDiff();
   renderObjectsDiff();
-  renderStatsDiff();
+  // Stats are rendered lazily on tab activation — see tab click handler above.
 })();
