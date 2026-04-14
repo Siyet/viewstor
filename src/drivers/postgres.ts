@@ -187,6 +187,24 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY schemaname, tablename, indexname
     `);
 
+    // Column → index names mapping (which indexes cover each column).
+    // Used to tint indexed columns blue in the tree and enable "Show index DDL".
+    const columnIndexesRes = await this.client!.query(`
+      SELECT n.nspname AS schema, t.relname AS tbl, a.attname AS col, i.relname AS index_name
+      FROM pg_index ix
+      JOIN pg_class i ON i.oid = ix.indexrelid
+      JOIN pg_class t ON t.oid = ix.indrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+      WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+    `);
+    const columnIndexesMap = new Map<string, string[]>();
+    for (const row of columnIndexesRes.rows) {
+      const key = `${row.schema}.${row.tbl}.${row.col}`;
+      if (!columnIndexesMap.has(key)) columnIndexesMap.set(key, []);
+      columnIndexesMap.get(key)!.push(row.index_name);
+    }
+
     // Triggers
     const triggersRes = await this.client!.query(`
       SELECT trigger_schema, event_object_table, trigger_name
@@ -210,13 +228,17 @@ export class PostgresDriver implements DatabaseDriver {
       if (!columnsMap.has(key)) columnsMap.set(key, []);
       const badges = [];
       if (row.is_pk) badges.push('PK');
-      if (row.is_nullable === 'NO' && !row.is_pk) badges.push('NOT NULL');
+      // Strikethrough NULL via Unicode combining-long-stroke-overlay (U+0336).
+      // Reads visually as N̶U̶L̶L̶ — compact and intuitive.
+      if (row.is_nullable === 'NO' && !row.is_pk) badges.push('N\u0336U\u0336L\u0336L\u0336');
       const detail = `${row.data_type}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
+      const indexNames = columnIndexesMap.get(`${row.table_schema}.${row.table_name}.${row.column_name}`);
       columnsMap.get(key)!.push({
         name: row.column_name,
         type: 'column',
         schema: row.table_schema,
         detail,
+        indexNames: indexNames && indexNames.length > 0 ? indexNames : undefined,
       });
     }
 

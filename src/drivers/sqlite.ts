@@ -399,12 +399,31 @@ export class SqliteDriver implements DatabaseDriver {
       cid: number; name: string; type: string; notnull: number; dflt_value: string | null; pk: number;
     }>;
 
+    // Build column → index names map for this table
+    const idxList = this.db!.prepare(`PRAGMA index_list(${quoteIdentifier(tableName)})`).all() as Array<{
+      name: string;
+    }>;
+    const colToIndexes = new Map<string, string[]>();
+    for (const idx of idxList) {
+      const cols = this.db!.prepare(`PRAGMA index_info(${quoteIdentifier(idx.name)})`).all() as Array<{ name: string }>;
+      for (const col of cols) {
+        if (!colToIndexes.has(col.name)) colToIndexes.set(col.name, []);
+        colToIndexes.get(col.name)!.push(idx.name);
+      }
+    }
+
     return pragmaRows.map(row => {
       const badges: string[] = [];
       if (row.pk > 0) badges.push('PK');
-      if (row.notnull === 1 && row.pk === 0) badges.push('NOT NULL');
+      if (row.notnull === 1 && row.pk === 0) badges.push('N\u0336U\u0336L\u0336L\u0336');
       const detail = `${row.type || 'TEXT'}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
-      return { name: row.name, type: 'column' as const, detail };
+      const indexNames = colToIndexes.get(row.name);
+      return {
+        name: row.name,
+        type: 'column' as const,
+        detail,
+        indexNames: indexNames && indexNames.length > 0 ? indexNames : undefined,
+      };
     });
   }
 

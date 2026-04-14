@@ -7,6 +7,9 @@ export interface SchemaObject {
   detail?: string;
   /** Mark as inaccessible (no permissions) — renders with error color */
   inaccessible?: boolean;
+  /** For column nodes: names of indexes that cover this column. Used for blue
+   *  tint in the tree and the "Show index DDL" context menu item. */
+  indexNames?: string[];
 }
 
 export type SchemaObjectType =

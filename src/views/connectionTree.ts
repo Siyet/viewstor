@@ -266,13 +266,19 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     const item = new ConnectionTreeItem(obj.name, collapsible);
     item.connectionId = connectionId;
     item.schemaObject = obj;
-    item.contextValue = obj.type;
+    // Indexed columns get a distinct contextValue so menus can target them
+    // (e.g. "Show index DDL" only appears for column-indexed).
+    const isIndexedColumn = obj.type === 'column' && obj.indexNames && obj.indexNames.length > 0;
+    item.contextValue = isIndexedColumn ? 'column-indexed' : obj.type;
     if (databaseName) item.databaseName = databaseName;
 
-    // Inaccessible items get error color
+    // Inaccessible items get error color; indexed columns get blue tint.
     if (obj.inaccessible) {
       item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type), new vscode.ThemeColor('errorForeground'));
       item.tooltip = `${obj.name} — no access`;
+    } else if (isIndexedColumn) {
+      item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type), new vscode.ThemeColor('charts.blue'));
+      item.tooltip = `${obj.name} — indexed by ${obj.indexNames!.join(', ')}`;
     } else {
       item.iconPath = new vscode.ThemeIcon(schemaIcon(obj.type));
     }

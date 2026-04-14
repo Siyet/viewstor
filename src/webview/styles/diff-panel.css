@@ -515,6 +515,12 @@ body {
 
 #statsNonNumeric {
   margin-top: 16px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+#statsNonNumeric .diff-schema-table {
+  width: auto;
 }
 
 .diff-stats-row-differs td {
