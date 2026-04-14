@@ -228,9 +228,10 @@ export class PostgresDriver implements DatabaseDriver {
       if (!columnsMap.has(key)) columnsMap.set(key, []);
       const badges = [];
       if (row.is_pk) badges.push('PK');
-      // Strikethrough NULL via Unicode combining-long-stroke-overlay (U+0336).
-      // Reads visually as N̶U̶L̶L̶ — compact and intuitive.
-      if (row.is_nullable === 'NO' && !row.is_pk) badges.push('N\u0336U\u0336L\u0336L\u0336');
+      // Compact "not nullable" badge using the logical-not sign (U+00AC) — ¬NULL.
+      // Earlier attempt with combining strokes (\u0336) didn't render reliably
+      // in VS Code's tree font. ¬ is a single glyph, universally supported.
+      if (row.is_nullable === 'NO' && !row.is_pk) badges.push('\u00ACNULL');
       const detail = `${row.data_type}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
       const indexNames = columnIndexesMap.get(`${row.table_schema}.${row.table_name}.${row.column_name}`);
       columnsMap.get(key)!.push({

@@ -415,7 +415,7 @@ export class SqliteDriver implements DatabaseDriver {
     return pragmaRows.map(row => {
       const badges: string[] = [];
       if (row.pk > 0) badges.push('PK');
-      if (row.notnull === 1 && row.pk === 0) badges.push('N\u0336U\u0336L\u0336L\u0336');
+      if (row.notnull === 1 && row.pk === 0) badges.push('\u00ACNULL');
       const detail = `${row.type || 'TEXT'}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
       const indexNames = colToIndexes.get(row.name);
       return {
