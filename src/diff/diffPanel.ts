@@ -265,23 +265,25 @@ export class DiffPanelManager {
   <div id="panel-schema" class="diff-tab-panel">
     ${hasSchema ? `
     <div class="diff-schema-layout">
-      <div class="diff-schema-columns">
+      <div class="diff-schema-block diff-schema-columns-block">
         <h3 class="diff-section-title">Columns</h3>
-        <table class="diff-schema-table">
-          <thead>
-            <tr>
-              <th>Column</th>
-              <th>Type<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
-              <th>Nullable<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
-              <th>PK<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
-              <th>Comment<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
-              <th>Indexed by<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
-            </tr>
-          </thead>
-          <tbody id="schemaTableBody"></tbody>
-        </table>
+        <div class="diff-schema-block-scroll">
+          <table class="diff-schema-table">
+            <thead>
+              <tr>
+                <th>Column</th>
+                <th>Type<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+                <th>Nullable<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+                <th>PK<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+                <th>Comment<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+                <th>Indexed by<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
+              </tr>
+            </thead>
+            <tbody id="schemaTableBody"></tbody>
+          </table>
+        </div>
       </div>
-      <div class="diff-schema-objects" id="objectsDiffContainer"></div>
+      <div id="objectsDiffContainer"></div>
     </div>
     ` : '<div class="diff-no-schema">Schema diff not available (table info not provided)</div>'}
   </div>

@@ -386,13 +386,21 @@
     var sub = '<span class="diff-th-sub">' + escapeHtml(leftLabel) + ' / ' + escapeHtml(rightLabel) + '</span>';
     function pairTh(title) { return '<th>' + escapeHtml(title) + sub + '</th>'; }
 
+    function openBlock(title, count) {
+      return '<div class="diff-schema-block">'
+        + '<h3 class="diff-section-title">' + escapeHtml(title) + ' (' + count + ')</h3>'
+        + '<div class="diff-schema-block-scroll">'
+        + '<table class="diff-schema-table">';
+    }
+    var closeBlock = '</table></div></div>';
+
     var html = '';
 
     // --- Indexes ---
     var indexItems = filterBySchemaStatus(objectsDiff.indexes || []);
     if (indexItems.length > 0) {
-      html += '<h3 class="diff-section-title">Indexes (' + indexItems.length + ')</h3>';
-      html += '<table class="diff-schema-table"><thead><tr>';
+      html += openBlock('Indexes', indexItems.length);
+      html += '<thead><tr>';
       html += '<th>Name</th>' + pairTh('Unique') + pairTh('Type') + pairTh('Columns') + pairTh('Included') + pairTh('Predicate');
       html += '</tr></thead><tbody>';
       for (var ii = 0; ii < indexItems.length; ii++) {
@@ -412,14 +420,14 @@
           !!idx.left && !!idx.right && (iL.predicate || '') !== (iR.predicate || ''));
         html += '</tr>';
       }
-      html += '</tbody></table>';
+      html += '</tbody>' + closeBlock;
     }
 
     // --- Constraints ---
     var conItems = filterBySchemaStatus(objectsDiff.constraints || []);
     if (conItems.length > 0) {
-      html += '<h3 class="diff-section-title">Constraints (' + conItems.length + ')</h3>';
-      html += '<table class="diff-schema-table"><thead><tr>';
+      html += openBlock('Constraints', conItems.length);
+      html += '<thead><tr>';
       html += '<th>Name</th>' + pairTh('Type') + pairTh('Columns') + pairTh('References') + pairTh('On Delete') + pairTh('On Update') + pairTh('Check');
       html += '</tr></thead><tbody>';
       for (var ci = 0; ci < conItems.length; ci++) {
@@ -441,14 +449,14 @@
           !!con.left && !!con.right && (cL.checkExpression || '') !== (cR.checkExpression || ''));
         html += '</tr>';
       }
-      html += '</tbody></table>';
+      html += '</tbody>' + closeBlock;
     }
 
     // --- Triggers ---
     var trgItems = filterBySchemaStatus(objectsDiff.triggers || []);
     if (trgItems.length > 0) {
-      html += '<h3 class="diff-section-title">Triggers (' + trgItems.length + ')</h3>';
-      html += '<table class="diff-schema-table"><thead><tr>';
+      html += openBlock('Triggers', trgItems.length);
+      html += '<thead><tr>';
       html += '<th>Name</th>' + pairTh('Timing') + pairTh('Events') + pairTh('Definition');
       html += '</tr></thead><tbody>';
       for (var ti = 0; ti < trgItems.length; ti++) {
@@ -463,14 +471,14 @@
           !!trg.left && !!trg.right && (tL.definition || '') !== (tR.definition || ''));
         html += '</tr>';
       }
-      html += '</tbody></table>';
+      html += '</tbody>' + closeBlock;
     }
 
     // --- Sequences ---
     var seqItems = filterBySchemaStatus(objectsDiff.sequences || []);
     if (seqItems.length > 0) {
-      html += '<h3 class="diff-section-title">Sequences (' + seqItems.length + ')</h3>';
-      html += '<table class="diff-schema-table"><thead><tr>';
+      html += openBlock('Sequences', seqItems.length);
+      html += '<thead><tr>';
       html += '<th>Name</th>' + pairTh('Data type') + pairTh('Start') + pairTh('Increment');
       html += '</tr></thead><tbody>';
       for (var si = 0; si < seqItems.length; si++) {
@@ -487,7 +495,7 @@
           !!seq.left && !!seq.right && sL.increment !== sR.increment);
         html += '</tr>';
       }
-      html += '</tbody></table>';
+      html += '</tbody>' + closeBlock;
     }
 
     container.innerHTML = html;

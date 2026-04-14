@@ -328,29 +328,46 @@ body {
 }
 
 /* ---- Schema diff layout ---- */
+/* CSS Grid with auto-fit: each block (columns, indexes, constraints, ...) is
+   a tile that reflows to fill available width. Narrow window = single column
+   stack, wide window = multiple tiles side-by-side. */
 .diff-schema-layout {
   flex: 1;
   overflow: auto;
-  padding: 0;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(560px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+/* objectsDiffContainer is a plain wrapper for JS-rendered blocks — make its
+   children participate in the grid directly. */
+#objectsDiffContainer {
+  display: contents;
+}
+
+.diff-schema-block {
+  min-width: 0;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
-.diff-schema-columns,
-.diff-schema-objects {
-  min-width: 0;
+.diff-schema-block > .diff-section-title {
+  border-top: none;
+  margin-top: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editorGroupHeader-tabsBackground);
+}
+
+.diff-schema-block-scroll {
   overflow-x: auto;
-}
-
-@media (min-width: 1400px) {
-  .diff-schema-layout {
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 24px;
-  }
-  .diff-schema-columns { flex: 1 1 0; min-width: 0; }
-  .diff-schema-objects { flex: 1 1 0; min-width: 0; }
+  min-width: 0;
 }
 
 /* Gray italic second-line source labels under column headers */
