@@ -1,5 +1,29 @@
 import { ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
+import { quoteTable } from '../utils/queryHelpers';
 import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult } from './diffTypes';
+
+/**
+ * Generate the default diff query for a given table.
+ * Pure function — unit-tested, no driver/vscode dependency.
+ */
+export function buildDefaultDiffQuery(tableName: string, schema: string | undefined, rowLimit: number): string {
+  return `SELECT * FROM ${quoteTable(tableName, schema)} LIMIT ${rowLimit}`;
+}
+
+/**
+ * Return true when `query` is a read-only statement (SELECT / EXPLAIN /
+ * SHOW / WITH). Mirrors the whitelist in `src/mcp/server.ts`. Used by the
+ * diff query editor to gate arbitrary SQL on readonly connections.
+ */
+export function isReadOnlyStatement(query: string): boolean {
+  const trimmed = query.trim().toUpperCase();
+  return (
+    trimmed.startsWith('SELECT') ||
+    trimmed.startsWith('EXPLAIN') ||
+    trimmed.startsWith('SHOW') ||
+    trimmed.startsWith('WITH')
+  );
+}
 
 /**
  * Stringify a cell value for comparison.
