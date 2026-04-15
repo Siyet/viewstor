@@ -694,24 +694,30 @@
     }
 
     const statsFilters = activeFilters.stats;
-    const numericItems = [];
-    const zeroItems = [];
+    const filtered = [];
     for (let idx = 0; idx < statsDiff.items.length; idx++) {
       const statItem = statsDiff.items[idx];
       if (!isNumericStat(statItem)) continue;
       const statIsSame = statItem.status === 'same' || statItem.status === 'missing';
       if (statIsSame && !statsFilters.same) continue;
       if (!statIsSame && !statsFilters.differs) continue;
-      if (isZeroStat(statItem)) zeroItems.push(statItem);
-      else numericItems.push(statItem);
+      filtered.push(statItem);
     }
 
-    // UX #84 § 3.6: collapse zero-value numeric stats into an inline summary.
+    // UX #84 § 3.6: collapse zero-on-both-sides metrics into an inline summary
+    // — but only when there are other non-zero metrics to chart. Otherwise the
+    // whole statistics tab would look empty (e.g. when the user narrows to
+    // "same only" and every same metric happens to be zero).
+    const nonZeroItems = filtered.filter(function (s) { return !isZeroStat(s); });
+    const zeroItems = filtered.filter(function (s) { return isZeroStat(s); });
+    const numericItems = nonZeroItems.length > 0 ? nonZeroItems : filtered;
+    const summaryItems = nonZeroItems.length > 0 ? zeroItems : [];
+
     if (zeroSummary) {
-      if (zeroItems.length > 0) {
+      if (summaryItems.length > 0) {
         zeroSummary.innerHTML = '<span class="codicon codicon-info"></span> '
           + '<span class="diff-stats-zero-title">Zero on both sides:</span> '
-          + zeroItems.map(function (s) { return escapeHtml(s.label); }).join(', ');
+          + summaryItems.map(function (s) { return escapeHtml(s.label); }).join(', ');
         zeroSummary.removeAttribute('hidden');
       } else {
         zeroSummary.setAttribute('hidden', '');
@@ -1092,6 +1098,15 @@
     });
 
     let text = '';
+    // Heuristic used by one-row formats: result cells are already stringified,
+    // so we tag a token as numeric only if it parses cleanly as a number.
+    const numericLike = function (v) { return /^-?\d+(\.\d+)?$/.test(v); };
+    const quoteFlat = function (v, quote) {
+      if (v === '' || v === 'NULL' || v === 'null') return 'NULL';
+      if (numericLike(v)) return v;
+      const doubled = new RegExp(quote, 'g');
+      return quote + v.replace(doubled, quote + quote) + quote;
+    };
     switch (format) {
       case 'tsv':
         text = rows.map(function (r) { return r.join('\t'); }).join('\n');
@@ -1102,6 +1117,14 @@
       case 'csv': {
         const esc = function (v) { return /[,"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
         text = headers.map(esc).join(',') + '\n' + rows.map(function (r) { return r.map(esc).join(','); }).join('\n');
+        break;
+      }
+      case 'onerow-sq':
+      case 'onerow-dq': {
+        const quote = format === 'onerow-sq' ? "'" : '"';
+        const parts = [];
+        rows.forEach(function (r) { r.forEach(function (v) { parts.push(quoteFlat(v, quote)); }); });
+        text = parts.join(', ');
         break;
       }
       case 'md': {
@@ -1143,6 +1166,8 @@
     const formats = [
       { label: 'Copy', fmt: 'tsv' },
       { label: 'Copy with Headers', fmt: 'tsv-header' },
+      { label: 'Copy as One-row (SQL)', fmt: 'onerow-sq' },
+      { label: 'Copy as One-row (JSON)', fmt: 'onerow-dq' },
       { label: 'Copy as CSV', fmt: 'csv' },
       { label: 'Copy as Markdown', fmt: 'md' },
       { label: 'Copy as JSON', fmt: 'json' },
