@@ -213,9 +213,7 @@ export class DiffPanelManager {
 
     // Readonly gate: the diff editor runs arbitrary user SQL. When the
     // connection is marked readonly (own setting or inherited from folder),
-    // reject any statement that isn't SELECT / WITH / EXPLAIN — same
-    // whitelist the MCP server uses. Prevents `DELETE FROM users` pasted
-    // into the textarea from executing on a readonly connection.
+    // reject any statement that isn't SELECT / WITH / EXPLAIN.
     const leftReadonlyErr = readonlyError(cm, state.left, state.leftQuery);
     const rightReadonlyErr = readonlyError(cm, state.right, state.rightQuery);
     if (leftReadonlyErr || rightReadonlyErr) {
@@ -268,8 +266,6 @@ export class DiffPanelManager {
       })(),
     ]);
 
-    // Drop stale results if the user swapped sides (or triggered another run)
-    // while we were awaiting driver.execute.
     if (state.queryRunId !== runId || state.left !== leftSnapshot || state.right !== rightSnapshot) {
       return;
     }
@@ -283,7 +279,6 @@ export class DiffPanelManager {
       return;
     }
 
-    // Verify both result sets carry the key columns — otherwise matching is meaningless
     const keyColumns = state.options.keyColumns;
     const missingLeftKeys = keyColumns.filter(k => !leftResult!.columns.some(c => c.name === k));
     const missingRightKeys = keyColumns.filter(k => !rightResult!.columns.some(c => c.name === k));
@@ -296,7 +291,6 @@ export class DiffPanelManager {
       return;
     }
 
-    // Swap in the new rows/columns and recompute
     state.left = { ...state.left, columns: leftResult!.columns, rows: leftResult!.rows };
     state.right = { ...state.right, columns: rightResult!.columns, rows: rightResult!.rows };
     state.rowDiff = computeRowDiff(state.left, state.right, state.options);
@@ -310,7 +304,11 @@ export class DiffPanelManager {
 
   private buildHtml(webview: vscode.Webview, state: DiffState): string {
     const distUri = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
+    const tokensUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'tokens.css'));
+    const codiconUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'codicon.css'));
     const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'diff-panel.css'));
+    const shellUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'webview-shell.js'));
+    const elementsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'vscode-elements.js'));
     const jsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'diff-panel.js'));
     const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
     const cspSource = webview.cspSource;
@@ -335,7 +333,7 @@ export class DiffPanelManager {
     const hasSchema = !!state.schemaDiff;
     const hasStats = !!state.statsDiff;
 
-    // Counts for Schema Diff tab: "differs" bundles type/nullable/pk/comment diffs + added/removed columns + non-same objects
+    // Counts for Schema Diff tab badge
     let schemaDiffers = 0, schemaSame = 0;
     if (state.schemaDiff) {
       for (const col of state.schemaDiff.commonColumns) {
@@ -362,144 +360,214 @@ export class DiffPanelManager {
       }
     }
 
+    // Row diff "total changes" count drives the Row Diff tab badge color intensity
+    const rowDiffers = summary.changed + summary.added + summary.removed;
+
+    const rowTabBadgeClass = rowDiffers > 0 ? 'tab-badge warn' : 'tab-badge ok';
+    const schemaTabBadgeClass = schemaDiffers > 0 ? 'tab-badge warn' : 'tab-badge ok';
+    const statsTabBadgeClass = statsDiffers > 0 ? 'tab-badge warn' : 'tab-badge ok';
+
     return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource}; script-src 'unsafe-inline' ${cspSource};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource} 'unsafe-inline';">
+<link rel="stylesheet" href="${codiconUri}">
+<link rel="stylesheet" href="${tokensUri}">
 <link rel="stylesheet" href="${cssUri}">
+<script src="${shellUri}"></script>
+<script type="module" src="${elementsUri}"></script>
 </head>
 <body>
-  <div class="diff-tab-bar">
-    <button class="diff-tab active" data-tab="rows">Row Diff</button>
-    <button class="diff-tab" data-tab="schema">Schema Diff</button>
-    ${hasStats ? '<button class="diff-tab" data-tab="stats">Statistics</button>' : ''}
-  </div>
-
-  <div class="diff-summary">
-    <div class="diff-summary-filters" data-for="rows">
-      <span class="diff-badge-filter unchanged active" data-filter="unchanged">${esc(String(summary.unchanged))} unchanged</span>
-      <span class="diff-badge-filter changed active" data-filter="changed">${esc(String(summary.changed))} changed</span>
-      <span class="diff-badge-filter added active" data-filter="added">${esc(String(summary.added))} added</span>
-      <span class="diff-badge-filter removed active" data-filter="removed">${esc(String(summary.removed))} removed</span>
-    </div>
-    ${hasSchema ? `
-    <div class="diff-summary-filters hidden" data-for="schema">
-      <span class="diff-badge-filter differs active" data-filter="differs">${esc(String(schemaDiffers))} differs</span>
-      <span class="diff-badge-filter same active" data-filter="same">${esc(String(schemaSame))} same</span>
-    </div>
-    ` : ''}
-    ${hasStats ? `
-    <div class="diff-summary-filters hidden" data-for="stats">
-      <span class="diff-badge-filter differs active" data-filter="differs">${esc(String(statsDiffers))} differs</span>
-      <span class="diff-badge-filter same active" data-filter="same">${esc(String(statsSame))} same</span>
-    </div>
-    ` : ''}
-    <span class="diff-filter-hint" title="Shift+click a badge to toggle multiple at once">Click to filter · Shift+click for multi-select</span>
-    <span class="diff-summary-spacer"></span>
-    <button id="swapSides" title="Swap left and right sides">\u21C4 Swap</button>
-    <button id="exportCsv">Export CSV</button>
-    <button id="exportJson">Export JSON</button>
-  </div>
-
-  ${state.rowDiff.truncated ? '<div class="diff-truncated" id="diff-truncated-banner">Results truncated to row limit. Increase the limit to see all differences.</div>' : '<div class="diff-truncated" id="diff-truncated-banner" style="display:none;">Results truncated to row limit. Increase the limit to see all differences.</div>'}
-
-  <div id="panel-rows" class="diff-tab-panel active">
-    ${canEditQueries ? `
-    <details class="diff-query-editor" id="diffQueryEditor">
-      <summary class="diff-query-editor-summary">
-        <span class="diff-query-editor-chevron">\u25B8</span>
-        <span>Edit Queries</span>
-        <span class="diff-query-editor-hint">Customize the SQL that feeds this diff</span>
-      </summary>
-      <div class="diff-query-editor-body">
-        <div class="diff-query-editor-toolbar">
-          <label class="diff-query-editor-sync">
-            <input type="checkbox" id="diffQuerySync" ${state.syncMode ? 'checked' : ''}>
-            <span class="diff-query-editor-sync-label">\u{1F517} Synced</span>
-          </label>
-          <span class="diff-query-editor-sync-hint">When on, edits to either side are mirrored to the other.</span>
-          <span class="diff-query-editor-spacer"></span>
-          <span class="diff-query-editor-status" id="diffQueryStatus"></span>
-          <button id="diffRunQuery" class="diff-query-editor-run">\u25B6 Run Diff</button>
+  <vscode-tabs id="diffTabs" panel>
+    <vscode-tab-header slot="header" id="tabHeader-rows">
+      <span>Row Diff</span>
+      <span class="${rowTabBadgeClass}" id="tabBadge-rows" aria-hidden="true">${esc(String(rowDiffers))}</span>
+    </vscode-tab-header>
+    <vscode-tab-panel>
+      <div class="diff-toolbar" data-tab="rows">
+        <div class="diff-summary-filters" data-for="rows">
+          <button type="button" class="diff-chip unchanged" data-filter="unchanged" aria-pressed="false">
+            <span class="diff-chip-count" id="chip-unchanged">${esc(String(summary.unchanged))}</span> unchanged
+          </button>
+          <button type="button" class="diff-chip changed active" data-filter="changed" aria-pressed="true">
+            <span class="diff-chip-count" id="chip-changed">${esc(String(summary.changed))}</span> changed
+          </button>
+          <button type="button" class="diff-chip added active" data-filter="added" aria-pressed="true">
+            <span class="diff-chip-count" id="chip-added">${esc(String(summary.added))}</span> added
+          </button>
+          <button type="button" class="diff-chip removed active" data-filter="removed" aria-pressed="true">
+            <span class="diff-chip-count" id="chip-removed">${esc(String(summary.removed))}</span> removed
+          </button>
+          <span class="diff-filter-hint" title="Shift+click to toggle multiple at once">Click to solo \u00B7 Shift+click to toggle</span>
         </div>
-        <div class="diff-query-editor-panes${state.syncMode ? ' synced' : ''}" id="diffQueryPanes">
-          <div class="diff-query-editor-pane" data-side="left">
-            <div class="diff-query-editor-label" data-role="side-label">${esc(state.left.label)}</div>
-            <div class="diff-query-editor-wrap">
-              <div class="diff-query-editor-highlight" id="diffQueryLeftHighlight" aria-hidden="true"></div>
-              <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryLeft" rows="1" spellcheck="false">${esc(state.leftQuery)}</textarea>
-            </div>
-            <div class="diff-query-editor-error" id="diffQueryLeftError"></div>
+        <span class="diff-toolbar-spacer"></span>
+        <vscode-button id="swapSides" secondary title="Swap left and right sides">
+          <vscode-icon slot="content-before" name="arrow-swap"></vscode-icon>
+          Swap
+        </vscode-button>
+        <vscode-button id="exportCsv" secondary title="Export row diff as CSV">
+          <vscode-icon slot="content-before" name="export"></vscode-icon>
+          CSV
+        </vscode-button>
+        <vscode-button id="exportJson" secondary title="Export row diff as JSON">
+          <vscode-icon slot="content-before" name="export"></vscode-icon>
+          JSON
+        </vscode-button>
+      </div>
+
+      <div class="diff-source-bar" aria-label="Diff sources">
+        <div class="diff-source-item" title="Left source"><span class="diff-source-label">Left</span> <span id="leftSourceLabel">${esc(state.left.label)}</span></div>
+        <div class="diff-source-sep"><vscode-icon name="arrow-both"></vscode-icon></div>
+        <div class="diff-source-item" title="Right source"><span class="diff-source-label">Right</span> <span id="rightSourceLabel">${esc(state.right.label)}</span></div>
+      </div>
+
+      ${state.rowDiff.truncated
+        ? '<div class="diff-truncated" id="diff-truncated-banner"><vscode-icon name="warning"></vscode-icon> Results truncated to row limit. Increase the limit to see all differences.</div>'
+        : '<div class="diff-truncated" id="diff-truncated-banner" hidden><vscode-icon name="warning"></vscode-icon> Results truncated to row limit. Increase the limit to see all differences.</div>'}
+
+      ${canEditQueries ? `
+      <vscode-collapsible id="diffQueryEditor" heading="SQL" description="Custom queries for this diff">
+        <vscode-icon slot="decorations" name="info" title="Customize the SQL that feeds this diff. Results must include the key column(s). Ctrl/Cmd+Enter runs the diff."></vscode-icon>
+        <div class="diff-query-editor-body">
+          <div class="diff-query-editor-toolbar">
+            <vscode-checkbox id="diffQuerySync" ${state.syncMode ? 'checked' : ''}>Synced</vscode-checkbox>
+            <span class="diff-sync-indicator" id="diffSyncIndicator" aria-hidden="true" ${state.syncMode ? '' : 'hidden'}>
+              <vscode-icon name="lock"></vscode-icon>
+            </span>
+            <span class="diff-query-editor-spacer"></span>
+            <span class="diff-query-editor-status" id="diffQueryStatus" aria-live="polite"></span>
+            <vscode-button id="diffRunQuery" title="Run diff (Ctrl/Cmd+Enter)">
+              <vscode-icon slot="content-before" name="play"></vscode-icon>
+              Run Diff
+            </vscode-button>
           </div>
-          <div class="diff-query-editor-pane" data-side="right">
-            <div class="diff-query-editor-label" data-role="side-label">${esc(state.right.label)}</div>
-            <div class="diff-query-editor-wrap">
-              <div class="diff-query-editor-highlight" id="diffQueryRightHighlight" aria-hidden="true"></div>
-              <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryRight" rows="1" spellcheck="false">${esc(state.rightQuery)}</textarea>
+          <div class="diff-query-editor-panes${state.syncMode ? ' synced' : ''}" id="diffQueryPanes">
+            <div class="diff-query-editor-pane" data-side="left">
+              <div class="diff-query-editor-label" data-role="side-label">${esc(state.left.label)}</div>
+              <div class="diff-query-editor-wrap">
+                <div class="diff-query-editor-highlight" id="diffQueryLeftHighlight" aria-hidden="true"></div>
+                <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryLeft" rows="1" spellcheck="false">${esc(state.leftQuery)}</textarea>
+              </div>
+              <div class="diff-query-editor-error" id="diffQueryLeftError" hidden></div>
             </div>
-            <div class="diff-query-editor-error" id="diffQueryRightError"></div>
+            <div class="diff-query-editor-pane" data-side="right">
+              <div class="diff-query-editor-label" data-role="side-label">${esc(state.right.label)}</div>
+              <div class="diff-query-editor-wrap">
+                <div class="diff-query-editor-highlight" id="diffQueryRightHighlight" aria-hidden="true"></div>
+                <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryRight" rows="1" spellcheck="false">${esc(state.rightQuery)}</textarea>
+              </div>
+              <div class="diff-query-editor-error" id="diffQueryRightError" hidden></div>
+            </div>
           </div>
         </div>
-      </div>
-    </details>
-    ` : ''}
-    <div class="diff-tables-container">
-      <div class="diff-table-pane" id="leftPane">
-        <div class="diff-table-pane-header" id="leftHeader">${esc(state.left.label)}</div>
-        <table class="diff-table">
-          <thead id="leftTableHead"></thead>
-          <tbody id="leftTableBody"></tbody>
-        </table>
-      </div>
-      <div class="diff-table-pane" id="rightPane">
-        <div class="diff-table-pane-header" id="rightHeader">${esc(state.right.label)}</div>
-        <table class="diff-table">
-          <thead id="rightTableHead"></thead>
-          <tbody id="rightTableBody"></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
+      </vscode-collapsible>
+      ` : ''}
 
-  <div id="panel-schema" class="diff-tab-panel">
-    ${hasSchema ? `
-    <div class="diff-schema-layout">
-      <div class="diff-schema-block diff-schema-columns-block">
-        <h3 class="diff-section-title">Columns</h3>
-        <div class="diff-schema-block-scroll">
-          <table class="diff-schema-table">
-            <thead>
-              <tr>
-                <th>Column</th>
-                <th>Type<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
-                <th>Nullable<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
-                <th>PK<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
-                <th>Comment<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
-                <th>Indexed by<span class="diff-th-sub">${esc(state.left.label)} / ${esc(state.right.label)}</span></th>
-              </tr>
-            </thead>
-            <tbody id="schemaTableBody"></tbody>
+      <div class="diff-tables-container">
+        <div class="diff-table-pane" id="leftPane">
+          <table class="diff-table">
+            <thead id="leftTableHead"></thead>
+            <tbody id="leftTableBody"></tbody>
+          </table>
+        </div>
+        <div class="diff-table-pane" id="rightPane">
+          <table class="diff-table">
+            <thead id="rightTableHead"></thead>
+            <tbody id="rightTableBody"></tbody>
           </table>
         </div>
       </div>
-      <div id="objectsDiffContainer"></div>
-    </div>
-    ` : '<div class="diff-no-schema">Schema diff not available (table info not provided)</div>'}
-  </div>
+    </vscode-tab-panel>
 
-  ${hasStats ? `
-  <div id="panel-stats" class="diff-tab-panel">
-    <div class="diff-stats-container">
-      <div class="diff-stats-legend">
-        <span class="diff-stats-legend-item"><span class="diff-stats-swatch diff-stats-swatch-left"></span>${esc(state.left.label)}</span>
-        <span class="diff-stats-legend-item"><span class="diff-stats-swatch diff-stats-swatch-right"></span>${esc(state.right.label)}</span>
+    <vscode-tab-header slot="header" id="tabHeader-schema">
+      <span>Schema Diff</span>
+      <span class="${schemaTabBadgeClass}" id="tabBadge-schema" aria-hidden="true">${esc(String(schemaDiffers))}</span>
+    </vscode-tab-header>
+    <vscode-tab-panel>
+      ${hasSchema ? `
+      <div class="diff-toolbar" data-tab="schema">
+        <div class="diff-summary-filters" data-for="schema">
+          <button type="button" class="diff-chip differs active" data-filter="differs" aria-pressed="true">
+            <span class="diff-chip-count" id="chip-schema-differs">${esc(String(schemaDiffers))}</span> differs
+          </button>
+          <button type="button" class="diff-chip same" data-filter="same" aria-pressed="false">
+            <span class="diff-chip-count" id="chip-schema-same">${esc(String(schemaSame))}</span> same
+          </button>
+          <span class="diff-filter-hint" title="Shift+click to toggle multiple at once">Click to solo \u00B7 Shift+click to toggle</span>
+        </div>
+        <span class="diff-toolbar-spacer"></span>
       </div>
-      <div id="statsChart"></div>
-      <div id="statsNonNumeric"></div>
-    </div>
-  </div>
-  ` : ''}
+
+      <div class="diff-source-bar">
+        <div class="diff-source-item"><span class="diff-source-label">Left</span> <span>${esc(state.left.label)}</span></div>
+        <div class="diff-source-sep"><vscode-icon name="arrow-both"></vscode-icon></div>
+        <div class="diff-source-item"><span class="diff-source-label">Right</span> <span>${esc(state.right.label)}</span></div>
+      </div>
+
+      <div class="diff-schema-layout">
+        <div class="diff-schema-block diff-schema-columns-block">
+          <h3 class="diff-section-title">Columns</h3>
+          <div class="diff-schema-block-scroll">
+            <table class="diff-schema-table">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Type</th>
+                  <th>Nullable</th>
+                  <th>PK</th>
+                  <th>Comment</th>
+                  <th>Indexed by</th>
+                </tr>
+              </thead>
+              <tbody id="schemaTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="objectsDiffContainer"></div>
+      </div>
+      ` : '<div class="diff-no-schema"><vscode-icon name="info"></vscode-icon> Schema diff not available (table info not provided)</div>'}
+    </vscode-tab-panel>
+
+    ${hasStats ? `
+    <vscode-tab-header slot="header" id="tabHeader-stats">
+      <span>Statistics</span>
+      <span class="${statsTabBadgeClass}" id="tabBadge-stats" aria-hidden="true">${esc(String(statsDiffers))}</span>
+    </vscode-tab-header>
+    <vscode-tab-panel>
+      <div class="diff-toolbar" data-tab="stats">
+        <div class="diff-summary-filters" data-for="stats">
+          <button type="button" class="diff-chip differs active" data-filter="differs" aria-pressed="true">
+            <span class="diff-chip-count" id="chip-stats-differs">${esc(String(statsDiffers))}</span> differs
+          </button>
+          <button type="button" class="diff-chip same" data-filter="same" aria-pressed="false">
+            <span class="diff-chip-count" id="chip-stats-same">${esc(String(statsSame))}</span> same
+          </button>
+          <span class="diff-filter-hint" title="Shift+click to toggle multiple at once">Click to solo \u00B7 Shift+click to toggle</span>
+        </div>
+        <span class="diff-toolbar-spacer"></span>
+      </div>
+
+      <div class="diff-source-bar">
+        <div class="diff-source-item">
+          <span class="diff-stats-swatch diff-stats-swatch-left"></span>
+          <span class="diff-source-label">Left</span> <span>${esc(state.left.label)}</span>
+        </div>
+        <div class="diff-source-sep"><vscode-icon name="arrow-both"></vscode-icon></div>
+        <div class="diff-source-item">
+          <span class="diff-stats-swatch diff-stats-swatch-right"></span>
+          <span class="diff-source-label">Right</span> <span>${esc(state.right.label)}</span>
+        </div>
+      </div>
+
+      <div class="diff-stats-container">
+        <div id="statsZeroSummary" class="diff-stats-zero-summary" hidden></div>
+        <div id="statsChart"></div>
+        <div id="statsNonNumeric"></div>
+      </div>
+    </vscode-tab-panel>
+    ` : ''}
+  </vscode-tabs>
 
   <script>window.diffData = ${safeJsonForScript(diffData)};</script>
   ${hasStats ? `<script src="${echartsUri}"></script>` : ''}
