@@ -390,9 +390,10 @@ vscode-tab-panel[hidden] {
   z-index: 2;
 }
 
+/* No per-row border — the 2px header border below separates the header,
+ * zebra striping separates data rows. */
 .diff-table td {
   padding: var(--viewstor-cell-padding);
-  border-bottom: 1px solid var(--viewstor-border-subtle);
   white-space: nowrap;
   max-width: 300px;
   overflow: hidden;
@@ -404,17 +405,34 @@ vscode-tab-panel[hidden] {
   background: var(--viewstor-row-zebra);
 }
 
-.diff-table tr:hover td {
-  background: var(--vscode-list-hoverBackground);
+/* ---- Status tints (higher specificity than zebra) ---- */
+.diff-table tbody tr.diff-added td { background: var(--viewstor-row-added); }
+.diff-table tbody tr.diff-added:nth-child(even) td {
+  background: color-mix(in srgb, var(--viewstor-row-added), var(--vscode-foreground) 6%);
+}
+.diff-table tbody tr.diff-removed td { background: var(--viewstor-row-removed); }
+.diff-table tbody tr.diff-removed:nth-child(even) td {
+  background: color-mix(in srgb, var(--viewstor-row-removed), var(--vscode-foreground) 6%);
+}
+.diff-table tbody tr.diff-changed td { background: var(--viewstor-row-changed); }
+.diff-table tbody tr.diff-changed:nth-child(even) td {
+  background: color-mix(in srgb, var(--viewstor-row-changed), var(--vscode-foreground) 6%);
 }
 
-/* ---- Diff row tint (wins over zebra) ---- */
-.diff-table tbody tr.diff-added td,
-.diff-table tbody tr.diff-added:nth-child(even) td { background: var(--viewstor-row-added); }
-.diff-table tbody tr.diff-removed td,
-.diff-table tbody tr.diff-removed:nth-child(even) td { background: var(--viewstor-row-removed); }
-.diff-table tbody tr.diff-changed td,
-.diff-table tbody tr.diff-changed:nth-child(even) td { background: var(--viewstor-row-changed); }
+/* Hover — declared last so it wins over same-specificity zebra, and gets
+ * higher specificity than the status rules so it wins there too. */
+.diff-table tbody tr:hover td {
+  background: var(--vscode-list-hoverBackground);
+}
+.diff-table tbody tr.diff-added:hover td {
+  background: color-mix(in srgb, var(--viewstor-row-added), var(--vscode-list-hoverBackground) 55%);
+}
+.diff-table tbody tr.diff-removed:hover td {
+  background: color-mix(in srgb, var(--viewstor-row-removed), var(--vscode-list-hoverBackground) 55%);
+}
+.diff-table tbody tr.diff-changed:hover td {
+  background: color-mix(in srgb, var(--viewstor-row-changed), var(--vscode-list-hoverBackground) 55%);
+}
 
 .diff-unchanged {
   opacity: 0.75;
@@ -510,24 +528,39 @@ vscode-tab-panel[hidden] {
 
 .diff-schema-table td {
   padding: var(--viewstor-cell-padding);
-  border-bottom: 1px solid var(--viewstor-border-subtle);
   white-space: nowrap;
 }
 
-/* Zebra striping on schema / objects / Other stats tables — status rows still win below. */
+/* Zebra striping on schema / objects / Other stats tables. */
 .diff-schema-table tbody tr:nth-child(even) td {
   background: var(--viewstor-row-zebra);
 }
 
-.diff-schema-table tbody tr.diff-added td,
-.diff-schema-table tbody tr.diff-added:nth-child(even) td { background: var(--viewstor-row-added); }
-.diff-schema-table tbody tr.diff-removed td,
-.diff-schema-table tbody tr.diff-removed:nth-child(even) td { background: var(--viewstor-row-removed); }
-.diff-schema-table tbody tr.diff-stats-row-differs td,
-.diff-schema-table tbody tr.diff-stats-row-differs:nth-child(even) td { background: var(--viewstor-row-changed); }
+.diff-schema-table tbody tr.diff-added td { background: var(--viewstor-row-added); }
+.diff-schema-table tbody tr.diff-added:nth-child(even) td {
+  background: color-mix(in srgb, var(--viewstor-row-added), var(--vscode-foreground) 6%);
+}
+.diff-schema-table tbody tr.diff-removed td { background: var(--viewstor-row-removed); }
+.diff-schema-table tbody tr.diff-removed:nth-child(even) td {
+  background: color-mix(in srgb, var(--viewstor-row-removed), var(--vscode-foreground) 6%);
+}
+.diff-schema-table tbody tr.diff-stats-row-differs td { background: var(--viewstor-row-changed); }
+.diff-schema-table tbody tr.diff-stats-row-differs:nth-child(even) td {
+  background: color-mix(in srgb, var(--viewstor-row-changed), var(--vscode-foreground) 6%);
+}
 
-.diff-schema-table tr:hover td {
+/* Hover — same specificity pattern as .diff-table above. */
+.diff-schema-table tbody tr:hover td {
   background: var(--vscode-list-hoverBackground);
+}
+.diff-schema-table tbody tr.diff-added:hover td {
+  background: color-mix(in srgb, var(--viewstor-row-added), var(--vscode-list-hoverBackground) 55%);
+}
+.diff-schema-table tbody tr.diff-removed:hover td {
+  background: color-mix(in srgb, var(--viewstor-row-removed), var(--vscode-list-hoverBackground) 55%);
+}
+.diff-schema-table tbody tr.diff-stats-row-differs:hover td {
+  background: color-mix(in srgb, var(--viewstor-row-changed), var(--vscode-list-hoverBackground) 55%);
 }
 
 /* ---- No schema ---- */
