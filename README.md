@@ -1,7 +1,11 @@
 # Viewstor
 
 <p align="center">
-  <img src="resources/banner-light.png" alt="Viewstor" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="resources/banner-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="resources/banner-light.png">
+    <img src="resources/banner-dark.png" alt="Viewstor" width="100%">
+  </picture>
 </p>
 
 <p align="center">
