@@ -205,6 +205,8 @@ Or add manually:
 
 All MCP interfaces auto-connect and respect read-only mode.
 
+Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter — query another database on the same server without creating a new connection or re-entering the password.
+
 ### Other
 
 - Query history with execution time and row count — **click to re-execute**

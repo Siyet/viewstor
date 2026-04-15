@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -70,5 +70,106 @@ describe('ConnectionStore file operations', () => {
 
     expect(fs.existsSync(nestedFile)).toBe(true);
     expect(JSON.parse(fs.readFileSync(nestedFile, 'utf8')).connections[0].id).toBe('x');
+  });
+});
+
+// -------------------------------------------------------------------------
+// ensureDriverForDatabase — driver caching per (connectionId, database)
+// -------------------------------------------------------------------------
+const { mockDrivers, createDriverMock } = vi.hoisted(() => {
+  const mockDrivers: { connect: ReturnType<typeof vi.fn>; ping: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] = [];
+  const createDriverMock = vi.fn(() => {
+    const driver = {
+      connect: vi.fn(async () => {}),
+      ping: vi.fn(async () => true),
+      disconnect: vi.fn(async () => {}),
+      execute: vi.fn(async () => ({ columns: [], rows: [] })),
+      getSchema: vi.fn(async () => []),
+      getTableData: vi.fn(async () => ({ columns: [], rows: [] })),
+      getTableInfo: vi.fn(async () => ({ columns: [] })),
+    };
+    mockDrivers.push(driver);
+    return driver;
+  });
+  return { mockDrivers, createDriverMock };
+});
+
+vi.mock('../drivers', () => ({ createDriver: createDriverMock }));
+
+describe('ConnectionStore.ensureDriverForDatabase', () => {
+  beforeEach(() => {
+    mockDrivers.length = 0;
+    createDriverMock.mockClear();
+  });
+
+  async function makeStore() {
+    const { ConnectionStore } = await import('../mcp-server/connectionStore');
+    const store = new ConnectionStore();
+    const config = {
+      id: 'pg-main',
+      name: 'PG',
+      type: 'postgresql' as const,
+      host: 'localhost',
+      port: 5432,
+      username: 'u',
+      password: 'p',
+      database: 'maindb',
+      databases: ['maindb', 'analytics'],
+      scope: 'user' as const,
+    };
+    await store.add(config);
+    return store;
+  }
+
+  it('returns primary driver when database matches the main database', async () => {
+    const store = await makeStore();
+    const primary = await store.ensureDriver('pg-main');
+    const sameDb = await store.ensureDriverForDatabase('pg-main', 'maindb');
+    expect(sameDb).toBe(primary);
+  });
+
+  it('creates a new driver for a different database with same credentials', async () => {
+    const store = await makeStore();
+    await store.ensureDriver('pg-main');
+    const analyticsDriver = await store.ensureDriverForDatabase('pg-main', 'analytics');
+    expect(analyticsDriver.connect).toHaveBeenCalledWith(expect.objectContaining({
+      host: 'localhost', username: 'u', password: 'p', database: 'analytics',
+    }));
+  });
+
+  it('caches driver per (connectionId, database) — no duplicate creation', async () => {
+    const store = await makeStore();
+    const first = await store.ensureDriverForDatabase('pg-main', 'analytics');
+    const createCount = createDriverMock.mock.calls.length;
+    const second = await store.ensureDriverForDatabase('pg-main', 'analytics');
+    expect(second).toBe(first);
+    expect(createDriverMock.mock.calls.length).toBe(createCount);
+  });
+
+  it('concurrent calls for same db share the in-flight driver', async () => {
+    const store = await makeStore();
+    const [a, b] = await Promise.all([
+      store.ensureDriverForDatabase('pg-main', 'analytics'),
+      store.ensureDriverForDatabase('pg-main', 'analytics'),
+    ]);
+    expect(a).toBe(b);
+    const connects = mockDrivers.filter(d => d.connect.mock.calls.length > 0);
+    const analyticsDrivers = connects.filter(d =>
+      (d.connect.mock.calls[0]?.[0] as { database?: string })?.database === 'analytics');
+    expect(analyticsDrivers).toHaveLength(1);
+  });
+
+  it('recreates driver when cached driver ping fails', async () => {
+    const store = await makeStore();
+    const first = await store.ensureDriverForDatabase('pg-main', 'analytics');
+    first.ping.mockRejectedValueOnce(new Error('lost'));
+    const second = await store.ensureDriverForDatabase('pg-main', 'analytics');
+    expect(second).not.toBe(first);
+    expect(second.connect).toHaveBeenCalled();
+  });
+
+  it('throws for unknown connection', async () => {
+    const store = await makeStore();
+    await expect(store.ensureDriverForDatabase('ghost', 'db')).rejects.toThrow('not found');
   });
 });

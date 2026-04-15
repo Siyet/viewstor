@@ -33,27 +33,17 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       }));
     }),
 
-    vscode.commands.registerCommand('viewstor.mcp.getSchema', async (connectionId: string) => {
-      const driver = connectionManager.getDriver(connectionId);
-      if (!driver) {
-        // Auto-connect if needed
-        try {
-          await connectionManager.connect(connectionId);
-        } catch (err) {
-          return { error: `Connection failed: ${err instanceof Error ? err.message : err}` };
-        }
-      }
-      const d = connectionManager.getDriver(connectionId);
-      if (!d) return { error: 'Driver not available' };
+    vscode.commands.registerCommand('viewstor.mcp.getSchema', async (connectionId: string, database?: string) => {
       try {
-        const schema = await d.getSchema();
+        const driver = await resolveMcpDriver(connectionManager, connectionId, database);
+        const schema = await driver.getSchema();
         return flattenSchema(schema);
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) };
       }
     }),
 
-    vscode.commands.registerCommand('viewstor.mcp.executeQuery', async (connectionId: string, query: string) => {
+    vscode.commands.registerCommand('viewstor.mcp.executeQuery', async (connectionId: string, query: string, database?: string) => {
       const state = connectionManager.get(connectionId);
       if (state?.config.readonly) {
         // In readonly mode, only allow SELECT/EXPLAIN/SHOW
@@ -63,18 +53,8 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
         }
       }
 
-      let driver = connectionManager.getDriver(connectionId);
-      if (!driver) {
-        try {
-          await connectionManager.connect(connectionId);
-          driver = connectionManager.getDriver(connectionId);
-        } catch (err) {
-          return { error: `Connection failed: ${err instanceof Error ? err.message : err}` };
-        }
-      }
-      if (!driver) return { error: 'Driver not available' };
-
       try {
+        const driver = await resolveMcpDriver(connectionManager, connectionId, database);
         const result = await driver.execute(query);
         return {
           columns: result.columns.map(c => c.name),
@@ -89,19 +69,9 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       }
     }),
 
-    vscode.commands.registerCommand('viewstor.mcp.getTableData', async (connectionId: string, tableName: string, schema?: string, limit?: number) => {
-      let driver = connectionManager.getDriver(connectionId);
-      if (!driver) {
-        try {
-          await connectionManager.connect(connectionId);
-          driver = connectionManager.getDriver(connectionId);
-        } catch (err) {
-          return { error: `Connection failed: ${err instanceof Error ? err.message : err}` };
-        }
-      }
-      if (!driver) return { error: 'Driver not available' };
-
+    vscode.commands.registerCommand('viewstor.mcp.getTableData', async (connectionId: string, tableName: string, schema?: string, limit?: number, database?: string) => {
       try {
+        const driver = await resolveMcpDriver(connectionManager, connectionId, database);
         const result = await driver.getTableData(tableName, schema, limit || 100);
         return {
           columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
@@ -113,19 +83,9 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       }
     }),
 
-    vscode.commands.registerCommand('viewstor.mcp.getTableInfo', async (connectionId: string, tableName: string, schema?: string) => {
-      let driver = connectionManager.getDriver(connectionId);
-      if (!driver) {
-        try {
-          await connectionManager.connect(connectionId);
-          driver = connectionManager.getDriver(connectionId);
-        } catch (err) {
-          return { error: `Connection failed: ${err instanceof Error ? err.message : err}` };
-        }
-      }
-      if (!driver) return { error: 'Driver not available' };
-
+    vscode.commands.registerCommand('viewstor.mcp.getTableInfo', async (connectionId: string, tableName: string, schema?: string, database?: string) => {
       try {
+        const driver = await resolveMcpDriver(connectionManager, connectionId, database);
         const info = await driver.getTableInfo(tableName, schema);
         return {
           name: info.name,
@@ -291,6 +251,17 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       return dashboard;
     }),
   );
+}
+
+async function resolveMcpDriver(cm: ConnectionManager, connectionId: string, database?: string) {
+  if (database) return cm.getDriverForDatabase(connectionId, database);
+  let driver = cm.getDriver(connectionId);
+  if (!driver) {
+    await cm.connect(connectionId);
+    driver = cm.getDriver(connectionId);
+  }
+  if (!driver) throw new Error('Driver not available');
+  return driver;
 }
 
 /** Flatten nested schema tree into a simple array of objects */
