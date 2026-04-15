@@ -29,6 +29,18 @@ const WRITE_VERBS = new Set<string>(['INSERT', 'UPDATE', 'DELETE', 'MERGE', 'UPS
 const DDL_VERBS = new Set<string>(['CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'RENAME']);
 const ADMIN_VERBS = new Set<string>(['GRANT', 'REVOKE', 'VACUUM', 'ANALYZE', 'REINDEX', 'CLUSTER', 'OPTIMIZE', 'ATTACH', 'DETACH', 'SET', 'RESET']);
 
+/**
+ * Keywords that appear inside the `EXPLAIN` options list (either free-form,
+ * `EXPLAIN ANALYZE VERBOSE ...`, or inside parens, `EXPLAIN (ANALYZE, VERBOSE) ...`).
+ * Skipped while looking for the actual inner statement verb.
+ */
+const EXPLAIN_OPTION_WORDS = new Set<string>([
+  'ANALYZE', 'VERBOSE', 'BUFFERS', 'COSTS', 'FORMAT', 'WAL', 'TIMING',
+  'SUMMARY', 'SETTINGS', 'GENERIC_PLAN', 'MEMORY', 'SERIALIZE',
+  'JSON', 'YAML', 'XML', 'TEXT',
+  'TRUE', 'FALSE', 'ON', 'OFF',
+]);
+
 /** Strip leading SQL line (`-- ...`) and block (`/* ... *\/`) comments + whitespace. */
 function stripLeadingCommentsAndWhitespace(sql: string): string {
   let s = sql;
@@ -124,6 +136,24 @@ export function classifyStatement(sql: string): QueryRisk {
   const m = s.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
   if (!m) return { kind: 'unknown' };
   const verb = m[1].toUpperCase();
+  // EXPLAIN ANALYZE (and in some dialects EXPLAIN with other execute-mode
+  // options) actually runs the inner statement. Reclassify under the inner
+  // verb so destructive operations can't be laundered through EXPLAIN.
+  if (verb === 'EXPLAIN') {
+    const inner = parseExplainInner(s.slice(m[1].length));
+    if (inner) {
+      const innerRisk = classifyStatement(inner);
+      if (innerRisk.kind !== 'read' && innerRisk.kind !== 'unknown') return innerRisk;
+    }
+    return { kind: 'read', verb: 'EXPLAIN' };
+  }
+  // WITH <cte> AS (INSERT/UPDATE/DELETE/MERGE ...) SELECT ... — the DML in
+  // the CTE actually executes. Promote to the most severe inner DML/DDL.
+  if (verb === 'WITH') {
+    const hazard = scanForHazard(s);
+    if (hazard) return hazard;
+    return { kind: 'read', verb: 'WITH' };
+  }
   if (READ_VERBS.has(verb)) {
     const v = (verb === 'DESC' ? 'DESCRIBE' : verb) as ReadVerb;
     return { kind: 'read', verb: v };
@@ -132,6 +162,118 @@ export function classifyStatement(sql: string): QueryRisk {
   if (DDL_VERBS.has(verb)) return { kind: 'ddl', verb: verb as DdlVerb };
   if (ADMIN_VERBS.has(verb)) return { kind: 'admin', verb: verb as AdminVerb };
   return { kind: 'unknown' };
+}
+
+/**
+ * Skip EXPLAIN's option clause (either free-form `ANALYZE VERBOSE ...` or
+ * parenthesised `(ANALYZE, VERBOSE)`) and return the remaining statement,
+ * or null if nothing plausible is left.
+ */
+function parseExplainInner(rest: string): string | null {
+  let s = stripLeadingCommentsAndWhitespace(rest);
+  // Paren-style options: EXPLAIN (ANALYZE, VERBOSE, ...) <stmt>
+  if (s.startsWith('(')) {
+    let depth = 0;
+    let i = 0;
+    while (i < s.length) {
+      const c = s[i];
+      if (c === '(') depth++;
+      else if (c === ')') {
+        depth--;
+        if (depth === 0) { i++; break; }
+      }
+      i++;
+    }
+    if (depth !== 0) return null;
+    s = stripLeadingCommentsAndWhitespace(s.slice(i));
+  }
+  // Free-form options: ANALYZE VERBOSE ... <stmt>. Consume any whitelisted words.
+  for (;;) {
+    const m = s.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+    if (!m) return null;
+    const word = m[1].toUpperCase();
+    if (!EXPLAIN_OPTION_WORDS.has(word)) return s;
+    s = stripLeadingCommentsAndWhitespace(s.slice(m[1].length));
+  }
+}
+
+/**
+ * Scan a statement for any destructive verb, ignoring string literals,
+ * quoted identifiers, and comments. Used to promote `WITH ... (DML)` to
+ * the severity of the DML inside the CTE. Returns the most-severe hit, or
+ * null if none found.
+ */
+function scanForHazard(sql: string): QueryRisk | null {
+  const cleaned = stripStringsAndComments(sql);
+  const re = /\b([A-Za-z_][A-Za-z0-9_]*)\b/g;
+  let worst: QueryRisk | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(cleaned))) {
+    const w = m[1].toUpperCase();
+    // Only look for WRITE / DDL verbs. Admin keywords (`SET`, `RESET`,
+    // `ANALYZE`) appear as part of DML syntax (e.g. `UPDATE ... SET x = 1`,
+    // `MERGE ... WHEN MATCHED THEN UPDATE SET ...`) and would produce false
+    // positives. A genuine `SET` / `ANALYZE` admin command wouldn't appear
+    // inside a CTE anyway — the top-level verb would already be `SET`.
+    let risk: QueryRisk | null = null;
+    if (WRITE_VERBS.has(w)) risk = { kind: 'write', verb: w as WriteVerb };
+    else if (DDL_VERBS.has(w)) risk = { kind: 'ddl', verb: w as DdlVerb };
+    if (risk && (!worst || KIND_SEVERITY[risk.kind] > KIND_SEVERITY[worst.kind])) {
+      worst = risk;
+    }
+  }
+  return worst;
+}
+
+/** Remove quoted strings, quoted identifiers, and comments so keyword scans aren't spoofed. */
+function stripStringsAndComments(sql: string): string {
+  let out = '';
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i];
+    const next = sql[i + 1];
+    if (inLineComment) {
+      if (c === '\n') { inLineComment = false; out += c; }
+      i++;
+      continue;
+    }
+    if (inBlockComment) {
+      if (c === '*' && next === '/') { inBlockComment = false; i += 2; continue; }
+      i++;
+      continue;
+    }
+    if (inSingle) {
+      if (c === '\'' && next === '\'') { i += 2; continue; }
+      if (c === '\\' && next !== undefined) { i += 2; continue; }
+      if (c === '\'') inSingle = false;
+      i++;
+      continue;
+    }
+    if (inDouble) {
+      if (c === '"' && next === '"') { i += 2; continue; }
+      if (c === '"') inDouble = false;
+      i++;
+      continue;
+    }
+    if (inBacktick) {
+      if (c === '`') inBacktick = false;
+      i++;
+      continue;
+    }
+    if (c === '-' && next === '-') { inLineComment = true; i += 2; continue; }
+    if (c === '/' && next === '*') { inBlockComment = true; i += 2; continue; }
+    if (c === '\'') { inSingle = true; i++; continue; }
+    if (c === '"') { inDouble = true; i++; continue; }
+    if (c === '`') { inBacktick = true; i++; continue; }
+    out += c;
+    i++;
+  }
+  return out;
 }
 
 const KIND_SEVERITY: Record<QueryRiskKind, number> = {

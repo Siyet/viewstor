@@ -186,6 +186,67 @@ describe('needsApproval', () => {
   });
 });
 
+describe('EXPLAIN ANALYZE bypass protection', () => {
+  it.each([
+    ['EXPLAIN ANALYZE DELETE FROM users', 'write', 'DELETE'],
+    ['EXPLAIN ANALYZE INSERT INTO t VALUES (1)', 'write', 'INSERT'],
+    ['EXPLAIN ANALYZE UPDATE t SET x = 1', 'write', 'UPDATE'],
+    ['explain analyze delete from t', 'write', 'DELETE'],
+    ['EXPLAIN (ANALYZE, VERBOSE) DELETE FROM users', 'write', 'DELETE'],
+    ['EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) UPDATE t SET x = 1', 'write', 'UPDATE'],
+    ['EXPLAIN ANALYZE VERBOSE BUFFERS DROP TABLE t', 'ddl', 'DROP'],
+  ])('%s reclassified as %s/%s', (sql, kind, verb) => {
+    const r = classifyStatement(sql);
+    expect(r.kind).toBe(kind);
+    if (r.kind === 'write' || r.kind === 'ddl' || r.kind === 'admin') expect(r.verb).toBe(verb);
+  });
+
+  it('EXPLAIN of a SELECT stays classified as read', () => {
+    expect(classifyStatement('EXPLAIN ANALYZE SELECT * FROM t').kind).toBe('read');
+    expect(classifyStatement('EXPLAIN (ANALYZE, VERBOSE) SELECT 1').kind).toBe('read');
+    expect(classifyStatement('EXPLAIN SELECT * FROM t').kind).toBe('read');
+  });
+});
+
+describe('WITH + DML (CTE) bypass protection', () => {
+  it.each([
+    [
+      'WITH deleted AS (DELETE FROM users WHERE id = 1 RETURNING *) SELECT * FROM deleted',
+      'write', 'DELETE',
+    ],
+    [
+      'WITH inserted AS (INSERT INTO t VALUES (1) RETURNING id) SELECT * FROM inserted',
+      'write', 'INSERT',
+    ],
+    [
+      'WITH updated AS (UPDATE t SET x = 1 RETURNING x) SELECT * FROM updated',
+      'write', 'UPDATE',
+    ],
+    [
+      'with x as (merge into t using s on t.id = s.id when matched then update set x = 1 returning *) select * from x',
+      'write', 'MERGE',
+    ],
+  ])('%s reclassified as %s/%s', (sql, kind, verb) => {
+    const r = classifyStatement(sql);
+    expect(r.kind).toBe(kind);
+    if (r.kind === 'write' || r.kind === 'ddl' || r.kind === 'admin') expect(r.verb).toBe(verb);
+  });
+
+  it('WITH + SELECT stays classified as read', () => {
+    expect(classifyStatement('WITH cte AS (SELECT 1) SELECT * FROM cte').kind).toBe('read');
+    expect(classifyStatement('WITH a AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a, b').kind).toBe('read');
+  });
+
+  it('keyword-like words inside string literals do not trip the scanner', () => {
+    expect(classifyStatement('WITH cte AS (SELECT \'DELETE FROM t\' AS note) SELECT * FROM cte').kind).toBe('read');
+    expect(classifyStatement('WITH cte AS (SELECT "update_time" FROM t) SELECT * FROM cte').kind).toBe('read');
+  });
+
+  it('keyword-like words inside -- comments do not trip the scanner', () => {
+    expect(classifyStatement('WITH cte AS (SELECT 1 -- DELETE FROM t\n) SELECT * FROM cte').kind).toBe('read');
+  });
+});
+
 describe('describeRisk', () => {
   it('produces human-readable strings with verbs', () => {
     expect(describeRisk({ kind: 'read', verb: 'SELECT' })).toContain('SELECT');
