@@ -96,7 +96,11 @@ function hasAnyParseableSingle(column: string, rows: Record<string, unknown>[]):
   for (let i = 0; i < Math.min(rows.length, 50); i++) {
     const v = rows[i][column];
     if (v == null) continue;
-    if (parseGeoValue(v) !== null) return true;
+    const parsed = parseGeoValue(v);
+    // Require a valid on-Earth coordinate — otherwise arbitrary numeric
+    // strings like `"500, 10"` in a non-geo column would match the loose
+    // 1b path below and shadow a legitimate lat/lng pair.
+    if (parsed !== null && isValidCoord(parsed.lat, parsed.lng)) return true;
   }
   return false;
 }
