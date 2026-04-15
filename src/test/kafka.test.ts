@@ -111,6 +111,12 @@ describe('parseBrokerList', () => {
     expect(parseBrokerList('', 9092)).toEqual(['localhost:9092']);
     expect(parseBrokerList(undefined, 9092)).toEqual(['localhost:9092']);
   });
+
+  it('falls back to localhost when input is whitespace-only or all-empty parts', () => {
+    expect(parseBrokerList('   ', 9092)).toEqual(['localhost:9092']);
+    expect(parseBrokerList(', , ,', 9092)).toEqual(['localhost:9092']);
+    expect(parseBrokerList(' , ', 9093)).toEqual(['localhost:9093']);
+  });
 });
 
 describe('normalizeHeaders', () => {
@@ -128,5 +134,18 @@ describe('normalizeHeaders', () => {
 
   it('stringifies other types', () => {
     expect(normalizeHeaders({ n: 42 as unknown as string })).toEqual({ n: '42' });
+  });
+
+  it('normalizes multi-valued (array) header values', () => {
+    expect(normalizeHeaders({
+      k: ['a', new Uint8Array([0x62]), null as unknown as string],
+    })).toEqual({ k: ['a', 'b'] });
+  });
+
+  it('drops a header key whose array contains only null/undefined', () => {
+    expect(normalizeHeaders({
+      k: [null, undefined] as unknown as string[],
+      v: 'x',
+    })).toEqual({ v: 'x' });
   });
 });

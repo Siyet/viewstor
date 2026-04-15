@@ -226,10 +226,9 @@ export class KafkaDriver implements DatabaseDriver {
 
   async getTableInfo(name: string): Promise<TableInfo> {
     // For a topic, expose synthetic "columns" that describe the message shape.
-    const metadata = await this.admin.fetchTopicMetadata({ topics: [name] });
-    const topic = metadata.topics[0];
-    const partitionCount = topic ? topic.partitions.length : 0;
-
+    // rowCount is intentionally omitted — a topic has no meaningful row count
+    // (computing it would require summing latest-minus-earliest offsets per
+    // partition) and returning partition count is misleading.
     return {
       name,
       columns: [
@@ -240,7 +239,6 @@ export class KafkaDriver implements DatabaseDriver {
         { name: 'timestamp', dataType: 'timestamp', nullable: true, isPrimaryKey: false },
         { name: 'headers', dataType: 'json', nullable: true, isPrimaryKey: false },
       ],
-      rowCount: partitionCount,
     };
   }
 
@@ -260,7 +258,9 @@ export class KafkaDriver implements DatabaseDriver {
     const groupId = `viewstor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const consumer = this.client.consumer({ groupId, sessionTimeout: 10000 });
     await consumer.connect();
-    await consumer.subscribe({ topic, fromBeginning });
+    // kafkajs 2.x replaced single `topic` with `topics[]`; the old shape still works
+    // but logs a deprecation warning on every consume.
+    await consumer.subscribe({ topics: [topic], fromBeginning });
 
     const collected: Record<string, unknown>[] = [];
     await new Promise<void>((resolve, reject) => {
@@ -375,8 +375,11 @@ export function parseKafkaCommand(input: string): KafkaCommand | null {
 /** Split a broker-list string like "b1:9092, b2:9092" into kafkajs brokers[]. */
 export function parseBrokerList(host: string | undefined, port: number | undefined): string[] {
   const raw = (host || 'localhost').trim();
-  const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
   const defaultPort = port && port > 0 ? port : 9092;
+  const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
+  // Whitespace-only input leaves `parts` empty — fall back to localhost so we
+  // give kafkajs a usable broker rather than an opaque "empty brokers" error.
+  if (parts.length === 0) return [`localhost:${defaultPort}`];
   return parts.map(p => (p.includes(':') ? p : `${p}:${defaultPort}`));
 }
 
@@ -414,17 +417,25 @@ function tokenize(input: string): string[] {
 }
 
 /** Normalize kafkajs message headers (Buffer values → strings) for JSON serialization. */
-export function normalizeHeaders(headers: Record<string, unknown>): Record<string, string> {
-  const out: Record<string, string> = {};
+export function normalizeHeaders(headers: Record<string, unknown>): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
   for (const [k, v] of Object.entries(headers)) {
     if (v == null) continue;
-    if (typeof v === 'string') {
-      out[k] = v;
-    } else if (v instanceof Uint8Array) {
-      out[k] = Buffer.from(v).toString('utf8');
+    if (Array.isArray(v)) {
+      // kafkajs IHeaders values can be arrays (multi-valued headers).
+      const mapped = v.map(normalizeHeaderValue).filter((x): x is string => x != null);
+      if (mapped.length > 0) out[k] = mapped;
     } else {
-      out[k] = String(v);
+      const mapped = normalizeHeaderValue(v);
+      if (mapped != null) out[k] = mapped;
     }
   }
   return out;
+}
+
+function normalizeHeaderValue(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === 'string') return v;
+  if (v instanceof Uint8Array) return Buffer.from(v).toString('utf8');
+  return String(v);
 }
