@@ -391,13 +391,15 @@ vscode-tab-panel[hidden] {
 }
 
 /* No per-row border — the 2px header border below separates the header,
- * zebra striping separates data rows. */
+ * zebra striping separates data rows. Padding is slightly taller than the
+ * shared token for more comfortable row height in data-dense tables. */
 .diff-table td {
-  padding: var(--viewstor-cell-padding);
+  padding: 6px 10px;
   white-space: nowrap;
   max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
+  user-select: text;
 }
 
 /* Zebra striping — applied to every tbody row, then status tints override. */
@@ -527,8 +529,9 @@ vscode-tab-panel[hidden] {
 }
 
 .diff-schema-table td {
-  padding: var(--viewstor-cell-padding);
+  padding: 6px 10px;
   white-space: nowrap;
+  user-select: text;
 }
 
 /* Zebra striping on schema / objects / Other stats tables. */
@@ -636,8 +639,10 @@ vscode-tab-panel[hidden] {
   width: auto;
 }
 
+/* Differs rows: use regular foreground — the row background tint already
+ * signals the state, tinting the text too makes "Other" hard to read. */
 .diff-stats-row-differs td {
-  color: var(--vscode-editorWarning-foreground, #cca700);
+  color: var(--vscode-foreground);
   font-weight: 600;
 }
 
@@ -649,4 +654,46 @@ vscode-tab-panel[hidden] {
 .diff-key-col::after {
   content: ' \1F511';
   font-size: 10px;
+}
+
+/* ---- Cell selection + context menu (parity with Result Grid) ---- */
+.diff-table td.cell-selected,
+.diff-schema-table td.cell-selected {
+  background: color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important;
+}
+.diff-table td.sel-top,
+.diff-schema-table td.sel-top { border-top: 2px solid var(--vscode-focusBorder) !important; }
+.diff-table td.sel-bottom,
+.diff-schema-table td.sel-bottom { border-bottom: 2px solid var(--vscode-focusBorder) !important; }
+.diff-table td.sel-left,
+.diff-schema-table td.sel-left { border-left: 2px solid var(--vscode-focusBorder) !important; }
+.diff-table td.sel-right,
+.diff-schema-table td.sel-right { border-right: 2px solid var(--vscode-focusBorder) !important; }
+
+.diff-ctx-menu {
+  position: fixed;
+  background: var(--vscode-menu-background, var(--vscode-dropdown-background));
+  border: 1px solid var(--vscode-menu-border, var(--viewstor-border-subtle));
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+  padding: 4px 0;
+  min-width: 160px;
+}
+
+.diff-ctx-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.diff-ctx-menu button:hover {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
 }

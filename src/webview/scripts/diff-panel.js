@@ -313,6 +313,8 @@
     const leftBody = document.getElementById('leftTableBody');
     const rightBody = document.getElementById('rightTableBody');
     if (!leftBody || !rightBody || !rowDiff) return;
+    // Clear any cell selection — positional indices won't survive a filter change.
+    clearAllSelections();
 
     let leftHtml = '';
     let rightHtml = '';
@@ -419,6 +421,7 @@
     const schemaBody = document.getElementById('schemaTableBody');
     if (!schemaBody) return;
     if (!schemaDiff) return;
+    clearAllSelections();
 
     let html = '';
     const schemaFilters = activeFilters.schema;
@@ -496,6 +499,7 @@
   function renderObjectsDiff() {
     const container = document.getElementById('objectsDiffContainer');
     if (!container || !objectsDiff) return;
+    clearAllSelections();
 
     const schemaFilters = activeFilters.schema;
 
@@ -911,6 +915,264 @@
       '<tbody>' + rows + '</tbody></table>' +
       '</div></div>';
   }
+
+  // ---- Cell selection + copy (parity with Result Grid) ----
+  // Works for any table matching CELL_SELECT_SELECTOR — drag to select, Ctrl/Cmd+C
+  // copies TSV, right-click opens a context menu with copy-format options. Scoped
+  // per table so selections don't bleed across the left/right row-diff panes or
+  // between schema / Other tables.
+  const CELL_SELECT_SELECTOR = '.diff-table tbody td, .diff-schema-table tbody td';
+  const cellSelection = new WeakMap(); // HTMLTableElement -> Set<"row:col">
+  let activeSelectionTable = null;
+  let dragTable = null;
+  let anchorCell = null;
+  let isDragging = false;
+
+  function cellSelKey(r, c) { return r + ':' + c; }
+  function getSel(table) {
+    let s = cellSelection.get(table);
+    if (!s) { s = new Set(); cellSelection.set(table, s); }
+    return s;
+  }
+  function cellIndex(td) {
+    const tr = td.parentElement;
+    const tbody = tr.parentElement;
+    return {
+      row: Array.prototype.indexOf.call(tbody.children, tr),
+      col: Array.prototype.indexOf.call(tr.children, td),
+    };
+  }
+  function clearOtherSelections(exceptTable) {
+    document.querySelectorAll('.diff-table, .diff-schema-table').forEach(function (t) {
+      if (t === exceptTable) return;
+      const s = cellSelection.get(t);
+      if (s && s.size > 0) { s.clear(); updateCellSelectionUI(t); }
+    });
+  }
+  function updateCellSelectionUI(table) {
+    const sel = getSel(table);
+    table.querySelectorAll('tbody td').forEach(function (td) {
+      td.classList.remove('cell-selected', 'sel-top', 'sel-bottom', 'sel-left', 'sel-right');
+    });
+    const tbody = table.tBodies[0];
+    if (!tbody) return;
+    sel.forEach(function (key) {
+      const parts = key.split(':');
+      const r = Number(parts[0]);
+      const c = Number(parts[1]);
+      const tr = tbody.rows[r];
+      if (!tr) return;
+      const td = tr.cells[c];
+      if (!td) return;
+      td.classList.add('cell-selected');
+      if (!sel.has(cellSelKey(r - 1, c))) td.classList.add('sel-top');
+      if (!sel.has(cellSelKey(r + 1, c))) td.classList.add('sel-bottom');
+      if (!sel.has(cellSelKey(r, c - 1))) td.classList.add('sel-left');
+      if (!sel.has(cellSelKey(r, c + 1))) td.classList.add('sel-right');
+    });
+  }
+  function selectCellRange(table, r1, c1, r2, c2) {
+    const sel = getSel(table);
+    sel.clear();
+    const minR = Math.min(r1, r2), maxR = Math.max(r1, r2);
+    const minC = Math.min(c1, c2), maxC = Math.max(c1, c2);
+    for (let r = minR; r <= maxR; r++)
+      for (let c = minC; c <= maxC; c++)
+        sel.add(cellSelKey(r, c));
+    activeSelectionTable = table;
+    updateCellSelectionUI(table);
+  }
+  function clearAllSelections() {
+    document.querySelectorAll('.diff-table, .diff-schema-table').forEach(function (t) {
+      const s = cellSelection.get(t);
+      if (s) s.clear();
+      updateCellSelectionUI(t);
+    });
+    activeSelectionTable = null;
+  }
+
+  document.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    closeDiffContextMenu();
+    const td = e.target.closest ? e.target.closest(CELL_SELECT_SELECTOR) : null;
+    if (!td) {
+      // Click outside any selectable table clears selection.
+      if (!e.target.closest || !e.target.closest('.diff-ctx-menu')) clearAllSelections();
+      return;
+    }
+    const table = td.closest('table');
+    const idx = cellIndex(td);
+    clearOtherSelections(table);
+    isDragging = true;
+    dragTable = table;
+    anchorCell = idx;
+    activeSelectionTable = table;
+    const sel = getSel(table);
+    if (e.shiftKey && sel.size > 0) {
+      // extend from the current top-left of the existing selection
+      const cells = [];
+      sel.forEach(function (k) { cells.push(k.split(':').map(Number)); });
+      const anchorR = Math.min.apply(null, cells.map(function (p) { return p[0]; }));
+      const anchorC = Math.min.apply(null, cells.map(function (p) { return p[1]; }));
+      selectCellRange(table, anchorR, anchorC, idx.row, idx.col);
+    } else {
+      sel.clear();
+      sel.add(cellSelKey(idx.row, idx.col));
+      updateCellSelectionUI(table);
+    }
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    if (!isDragging || !dragTable || !anchorCell) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el) return;
+    const td = el.closest ? el.closest('td') : null;
+    if (!td || td.closest('table') !== dragTable) return;
+    const idx = cellIndex(td);
+    selectCellRange(dragTable, anchorCell.row, anchorCell.col, idx.row, idx.col);
+  });
+
+  document.addEventListener('mouseup', function () {
+    isDragging = false;
+    dragTable = null;
+  });
+
+  function getCellText(tbody, r, c) {
+    const tr = tbody.rows[r];
+    if (!tr) return '';
+    const td = tr.cells[c];
+    if (!td) return '';
+    // textContent picks up dim-dash / NULL placeholders too. Trim outer whitespace only.
+    return td.textContent.replace(/^\s+|\s+$/g, '');
+  }
+
+  function copyFromTable(table, format) {
+    const sel = getSel(table);
+    if (sel.size === 0) return;
+    const cells = [];
+    sel.forEach(function (k) { cells.push(k.split(':').map(Number)); });
+    const rowIdxs = Array.from(new Set(cells.map(function (p) { return p[0]; }))).sort(function (a, b) { return a - b; });
+    const colIdxs = Array.from(new Set(cells.map(function (p) { return p[1]; }))).sort(function (a, b) { return a - b; });
+    const tbody = table.tBodies[0];
+    const rows = rowIdxs.map(function (r) {
+      return colIdxs.map(function (c) {
+        return sel.has(cellSelKey(r, c)) ? getCellText(tbody, r, c) : '';
+      });
+    });
+    const thead = table.tHead;
+    const headerRow = thead && thead.rows[0];
+    const headers = colIdxs.map(function (c) {
+      const th = headerRow && headerRow.cells[c];
+      return th ? th.textContent.replace(/^\s+|\s+$/g, '') : '';
+    });
+
+    let text = '';
+    switch (format) {
+      case 'tsv':
+        text = rows.map(function (r) { return r.join('\t'); }).join('\n');
+        break;
+      case 'tsv-header':
+        text = headers.join('\t') + '\n' + rows.map(function (r) { return r.join('\t'); }).join('\n');
+        break;
+      case 'csv': {
+        const esc = function (v) { return /[,"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+        text = headers.map(esc).join(',') + '\n' + rows.map(function (r) { return r.map(esc).join(','); }).join('\n');
+        break;
+      }
+      case 'md': {
+        const widths = headers.map(function (h, i) {
+          let max = h.length;
+          rows.forEach(function (r) { if (r[i].length > max) max = r[i].length; });
+          return Math.max(max, 3);
+        });
+        const pad = function (s, w) { return s + ' '.repeat(Math.max(0, w - s.length)); };
+        text = '| ' + headers.map(function (h, i) { return pad(h, widths[i]); }).join(' | ') + ' |\n';
+        text += '|' + widths.map(function (w) { return '-'.repeat(w + 2); }).join('|') + '|\n';
+        text += rows.map(function (r) { return '| ' + r.map(function (v, i) { return pad(v, widths[i]); }).join(' | ') + ' |'; }).join('\n');
+        break;
+      }
+      case 'json': {
+        const arr = rows.map(function (r) {
+          const obj = {};
+          headers.forEach(function (h, i) { obj[h || ('col' + i)] = r[i]; });
+          return obj;
+        });
+        text = JSON.stringify(arr, null, 2);
+        break;
+      }
+    }
+    navigator.clipboard.writeText(text);
+  }
+
+  // ---- Context menu ----
+  let diffCtxEl = null;
+  function closeDiffContextMenu() {
+    if (diffCtxEl) { diffCtxEl.remove(); diffCtxEl = null; }
+  }
+  function openDiffContextMenu(x, y, table) {
+    closeDiffContextMenu();
+    diffCtxEl = document.createElement('div');
+    diffCtxEl.className = 'diff-ctx-menu';
+    diffCtxEl.style.left = x + 'px';
+    diffCtxEl.style.top = y + 'px';
+    const formats = [
+      { label: 'Copy', fmt: 'tsv' },
+      { label: 'Copy with Headers', fmt: 'tsv-header' },
+      { label: 'Copy as CSV', fmt: 'csv' },
+      { label: 'Copy as Markdown', fmt: 'md' },
+      { label: 'Copy as JSON', fmt: 'json' },
+    ];
+    formats.forEach(function (f) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = f.label;
+      btn.addEventListener('click', function () {
+        copyFromTable(table, f.fmt);
+        closeDiffContextMenu();
+      });
+      diffCtxEl.appendChild(btn);
+    });
+    document.body.appendChild(diffCtxEl);
+
+    // Clamp to viewport
+    const rect = diffCtxEl.getBoundingClientRect();
+    if (rect.right > window.innerWidth) diffCtxEl.style.left = (window.innerWidth - rect.width - 4) + 'px';
+    if (rect.bottom > window.innerHeight) diffCtxEl.style.top = (window.innerHeight - rect.height - 4) + 'px';
+  }
+
+  document.addEventListener('contextmenu', function (e) {
+    const td = e.target.closest ? e.target.closest(CELL_SELECT_SELECTOR) : null;
+    if (!td) return;
+    const table = td.closest('table');
+    const sel = getSel(table);
+    if (sel.size === 0) {
+      const idx = cellIndex(td);
+      clearOtherSelections(table);
+      sel.add(cellSelKey(idx.row, idx.col));
+      activeSelectionTable = table;
+      updateCellSelectionUI(table);
+    }
+    e.preventDefault();
+    openDiffContextMenu(e.clientX, e.clientY, table);
+  });
+
+  document.addEventListener('click', function (e) {
+    if (diffCtxEl && !e.target.closest('.diff-ctx-menu')) closeDiffContextMenu();
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeDiffContextMenu(); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C')) {
+      if (!activeSelectionTable) return;
+      const sel = getSel(activeSelectionTable);
+      if (sel.size === 0) return;
+      // Skip when the user is typing in a form field — let native copy handle it.
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      e.preventDefault();
+      copyFromTable(activeSelectionTable, 'tsv');
+    }
+  });
 
   // ---- Host messages ----
   window.addEventListener('message', function (event) {
