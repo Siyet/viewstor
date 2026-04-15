@@ -140,14 +140,34 @@
     return !!(querySyncEl && querySyncEl.checked);
   }
 
+  // Debounce host notifications to avoid a postMessage per keystroke.
+  var sendQueryStateTimer = null;
   function sendQueryState() {
     if (!queryLeftEl || !queryRightEl) return;
-    vscode.postMessage({
-      type: 'updateQueries',
-      leftQuery: queryLeftEl.value,
-      rightQuery: queryRightEl.value,
-      syncMode: isSyncOn(),
-    });
+    if (sendQueryStateTimer !== null) clearTimeout(sendQueryStateTimer);
+    sendQueryStateTimer = setTimeout(function () {
+      sendQueryStateTimer = null;
+      vscode.postMessage({
+        type: 'updateQueries',
+        leftQuery: queryLeftEl.value,
+        rightQuery: queryRightEl.value,
+        syncMode: isSyncOn(),
+      });
+    }, 200);
+  }
+
+  // Clear stale "Error" status + inline error boxes when the user starts
+  // editing so the panel doesn't keep the previous run's error visible.
+  function clearQueryErrorsOnEdit() {
+    if (queryStatusEl && queryStatusEl.textContent) queryStatusEl.textContent = '';
+    if (queryLeftErrEl && queryLeftErrEl.style.display !== 'none') {
+      queryLeftErrEl.textContent = '';
+      queryLeftErrEl.style.display = 'none';
+    }
+    if (queryRightErrEl && queryRightErrEl.style.display !== 'none') {
+      queryRightErrEl.textContent = '';
+      queryRightErrEl.style.display = 'none';
+    }
   }
 
   if (queryLeftEl && queryRightEl && queryRunEl) {
@@ -159,6 +179,7 @@
         queryRightEl.value = queryLeftEl.value;
         mirroring = false;
       }
+      clearQueryErrorsOnEdit();
       sendQueryState();
     });
     queryRightEl.addEventListener('input', function () {
@@ -167,6 +188,7 @@
         queryLeftEl.value = queryRightEl.value;
         mirroring = false;
       }
+      clearQueryErrorsOnEdit();
       sendQueryState();
     });
     if (querySyncEl) {
