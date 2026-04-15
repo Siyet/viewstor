@@ -29,9 +29,6 @@
   }).addTo(map);
 
   let currentLayer = null;
-  let lastColumns = [];
-  let lastMode = null;
-  let lastLabel = null;
 
   function clearLayer() {
     if (currentLayer) {
@@ -65,9 +62,6 @@
   function renderPoints(msg) {
     clearLayer();
     const points = msg.points || [];
-    lastColumns = msg.columns || [];
-    lastMode = msg.mode || null;
-    lastLabel = msg.labelColumn ?? null;
 
     rebuildSelects(msg);
 
@@ -180,7 +174,4 @@
 
   // Signal ready — in case host sent data before the DOM script finished loading
   vscode.postMessage({ type: 'ready' });
-
-  // Avoid "unused variable" warnings for future-proofing
-  void lastColumns; void lastMode; void lastLabel;
 })();
