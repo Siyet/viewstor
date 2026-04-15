@@ -99,9 +99,10 @@ export class MapPanelManager {
     state.disposable.dispose();
     state.disposable = this.registerMessageHandler(state, opts?.pointLimit ?? MAP_DEFAULT_POINT_LIMIT);
 
-    const sendState = state;
-    const limit = opts?.pointLimit ?? MAP_DEFAULT_POINT_LIMIT;
-    setTimeout(() => this.sendData(sendState, limit), 100);
+    // Webview sends a `ready` message once its listener is attached; that
+    // handler triggers the initial `sendData` call. No setTimeout needed —
+    // relying on one avoided both a double-send and a
+    // post-to-disposed-panel race if the user closed the tab within 100 ms.
     return true;
   }
 
