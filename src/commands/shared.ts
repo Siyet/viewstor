@@ -10,6 +10,7 @@ import { FolderFormPanel } from '../views/folderForm';
 import { TempFileManager } from '../services/tempFileManager';
 import { QueryFileManager } from '../services/queryFileManager';
 import { DiffPanelManager } from '../diff/diffPanel';
+import { MapPanelManager } from '../map/mapPanel';
 import { splitStatements, firstSqlTokenOffset } from '../utils/queryHelpers';
 
 export interface CommandContext {
@@ -25,6 +26,7 @@ export interface CommandContext {
   tempFileManager: TempFileManager;
   queryFileManager: QueryFileManager;
   diffPanelManager: DiffPanelManager;
+  mapPanelManager: MapPanelManager;
 }
 
 // --- Shared mutable state ---

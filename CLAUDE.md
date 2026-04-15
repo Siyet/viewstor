@@ -111,6 +111,17 @@ Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana pus
 
 Settings: `viewstor.diffRowLimit` (default 10000, max 100000).
 
+### Map View
+`src/map/mapDataTransform.ts` — pure functions: `detectCoordMode()` picks single-column (by type/name hint) or `lat`/`lng` pair; `parseGeoValue()` decodes GeoJSON Point, WKT `POINT(lng lat)`, `{lat,lng}` objects, `[lng,lat]` arrays, PG brace arrays `{lng,lat}`, JSON strings of the above; `extractPoints()` runs rows through the configured mode; `suggestLabelColumn()` picks a marker label column by priority (`name > title > label > description > code > id`). No vscode dependency, fully unit-tested.
+
+`src/map/mapPanel.ts` — `MapPanelManager`, webview panel for Leaflet map. Bundles `leaflet.js` + `leaflet.css` + marker images via webpack `CopyPlugin` into `dist/scripts/` and `dist/styles/images/`. Patches `L.Icon.Default` paths to `webview.asWebviewUri(...)` so markers render under the `vscode-webview:` scheme. CSP allows `https:` for OpenStreetMap tiles. Messages: `setPoints` (host → webview), `ready`/`changeMode`/`changeLabel` (webview → host). Limits rendering to 10,000 points (configurable via `MapShowOptions.pointLimit`).
+
+`src/commands/mapCommands.ts` — `viewstor.showOnMap`. Triggered by the 🗺 button in the result panel toolbar. Shows a warning if no coordinate format is detected.
+
+Webview: `src/webview/scripts/map-panel.js` (Leaflet init, OpenStreetMap tiles, marker tooltips + row popups), `src/webview/styles/map-panel.css` (VS Code theme vars for popups).
+
+Binary WKB (PostGIS hex) is **not** parsed — drivers should return WKT or GeoJSON when possible. Clustering and "color by value" are not implemented yet.
+
 ### SQL Autocomplete
 `src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).
 

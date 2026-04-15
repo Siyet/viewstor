@@ -340,6 +340,12 @@
         "title": "%command.compareData%",
         "category": "Viewstor",
         "icon": "$(diff)"
+      },
+      {
+        "command": "viewstor.showOnMap",
+        "title": "%command.showOnMap%",
+        "category": "Viewstor",
+        "icon": "$(globe)"
       }
     ],
     "menus": {
@@ -624,6 +630,7 @@
   "dependencies": {
     "better-sqlite3": "^12.8.0",
     "echarts": "^5.6.0",
+    "leaflet": "^1.9.4",
     "ssh2": "^1.17.0"
   }
 }

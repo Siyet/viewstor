@@ -34,6 +34,7 @@ Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHo
 | **Index hints** | Yes | No | No | No |
 | **Chart visualization** | 12 chart types, free | No | No | No |
 | **Data diff** | Row + schema diff, free | No | No | No |
+| **Map view** | Built-in (Leaflet), free | No | No | No |
 | **Color-coded folders** | Nested, inherited | No | No | No |
 | **Localization** | 12 languages | English only | English only | English only |
 
@@ -149,6 +150,21 @@ Compare data between tables — even across different connections (dev vs stagin
 - Configure max rows in settings (`viewstor.diffRowLimit`, default 10,000)
 
 Also available via Command Palette: `Viewstor: Compare Data`.
+
+### Map View
+
+Plot geographic data on an interactive map — powered by [Leaflet](https://leafletjs.com/) with OpenStreetMap tiles:
+
+- Click the **🗺 map button** in the Result Panel toolbar to open the map for the current result set
+- **Auto-detects** coordinate columns:
+  - GeoJSON Point (`{"type":"Point","coordinates":[lng,lat]}`)
+  - WKT (`POINT(lng lat)`)
+  - `{lat, lng}` / `{latitude, longitude}` objects
+  - `[lng, lat]` arrays or PG array strings (`{lng,lat}`)
+  - Separate `lat` / `lng` columns
+- **Tooltips** — marker hover shows the value of a chosen label column
+- **Popups** — click a marker to see the full row
+- Auto-zoom to fit all points; up to 10,000 points rendered per view
 
 ### Copilot Chat (`@viewstor`)
 
