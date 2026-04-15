@@ -1,7 +1,11 @@
 # Viewstor
 
 <p align="center">
-  <img src="resources/banner-light.png" alt="Viewstor" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="resources/banner-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="resources/banner-light.png">
+    <img src="resources/banner-dark.png" alt="Viewstor" width="100%">
+  </picture>
 </p>
 
 <p align="center">
@@ -200,6 +204,8 @@ Or add manually:
 9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
 
 All MCP interfaces auto-connect and respect read-only mode.
+
+Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter — query another database on the same server without creating a new connection or re-entering the password.
 
 ### Other
 
