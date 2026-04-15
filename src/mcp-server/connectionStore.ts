@@ -17,6 +17,8 @@ interface ConfigData {
 export class ConnectionStore {
   private connections = new Map<string, ConnectionConfig>();
   private drivers = new Map<string, DatabaseDriver>();
+  private dbDrivers = new Map<string, DatabaseDriver>();
+  private dbDriverLocks = new Map<string, Promise<DatabaseDriver>>();
 
   constructor() {
     this.reload();
@@ -75,6 +77,42 @@ export class ConnectionStore {
     return this.drivers.get(id) || this.connect(id);
   }
 
+  /**
+   * Get a driver for a specific database on the same server as an existing connection.
+   * Reuses the connection's host/user/password/ssl to avoid re-entering credentials.
+   * If database matches the connection's primary database, returns the primary driver.
+   */
+  async ensureDriverForDatabase(id: string, database: string): Promise<DatabaseDriver> {
+    const config = this.connections.get(id);
+    if (!config) throw new Error(`Connection "${id}" not found`);
+
+    if (config.database === database) {
+      return this.ensureDriver(id);
+    }
+
+    const cacheKey = `${id}:${database}`;
+    const cached = this.dbDrivers.get(cacheKey);
+    if (cached) {
+      try { await cached.ping(); return cached; } catch { this.dbDrivers.delete(cacheKey); }
+    }
+
+    const inflight = this.dbDriverLocks.get(cacheKey);
+    if (inflight) return inflight;
+
+    const promise = (async () => {
+      const driver = createDriver(config.type);
+      await driver.connect({ ...config, database });
+      this.dbDrivers.set(cacheKey, driver);
+      return driver;
+    })();
+    this.dbDriverLocks.set(cacheKey, promise);
+    try {
+      return await promise;
+    } finally {
+      this.dbDriverLocks.delete(cacheKey);
+    }
+  }
+
   async add(config: ConnectionConfig): Promise<void> {
     this.connections.set(config.id, config);
     await this.saveUserConfig();
@@ -100,6 +138,14 @@ export class ConnectionStore {
         // Ignore disconnect errors during cleanup
       }
       this.drivers.delete(id);
+    }
+    for (const [key, driver] of this.dbDrivers) {
+      try {
+        await driver.disconnect();
+      } catch {
+        // Ignore disconnect errors during cleanup
+      }
+      this.dbDrivers.delete(key);
     }
   }
 }
