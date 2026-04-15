@@ -346,9 +346,7 @@ export class ConnectionFormPanel {
           <input type="color" id="connColorPicker" value="${esc(c?.color || '#1e1e1e')}" />
         </span>
         <vscode-textfield id="connColor" placeholder="#e06c75" value="${esc(c?.color)}"></vscode-textfield>
-        <vscode-button id="btnRandomColor" secondary title="Randomize color">
-          <vscode-icon name="symbol-color" slot="content-before"></vscode-icon>
-        </vscode-button>
+        <vscode-button id="btnRandomColor" secondary title="Pick a random color">Random</vscode-button>
         <vscode-button id="btnClearColor" secondary>Clear</vscode-button>
       </div>
       <div class="color-palette" id="colorPalette"></div>
