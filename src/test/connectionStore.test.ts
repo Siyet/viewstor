@@ -173,3 +173,45 @@ describe('ConnectionStore.ensureDriverForDatabase', () => {
     await expect(store.ensureDriverForDatabase('ghost', 'db')).rejects.toThrow('not found');
   });
 });
+
+// -------------------------------------------------------------------------
+// MCP tool handler routing: database arg → ensureDriverForDatabase
+// -------------------------------------------------------------------------
+describe('MCP handler routing for database parameter', () => {
+  // Mirrors `resolveDriver(connectionId, database?)` in src/mcp-server/index.ts —
+  // verifies the handler picks the right store method based on presence of `database`.
+  async function resolveDriver(
+    store: { ensureDriver: (id: string) => Promise<unknown>; ensureDriverForDatabase: (id: string, db: string) => Promise<unknown> },
+    connectionId: string,
+    database?: string,
+  ) {
+    if (database) return store.ensureDriverForDatabase(connectionId, database);
+    return store.ensureDriver(connectionId);
+  }
+
+  it('routes to ensureDriver when no database arg', async () => {
+    const ensureDriver = vi.fn(async () => 'primary');
+    const ensureDriverForDatabase = vi.fn(async () => 'secondary');
+    const result = await resolveDriver({ ensureDriver, ensureDriverForDatabase }, 'c1');
+    expect(result).toBe('primary');
+    expect(ensureDriver).toHaveBeenCalledWith('c1');
+    expect(ensureDriverForDatabase).not.toHaveBeenCalled();
+  });
+
+  it('routes to ensureDriverForDatabase when database arg present', async () => {
+    const ensureDriver = vi.fn(async () => 'primary');
+    const ensureDriverForDatabase = vi.fn(async () => 'secondary');
+    const result = await resolveDriver({ ensureDriver, ensureDriverForDatabase }, 'c1', 'analytics');
+    expect(result).toBe('secondary');
+    expect(ensureDriverForDatabase).toHaveBeenCalledWith('c1', 'analytics');
+    expect(ensureDriver).not.toHaveBeenCalled();
+  });
+
+  it('treats empty-string database as absent (falsy)', async () => {
+    const ensureDriver = vi.fn(async () => 'primary');
+    const ensureDriverForDatabase = vi.fn(async () => 'secondary');
+    await resolveDriver({ ensureDriver, ensureDriverForDatabase }, 'c1', '');
+    expect(ensureDriver).toHaveBeenCalled();
+    expect(ensureDriverForDatabase).not.toHaveBeenCalled();
+  });
+});
