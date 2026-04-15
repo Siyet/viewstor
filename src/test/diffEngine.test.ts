@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, formatStatValue, toggleFilter, exportDiffAsCsv, exportDiffAsJson, buildDefaultDiffQuery } from '../diff/diffEngine';
+import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, formatStatValue, toggleFilter, exportDiffAsCsv, exportDiffAsJson, buildDefaultDiffQuery, isReadOnlyStatement } from '../diff/diffEngine';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
 import { ColumnInfo, TableStatistic } from '../types/schema';
 
@@ -822,5 +822,31 @@ describe('buildDefaultDiffQuery', () => {
   it('honors the caller-supplied row limit', () => {
     expect(buildDefaultDiffQuery('t', undefined, 1)).toBe('SELECT * FROM t LIMIT 1');
     expect(buildDefaultDiffQuery('t', undefined, 99999)).toBe('SELECT * FROM t LIMIT 99999');
+  });
+});
+
+// --- isReadOnlyStatement ---
+
+describe('isReadOnlyStatement', () => {
+  it('accepts SELECT / EXPLAIN / SHOW / WITH (any case, leading whitespace)', () => {
+    expect(isReadOnlyStatement('SELECT 1')).toBe(true);
+    expect(isReadOnlyStatement('select * from t')).toBe(true);
+    expect(isReadOnlyStatement('   EXPLAIN SELECT 1')).toBe(true);
+    expect(isReadOnlyStatement('SHOW TABLES')).toBe(true);
+    expect(isReadOnlyStatement('WITH cte AS (SELECT 1) SELECT * FROM cte')).toBe(true);
+  });
+
+  it('rejects DML / DDL statements', () => {
+    expect(isReadOnlyStatement('DELETE FROM users')).toBe(false);
+    expect(isReadOnlyStatement('UPDATE users SET name = \'x\'')).toBe(false);
+    expect(isReadOnlyStatement('INSERT INTO users VALUES (1)')).toBe(false);
+    expect(isReadOnlyStatement('DROP TABLE users')).toBe(false);
+    expect(isReadOnlyStatement('TRUNCATE users')).toBe(false);
+    expect(isReadOnlyStatement('ALTER TABLE users ADD COLUMN c int')).toBe(false);
+  });
+
+  it('rejects empty / whitespace-only input', () => {
+    expect(isReadOnlyStatement('')).toBe(false);
+    expect(isReadOnlyStatement('   \n\t')).toBe(false);
   });
 });

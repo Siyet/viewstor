@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffResult, StatsDiffResult } from './diffTypes';
-import { buildDefaultDiffQuery, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, exportDiffAsCsv, exportDiffAsJson } from './diffEngine';
+import { buildDefaultDiffQuery, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, exportDiffAsCsv, exportDiffAsJson, isReadOnlyStatement } from './diffEngine';
 import { ColumnInfo, TableObjects, TableStatistic } from '../types/schema';
 import type { ConnectionManager } from '../connections/connectionManager';
 
@@ -23,6 +23,8 @@ interface DiffState {
   leftQuery: string;
   rightQuery: string;
   syncMode: boolean;
+  /** Monotonic token; drops stale `runDiffQuery` results on swap/rerun races. */
+  queryRunId: number;
   disposable: vscode.Disposable;
 }
 
@@ -87,6 +89,9 @@ export class DiffPanelManager {
       state.leftQuery = leftQuery;
       state.rightQuery = rightQuery;
       state.syncMode = syncMode;
+      // Bump the run id so any in-flight `runDiffQuery` resolved after swap
+      // is treated as stale and its result is dropped.
+      state.queryRunId++;
     } else {
       const panel = vscode.window.createWebviewPanel(
         'viewstor.diff',
@@ -122,6 +127,7 @@ export class DiffPanelManager {
         leftQuery,
         rightQuery,
         syncMode,
+        queryRunId: 0,
         disposable: new vscode.Disposable(() => {}),
       };
       this.diffs.set(panelKey, state);
@@ -201,12 +207,22 @@ export class DiffPanelManager {
    * underlying table definition, not the arbitrary query result.
    */
   private async runDiffQuery(state: DiffState): Promise<void> {
-    const cm = this.connectionManager;
-    if (!cm) {
+    // `canEditQueries` (buildHtml) gates the editor UI on a non-null
+    // `connectionManager`, so this method is unreachable without one.
+    const cm = this.connectionManager!;
+
+    // Readonly gate: the diff editor runs arbitrary user SQL. When the
+    // connection is marked readonly (own setting or inherited from folder),
+    // reject any statement that isn't SELECT / WITH / EXPLAIN — same
+    // whitelist the MCP server uses. Prevents `DELETE FROM users` pasted
+    // into the textarea from executing on a readonly connection.
+    const leftReadonlyErr = readonlyError(cm, state.left, state.leftQuery);
+    const rightReadonlyErr = readonlyError(cm, state.right, state.rightQuery);
+    if (leftReadonlyErr || rightReadonlyErr) {
       state.panel.webview.postMessage({
         type: 'diffQueryError',
-        side: 'both',
-        message: 'Custom queries are not available (connection manager missing).',
+        leftError: leftReadonlyErr,
+        rightError: rightReadonlyErr,
       });
       return;
     }
@@ -218,6 +234,11 @@ export class DiffPanelManager {
       }
       return cm.getDriver(source.connectionId);
     };
+
+    // Snapshot identity markers so a swap-while-running drops the result.
+    const runId = state.queryRunId;
+    const leftSnapshot = state.left;
+    const rightSnapshot = state.right;
 
     state.panel.webview.postMessage({ type: 'diffQueryRunning' });
 
@@ -247,10 +268,15 @@ export class DiffPanelManager {
       })(),
     ]);
 
+    // Drop stale results if the user swapped sides (or triggered another run)
+    // while we were awaiting driver.execute.
+    if (state.queryRunId !== runId || state.left !== leftSnapshot || state.right !== rightSnapshot) {
+      return;
+    }
+
     if (leftError || rightError) {
       state.panel.webview.postMessage({
         type: 'diffQueryError',
-        side: leftError && rightError ? 'both' : leftError ? 'left' : 'right',
         leftError,
         rightError,
       });
@@ -262,15 +288,10 @@ export class DiffPanelManager {
     const missingLeftKeys = keyColumns.filter(k => !leftResult!.columns.some(c => c.name === k));
     const missingRightKeys = keyColumns.filter(k => !rightResult!.columns.some(c => c.name === k));
     if (missingLeftKeys.length > 0 || missingRightKeys.length > 0) {
-      const parts: string[] = [];
-      if (missingLeftKeys.length > 0) parts.push(`left query missing key column(s): ${missingLeftKeys.join(', ')}`);
-      if (missingRightKeys.length > 0) parts.push(`right query missing key column(s): ${missingRightKeys.join(', ')}`);
       state.panel.webview.postMessage({
         type: 'diffQueryError',
-        side: missingLeftKeys.length > 0 && missingRightKeys.length > 0 ? 'both' : missingLeftKeys.length > 0 ? 'left' : 'right',
         leftError: missingLeftKeys.length > 0 ? `Query results must include key column(s): ${missingLeftKeys.join(', ')}` : undefined,
         rightError: missingRightKeys.length > 0 ? `Query results must include key column(s): ${missingRightKeys.join(', ')}` : undefined,
-        message: parts.join('; '),
       });
       return;
     }
@@ -480,6 +501,17 @@ export class DiffPanelManager {
 </body>
 </html>`;
   }
+}
+
+/**
+ * Return an error message iff `source.connectionId` is readonly and `query` is
+ * not a read-only statement.
+ */
+function readonlyError(cm: Pick<ConnectionManager, 'isConnectionReadonly'>, source: DiffSource, query: string): string | undefined {
+  if (!source.connectionId) return undefined;
+  if (!cm.isConnectionReadonly(source.connectionId)) return undefined;
+  if (isReadOnlyStatement(query)) return undefined;
+  return 'Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.';
 }
 
 function esc(str: string): string {

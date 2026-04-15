@@ -11,6 +11,21 @@ export function buildDefaultDiffQuery(tableName: string, schema: string | undefi
 }
 
 /**
+ * Return true when `query` is a read-only statement (SELECT / EXPLAIN /
+ * SHOW / WITH). Mirrors the whitelist in `src/mcp/server.ts`. Used by the
+ * diff query editor to gate arbitrary SQL on readonly connections.
+ */
+export function isReadOnlyStatement(query: string): boolean {
+  const trimmed = query.trim().toUpperCase();
+  return (
+    trimmed.startsWith('SELECT') ||
+    trimmed.startsWith('EXPLAIN') ||
+    trimmed.startsWith('SHOW') ||
+    trimmed.startsWith('WITH')
+  );
+}
+
+/**
  * Stringify a cell value for comparison.
  * Produces consistent string representation across all database types.
  */
