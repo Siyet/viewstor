@@ -180,7 +180,7 @@ export function buildAggregationQuery(
   databaseType?: string,
   limit?: number,
 ): string {
-  const table = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`;
+  const table = qualifyTable(tableName, schema, databaseType);
 
   // Build X expression with time bucketing
   let xExpr = `"${xColumn}"`;
@@ -245,10 +245,22 @@ export function buildFullDataQuery(
   tableName: string,
   schema: string | undefined,
   columns: string[],
+  databaseType?: string,
 ): string {
-  const table = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`;
+  const table = qualifyTable(tableName, schema, databaseType);
   const cols = columns.map(c => `"${c}"`).join(', ');
   return `SELECT ${cols} FROM ${table}`;
+}
+
+/**
+ * Quote a table reference, omitting the schema for engines that have no
+ * concept of schemas (SQLite). Otherwise prefixes the schema when present.
+ */
+function qualifyTable(tableName: string, schema: string | undefined, databaseType?: string): string {
+  if (databaseType === 'sqlite') {
+    return `"${tableName}"`;
+  }
+  return schema ? `"${schema}"."${tableName}"` : `"${tableName}"`;
 }
 
 /**

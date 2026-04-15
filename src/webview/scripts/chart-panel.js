@@ -76,6 +76,7 @@
         updateSyncUI();
         initChart();
         buildSidebar();
+        updateGrafanaButton();
         updateChart();
         break;
       case "syncData":

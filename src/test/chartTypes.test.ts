@@ -183,6 +183,41 @@ describe('buildFullDataQuery', () => {
     const sql = buildFullDataQuery('data', undefined, ['x', 'y']);
     expect(sql).toBe('SELECT "x", "y" FROM "data"');
   });
+
+  it('drops schema for SQLite (SQLite has no schemas)', () => {
+    // Callers may pass whatever they stored on the tree node (sometimes
+    // "main"). SQLite's parser rejects a bare `"public"."metrics"` reference,
+    // so we always strip it.
+    const sql = buildFullDataQuery('metrics', 'public', ['ts', 'value'], 'sqlite');
+    expect(sql).toBe('SELECT "ts", "value" FROM "metrics"');
+  });
+});
+
+describe('buildAggregationQuery — SQLite schema stripping', () => {
+  it('omits schema prefix for SQLite', () => {
+    const sql = buildAggregationQuery(
+      'events', 'main', 'ts', ['value'], 'sum', undefined,
+      { function: 'sum' }, 'sqlite',
+    );
+    expect(sql).not.toContain('"main".');
+    expect(sql).toContain('FROM "events"');
+  });
+
+  it('keeps schema prefix for PostgreSQL', () => {
+    const sql = buildAggregationQuery(
+      'events', 'analytics', 'ts', ['value'], 'sum', undefined,
+      { function: 'sum' }, 'postgresql',
+    );
+    expect(sql).toContain('FROM "analytics"."events"');
+  });
+
+  it('keeps schema prefix for ClickHouse', () => {
+    const sql = buildAggregationQuery(
+      'events', 'default', 'ts', ['value'], 'sum', undefined,
+      { function: 'sum' }, 'clickhouse',
+    );
+    expect(sql).toContain('FROM "default"."events"');
+  });
 });
 
 describe('Time bucket constants', () => {

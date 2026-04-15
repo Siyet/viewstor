@@ -6,7 +6,7 @@ import {
   buildAggregationQuery, buildFullDataQuery,
 } from '../types/chart';
 import { buildEChartsOption, buildMultiSourceEChartsOption, ResolvedDataSource } from './chartDataTransform';
-import { buildGrafanaDashboard, pushToGrafana } from './grafanaExport';
+import { buildGrafanaDashboard, pushToGrafana, GrafanaDashboard } from './grafanaExport';
 import { ConnectionManager } from '../connections/connectionManager';
 import { dbg } from '../utils/debug';
 
@@ -209,6 +209,25 @@ export class ChartPanelManager {
         }
 
         case 'exportGrafana': {
+          if (!isGrafanaCompatible(msg.config.chartType)) {
+            vscode.window.showWarningMessage(vscode.l10n.t('This chart type cannot be exported to Grafana.'));
+            return;
+          }
+
+          // Prompt for dashboard name so the Grafana UI import shows a non-empty
+          // name field. Default to the chart title or the panel title.
+          const defaultName = msg.config.title
+            || state.opts.tableName
+            || state.panel.title
+            || 'Viewstor Export';
+          const dashboardName = await vscode.window.showInputBox({
+            title: vscode.l10n.t('Grafana dashboard name'),
+            prompt: vscode.l10n.t('Used as the dashboard title in Grafana.'),
+            value: defaultName,
+            validateInput: (v) => v.trim().length === 0 ? vscode.l10n.t('Name cannot be empty') : null,
+          });
+          if (dashboardName === undefined) return; // user cancelled
+
           // Rebuild aggregation SQL with current databaseType to ensure correct dialect
           let exportQuery = state.opts.query || '';
           const exportAxis = msg.config.axis;
@@ -226,15 +245,12 @@ export class ChartPanelManager {
           }
           const config: ChartConfig = {
             ...msg.config,
+            title: dashboardName.trim(),
             sourceQuery: exportQuery,
             connectionId: state.opts.connectionId,
             databaseName: state.opts.databaseName,
             databaseType: state.opts.databaseType,
           };
-          if (!isGrafanaCompatible(config.chartType)) {
-            vscode.window.showWarningMessage(vscode.l10n.t('This chart type cannot be exported to Grafana.'));
-            return;
-          }
           const dashboard = buildGrafanaDashboard(config);
           if (!dashboard) return;
           const json = JSON.stringify(dashboard, null, 2);
@@ -278,8 +294,12 @@ export class ChartPanelManager {
             return;
           }
           try {
-            const dashboard = JSON.parse(json);
-            const url = await pushToGrafana(grafanaUrl, apiKey, dashboard);
+            const dashboard = JSON.parse(json) as GrafanaDashboard;
+            // pushToGrafana wraps the dashboard in the `/api/dashboards/db`
+            // envelope and strips UI-only `__inputs` / `__requires` fields.
+            const url = await pushToGrafana(grafanaUrl, apiKey, dashboard, {
+              message: `Pushed from Viewstor — ${dashboard.title || 'chart'}`,
+            });
             vscode.window.showInformationMessage(vscode.l10n.t('Dashboard pushed to Grafana: {0}', url));
           } catch (err) {
             vscode.window.showErrorMessage(
@@ -325,6 +345,7 @@ export class ChartPanelManager {
           state.opts.tableName || '',
           state.opts.schema,
           [...new Set(columns)],
+          state.opts.databaseType,
         );
       } else {
         // Server-side aggregation
@@ -497,7 +518,7 @@ export class ChartPanelManager {
     <div class="separator"></div>
 
     <button id="addDataSourceBtn">+ Source</button>
-    <button id="exportGrafanaBtn" class="btn-primary" style="display:none">Export to Grafana</button>
+    <button id="exportGrafanaBtn" class="btn-primary" disabled title="Export to Grafana">Export to Grafana</button>
   </div>
 
   <div class="main">

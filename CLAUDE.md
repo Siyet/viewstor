@@ -85,7 +85,7 @@ Query mode → client-side data + export in-memory rows.
 
 `src/chart/chartDataTransform.ts` — pure functions: `buildEChartsOption()` transforms QueryResult + ChartConfig into ECharts option. `suggestChartConfig()` auto-detects best chart type from column types. Builder registry per chart type. No vscode dependency, fully unit-tested.
 
-`src/chart/grafanaExport.ts` — pure functions: `buildGrafanaDashboard()` converts ChartConfig to Grafana JSON (returns null for incompatible types). `pushToGrafana()` POSTs to Grafana HTTP API.
+`src/chart/grafanaExport.ts` — pure functions: `buildGrafanaDashboard()` converts ChartConfig to a **flat** Grafana dashboard JSON (the shape Grafana's UI "Upload JSON file" import expects — top-level `title`, `panels`, `schemaVersion`, optional `__inputs`/`__requires` datasource placeholders). Returns null for incompatible chart types. `buildApiPayload()` wraps a flat dashboard in the `{ dashboard, overwrite, message?, folderUid? }` envelope required by `POST /api/dashboards/db`, stripping the UI-only `__inputs`/`__requires` fields. `pushToGrafana()` POSTs to Grafana HTTP API (accepts either a flat dashboard or a pre-built API payload). `buildAggregationQuery()` / `buildFullDataQuery()` drop the schema prefix when `databaseType === 'sqlite'` (SQLite has no schemas).
 
 Chart types and Grafana mapping:
 - axis charts: line → timeseries, bar → barchart, scatter → xychart, heatmap → heatmap
