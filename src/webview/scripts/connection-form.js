@@ -317,6 +317,7 @@
       folderId: folderId.value || '',
       scope: document.getElementById('scope').value,
       safeMode: document.getElementById('safeMode').value,
+      agentWriteApproval: document.getElementById('agentWriteApproval').value,
       proxyType: proxyType.value,
       sshHost: document.getElementById('sshHost').value.trim(),
       sshPort: document.getElementById('sshPort').value,
@@ -419,6 +420,7 @@
           folderId.value = c.folderId || '';
           document.getElementById('scope').value = c.scope || 'user';
           document.getElementById('safeMode').value = c.safeMode || '';
+          document.getElementById('agentWriteApproval').value = c.agentWriteApproval || '';
           document.getElementById('hiddenSchemas').value = c.hiddenSchemas ? Object.values(c.hiddenSchemas).flat().join(', ') : '';
           proxyType.value = c.proxy?.type || 'none';
           if (c.proxy) {

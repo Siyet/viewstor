@@ -11,6 +11,7 @@ import { SchemaObject } from '../types/schema';
 import { ChartConfig, EChartsChartType, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { classifyQuery } from '../mcp/queryRisk';
 
 const store = new ConnectionStore();
 
@@ -183,11 +184,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'execute_query': {
         const { connectionId, query, database } = args as { connectionId: string; query: string; database?: string };
         const config = store.get(connectionId);
-        if (config?.readonly) {
-          const trimmed = query.trim().toUpperCase();
-          if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('EXPLAIN') && !trimmed.startsWith('SHOW') && !trimmed.startsWith('WITH')) {
-            return errorResponse('Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.');
-          }
+        const risk = classifyQuery(query);
+        if (config?.readonly && risk.kind !== 'read') {
+          return jsonErrorResponse({
+            error: 'Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.',
+            kind: 'readonly_blocked',
+            classification: risk,
+          });
+        }
+        // Standalone MCP cannot display a modal — refuse writes unless the
+        // user explicitly opted out via agentWriteApproval === 'never'.
+        const approvalMode = config?.agentWriteApproval ?? 'always';
+        if (risk.kind !== 'read' && approvalMode !== 'never') {
+          return jsonErrorResponse({
+            error: 'Agent write approval required. The standalone MCP server cannot prompt for confirmation. Set agentWriteApproval to "never" on this connection (via the VS Code extension) to allow writes from this process, or run the query through the VS Code in-process MCP instead.',
+            kind: 'approval_required',
+            classification: risk,
+            approvalMode,
+          });
         }
         const driver = await resolveDriver(connectionId, database);
         const result = await driver.execute(query);
@@ -198,6 +212,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           rowCount: result.rowCount,
           executionTimeMs: result.executionTimeMs,
           error: result.error,
+          classification: risk,
         });
       }
 
@@ -362,6 +377,11 @@ function jsonResponse(data: unknown) {
 
 function errorResponse(message: string) {
   return { content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }], isError: true };
+}
+
+/** Structured error response (agent-facing) — includes `kind` and other fields the agent can reason about. */
+function jsonErrorResponse(payload: Record<string, unknown>) {
+  return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }], isError: true };
 }
 
 function flattenSchema(
