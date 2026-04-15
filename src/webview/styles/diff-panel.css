@@ -334,6 +334,14 @@ body {
   gap: 8px;
 }
 
+.diff-query-editor-panes.synced .diff-query-editor-pane[data-side="right"] {
+  display: none;
+}
+
+.diff-query-editor-panes.synced .diff-query-editor-pane[data-side="left"] [data-role="side-label"] {
+  display: none;
+}
+
 .diff-query-editor-pane {
   flex: 1;
   display: flex;
@@ -350,25 +358,61 @@ body {
   white-space: nowrap;
 }
 
-.diff-query-editor-textarea {
-  width: 100%;
-  min-height: 72px;
-  max-height: 240px;
-  resize: vertical;
+.diff-query-editor-wrap {
+  position: relative;
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: var(--vscode-editor-font-size, 13px);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.diff-query-editor-highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 4px 8px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow: hidden;
+  pointer-events: none;
+  color: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+}
+
+.diff-query-editor-textarea {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  font: inherit;
+  line-height: inherit;
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
   border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
   border-radius: 2px;
-  padding: 6px 8px;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  caret-color: var(--vscode-input-foreground);
   box-sizing: border-box;
 }
 
 .diff-query-editor-textarea:focus {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: -1px;
+  border-color: var(--vscode-focusBorder);
 }
+
+.diff-query-editor-textarea.has-highlight {
+  color: transparent;
+  background: var(--vscode-input-background);
+}
+
+.diff-query-editor .tk-kw { color: var(--vscode-debugTokenExpression-name, #569cd6); font-weight: 600; }
+.diff-query-editor .tk-str { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+.diff-query-editor .tk-num { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+.diff-query-editor .tk-id { color: var(--vscode-debugTokenExpression-value, #9cdcfe); }
+.diff-query-editor .tk-cmt { color: var(--vscode-descriptionForeground); font-style: italic; }
+.diff-query-editor .tk-op { color: var(--vscode-descriptionForeground); }
 
 .diff-query-editor-error {
   display: none;

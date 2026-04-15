@@ -423,15 +423,21 @@ export class DiffPanelManager {
           <span class="diff-query-editor-status" id="diffQueryStatus"></span>
           <button id="diffRunQuery" class="diff-query-editor-run">\u25B6 Run Diff</button>
         </div>
-        <div class="diff-query-editor-panes">
-          <div class="diff-query-editor-pane">
-            <div class="diff-query-editor-label">${esc(state.left.label)}</div>
-            <textarea class="diff-query-editor-textarea" id="diffQueryLeft" spellcheck="false">${esc(state.leftQuery)}</textarea>
+        <div class="diff-query-editor-panes${state.syncMode ? ' synced' : ''}" id="diffQueryPanes">
+          <div class="diff-query-editor-pane" data-side="left">
+            <div class="diff-query-editor-label" data-role="side-label">${esc(state.left.label)}</div>
+            <div class="diff-query-editor-wrap">
+              <div class="diff-query-editor-highlight" id="diffQueryLeftHighlight" aria-hidden="true"></div>
+              <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryLeft" rows="1" spellcheck="false">${esc(state.leftQuery)}</textarea>
+            </div>
             <div class="diff-query-editor-error" id="diffQueryLeftError"></div>
           </div>
-          <div class="diff-query-editor-pane">
-            <div class="diff-query-editor-label">${esc(state.right.label)}</div>
-            <textarea class="diff-query-editor-textarea" id="diffQueryRight" spellcheck="false">${esc(state.rightQuery)}</textarea>
+          <div class="diff-query-editor-pane" data-side="right">
+            <div class="diff-query-editor-label" data-role="side-label">${esc(state.right.label)}</div>
+            <div class="diff-query-editor-wrap">
+              <div class="diff-query-editor-highlight" id="diffQueryRightHighlight" aria-hidden="true"></div>
+              <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryRight" rows="1" spellcheck="false">${esc(state.rightQuery)}</textarea>
+            </div>
             <div class="diff-query-editor-error" id="diffQueryRightError"></div>
           </div>
         </div>

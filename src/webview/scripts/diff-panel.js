@@ -121,11 +121,73 @@
   // ---- Custom query editor ----
   var queryLeftEl = document.getElementById('diffQueryLeft');
   var queryRightEl = document.getElementById('diffQueryRight');
+  var queryLeftHlEl = document.getElementById('diffQueryLeftHighlight');
+  var queryRightHlEl = document.getElementById('diffQueryRightHighlight');
   var querySyncEl = document.getElementById('diffQuerySync');
+  var queryPanesEl = document.getElementById('diffQueryPanes');
   var queryRunEl = document.getElementById('diffRunQuery');
   var queryStatusEl = document.getElementById('diffQueryStatus');
   var queryLeftErrEl = document.getElementById('diffQueryLeftError');
   var queryRightErrEl = document.getElementById('diffQueryRightError');
+
+  // SQL token keywords — kept in sync with src/views/resultPanel.ts highlightSql.
+  var SQL_KW = /\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|IS|NULL|AS|ON|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|INDEX|VIEW|DISTINCT|BETWEEN|LIKE|ILIKE|EXISTS|CASE|WHEN|THEN|ELSE|END|UNION|ALL|ASC|DESC|WITH|DEFAULT|CASCADE|PRIMARY|KEY|REFERENCES|FOREIGN|CONSTRAINT|RETURNING|EXPLAIN|ANALYZE|COUNT|SUM|AVG|MIN|MAX|COALESCE|NULLIF|CAST|TRUE|FALSE|BOOLEAN|INTEGER|TEXT|VARCHAR|NUMERIC|SERIAL|BIGSERIAL|TIMESTAMP|TIMESTAMPTZ|DATE|TIME|INTERVAL|JSONB?|UUID|ARRAY|BIGINT|SMALLINT|REAL|DOUBLE|PRECISION|CHAR|DECIMAL|FLOAT)\b/i;
+  function escSql(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  function highlightSql(text) {
+    var out = [];
+    var rest = text;
+    while (rest.length > 0) {
+      var m;
+      if ((m = rest.match(/^'(?:[^'\\]|\\.)*'|^'(?:[^']|'')*'/))) { out.push('<span class="tk-str">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
+      if ((m = rest.match(/^"[^"]*"/))) { out.push('<span class="tk-id">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
+      if ((m = rest.match(/^--[^\n]*/))) { out.push('<span class="tk-cmt">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
+      if ((m = rest.match(/^-?\d+(?:\.\d+)?(?![a-zA-Z_])/))) { out.push('<span class="tk-num">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
+      if ((m = rest.match(/^[a-zA-Z_][a-zA-Z0-9_]*/))) {
+        var w = m[0];
+        out.push(SQL_KW.test(w) ? '<span class="tk-kw">' + escSql(w) + '</span>' : '<span class="tk-id">' + escSql(w) + '</span>');
+        rest = rest.substring(w.length);
+        continue;
+      }
+      if ((m = rest.match(/^[<>=!]+|^[;,()*.]/))) { out.push('<span class="tk-op">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
+      out.push(escSql(rest[0]));
+      rest = rest.substring(1);
+    }
+    return out.join('');
+  }
+
+  function autoSize(textarea) {
+    if (!textarea) return;
+    // offsetParent === null when the element (or any ancestor) is display:none
+    // — scrollHeight would be 0 and lock the textarea at 0px height.
+    if (textarea.offsetParent === null) return;
+    textarea.style.height = 'auto';
+    var h = textarea.scrollHeight;
+    if (h > 0) textarea.style.height = h + 'px';
+  }
+
+  function updateHighlight(textarea, highlight) {
+    if (!textarea || !highlight) return;
+    highlight.innerHTML = highlightSql(textarea.value) + '\n';
+    autoSize(textarea);
+  }
+
+  function refreshAllHighlights() {
+    updateHighlight(queryLeftEl, queryLeftHlEl);
+    updateHighlight(queryRightEl, queryRightHlEl);
+  }
+
+  function applySyncVisibility() {
+    if (!queryPanesEl) return;
+    if (isSyncOn()) queryPanesEl.classList.add('synced');
+    else queryPanesEl.classList.remove('synced');
+  }
+
+  // Recompute textarea heights when the editor is expanded for the first time —
+  // initial autoSize runs while the <details> is still collapsed (scrollHeight=0).
+  var queryEditorDetails = document.getElementById('diffQueryEditor');
+  if (queryEditorDetails) {
+    queryEditorDetails.addEventListener('toggle', refreshAllHighlights);
+  }
 
   function setQueryStatus(text) {
     if (queryStatusEl) queryStatusEl.textContent = text || '';
@@ -177,8 +239,10 @@
       if (isSyncOn() && !mirroring) {
         mirroring = true;
         queryRightEl.value = queryLeftEl.value;
+        updateHighlight(queryRightEl, queryRightHlEl);
         mirroring = false;
       }
+      updateHighlight(queryLeftEl, queryLeftHlEl);
       clearQueryErrorsOnEdit();
       sendQueryState();
     });
@@ -186,10 +250,18 @@
       if (isSyncOn() && !mirroring) {
         mirroring = true;
         queryLeftEl.value = queryRightEl.value;
+        updateHighlight(queryLeftEl, queryLeftHlEl);
         mirroring = false;
       }
+      updateHighlight(queryRightEl, queryRightHlEl);
       clearQueryErrorsOnEdit();
       sendQueryState();
+    });
+    queryLeftEl.addEventListener('scroll', function () {
+      if (queryLeftHlEl) queryLeftHlEl.scrollLeft = queryLeftEl.scrollLeft;
+    });
+    queryRightEl.addEventListener('scroll', function () {
+      if (queryRightHlEl) queryRightHlEl.scrollLeft = queryRightEl.scrollLeft;
     });
     if (querySyncEl) {
       querySyncEl.addEventListener('change', function () {
@@ -197,9 +269,15 @@
           // Snap right to match left when re-enabling sync
           queryRightEl.value = queryLeftEl.value;
         }
+        applySyncVisibility();
+        // Visibility just changed — rerun autoSize so the newly-shown pane
+        // gets a real height instead of staying at the previous 0px.
+        refreshAllHighlights();
         sendQueryState();
       });
     }
+    applySyncVisibility();
+    refreshAllHighlights();
 
     queryRunEl.addEventListener('click', function () {
       clearQueryErrors();
