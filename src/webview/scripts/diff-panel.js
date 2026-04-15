@@ -16,12 +16,11 @@
   const rightLabel = data.rightLabel || 'Right';
   const keyColumns = data.keyColumns || [];
 
-  // Default: hide unchanged rows (UX #84 § 3.1). The "N unchanged rows"
-  // teaser row at the top of the row diff acts as the toggle.
+  // Default: all filter chips active so the user sees the complete picture on open.
   const activeFilters = {
-    rows: { unchanged: false, changed: true, added: true, removed: true },
-    schema: { differs: true, same: false },
-    stats: { differs: true, same: false },
+    rows: { unchanged: true, changed: true, added: true, removed: true },
+    schema: { differs: true, same: true },
+    stats: { differs: true, same: true },
   };
 
   let activeTab = 'rows';
@@ -319,19 +318,6 @@
     let rightHtml = '';
     const columns = rowDiff.allColumns;
     const rowFilters = activeFilters.rows;
-    const colspan = columns.length || 1;
-
-    // UX #84 § 3.1: teaser row for unchanged rows when filter is off.
-    const unchangedCount = rowDiff.summary.unchanged;
-    if (!rowFilters.unchanged && unchangedCount > 0) {
-      const teaser = '<tr class="diff-unchanged-teaser" data-action="show-unchanged" title="Show unchanged rows">'
-        + '<td class="diff-unchanged-teaser-cell" colspan="' + colspan + '">'
-        + '<span class="codicon codicon-chevron-right"></span> '
-        + escapeHtml(String(unchangedCount)) + ' unchanged row' + (unchangedCount === 1 ? '' : 's')
-        + '</td></tr>';
-      leftHtml += teaser;
-      rightHtml += teaser;
-    }
 
     for (let matchIdx = 0; matchIdx < rowDiff.matched.length; matchIdx++) {
       const match = rowDiff.matched[matchIdx];
@@ -385,18 +371,6 @@
 
     leftBody.innerHTML = leftHtml;
     rightBody.innerHTML = rightHtml;
-
-    // Wire up teaser click — turn on the unchanged filter.
-    const teaser = leftBody.querySelector('.diff-unchanged-teaser');
-    if (teaser) {
-      const onClick = function () {
-        activeFilters.rows.unchanged = true;
-        syncChipStates('rows');
-        renderRowDiff();
-      };
-      leftBody.querySelectorAll('.diff-unchanged-teaser').forEach(function (el) { el.addEventListener('click', onClick); });
-      rightBody.querySelectorAll('.diff-unchanged-teaser').forEach(function (el) { el.addEventListener('click', onClick); });
-    }
 
     if (!window.__diffScrollSyncWired) {
       window.__diffScrollSyncWired = true;

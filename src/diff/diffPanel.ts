@@ -387,7 +387,7 @@ export class DiffPanelManager {
     <vscode-tab-panel>
       <div class="diff-toolbar" data-tab="rows">
         <div class="diff-summary-filters" data-for="rows">
-          <button type="button" class="diff-chip unchanged" data-filter="unchanged" aria-pressed="false">
+          <button type="button" class="diff-chip unchanged active" data-filter="unchanged" aria-pressed="true">
             <span class="diff-chip-count" id="chip-unchanged">${esc(String(summary.unchanged))}</span> unchanged
           </button>
           <button type="button" class="diff-chip changed active" data-filter="changed" aria-pressed="true">
@@ -491,7 +491,7 @@ export class DiffPanelManager {
           <button type="button" class="diff-chip differs active" data-filter="differs" aria-pressed="true">
             <span class="diff-chip-count" id="chip-schema-differs">${esc(String(schemaDiffers))}</span> differs
           </button>
-          <button type="button" class="diff-chip same" data-filter="same" aria-pressed="false">
+          <button type="button" class="diff-chip same active" data-filter="same" aria-pressed="true">
             <span class="diff-chip-count" id="chip-schema-same">${esc(String(schemaSame))}</span> same
           </button>
           <span class="diff-filter-hint" title="Shift+click to toggle multiple at once">Click to solo \u00B7 Shift+click to toggle</span>
@@ -540,7 +540,7 @@ export class DiffPanelManager {
           <button type="button" class="diff-chip differs active" data-filter="differs" aria-pressed="true">
             <span class="diff-chip-count" id="chip-stats-differs">${esc(String(statsDiffers))}</span> differs
           </button>
-          <button type="button" class="diff-chip same" data-filter="same" aria-pressed="false">
+          <button type="button" class="diff-chip same active" data-filter="same" aria-pressed="true">
             <span class="diff-chip-count" id="chip-stats-same">${esc(String(statsSame))}</span> same
           </button>
           <span class="diff-filter-hint" title="Shift+click to toggle multiple at once">Click to solo \u00B7 Shift+click to toggle</span>

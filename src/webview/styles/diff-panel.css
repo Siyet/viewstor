@@ -72,6 +72,13 @@ vscode-tab-panel {
   overflow: hidden;
 }
 
+/* vscode-tabs sets `hidden` on inactive panels via its own logic;
+ * without this rule our `display: flex` above beats the native default
+ * for [hidden] and ALL panels render stacked at once. */
+vscode-tab-panel[hidden] {
+  display: none;
+}
+
 /* ---- Toolbar (per tab) ---- */
 .diff-toolbar {
   display: flex;
@@ -392,41 +399,25 @@ vscode-tab-panel {
   text-overflow: ellipsis;
 }
 
+/* Zebra striping — applied to every tbody row, then status tints override. */
+.diff-table tbody tr:nth-child(even) td {
+  background: var(--viewstor-row-zebra);
+}
+
 .diff-table tr:hover td {
   background: var(--vscode-list-hoverBackground);
 }
 
-/* Unchanged rows teaser (UX #84 § 3.1) */
-.diff-unchanged-teaser {
-  cursor: pointer;
-  color: var(--viewstor-text-dimmed);
-  background: var(--viewstor-row-zebra);
-}
-
-.diff-unchanged-teaser:hover {
-  background: var(--vscode-list-hoverBackground);
-  color: var(--vscode-foreground);
-}
-
-.diff-unchanged-teaser-cell {
-  padding: 4px 10px !important;
-  font-style: italic;
-  font-size: 11px;
-  text-align: left;
-}
-
-.diff-unchanged-teaser-cell .codicon {
-  font-size: 11px;
-  vertical-align: middle;
-}
-
-/* ---- Diff row tint ---- */
-.diff-added { background: var(--viewstor-row-added); }
-.diff-removed { background: var(--viewstor-row-removed); }
-.diff-changed { background: var(--viewstor-row-changed); }
+/* ---- Diff row tint (wins over zebra) ---- */
+.diff-table tbody tr.diff-added td,
+.diff-table tbody tr.diff-added:nth-child(even) td { background: var(--viewstor-row-added); }
+.diff-table tbody tr.diff-removed td,
+.diff-table tbody tr.diff-removed:nth-child(even) td { background: var(--viewstor-row-removed); }
+.diff-table tbody tr.diff-changed td,
+.diff-table tbody tr.diff-changed:nth-child(even) td { background: var(--viewstor-row-changed); }
 
 .diff-unchanged {
-  opacity: 0.5;
+  opacity: 0.75;
 }
 
 /* ---- Cell-level ---- */
@@ -522,6 +513,18 @@ vscode-tab-panel {
   border-bottom: 1px solid var(--viewstor-border-subtle);
   white-space: nowrap;
 }
+
+/* Zebra striping on schema / objects / Other stats tables — status rows still win below. */
+.diff-schema-table tbody tr:nth-child(even) td {
+  background: var(--viewstor-row-zebra);
+}
+
+.diff-schema-table tbody tr.diff-added td,
+.diff-schema-table tbody tr.diff-added:nth-child(even) td { background: var(--viewstor-row-added); }
+.diff-schema-table tbody tr.diff-removed td,
+.diff-schema-table tbody tr.diff-removed:nth-child(even) td { background: var(--viewstor-row-removed); }
+.diff-schema-table tbody tr.diff-stats-row-differs td,
+.diff-schema-table tbody tr.diff-stats-row-differs:nth-child(even) td { background: var(--viewstor-row-changed); }
 
 .diff-schema-table tr:hover td {
   background: var(--vscode-list-hoverBackground);
