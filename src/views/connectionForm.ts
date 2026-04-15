@@ -43,14 +43,19 @@ export class ConnectionFormPanel {
 
     this.panel.iconPath = new vscode.ThemeIcon('database');
 
-    const styleUri = this.panel.webview.asWebviewUri(
-      vscode.Uri.file(path.join(this.context.extensionPath, 'dist', 'styles', 'connection-form.css'))
-    );
-    const scriptUri = this.panel.webview.asWebviewUri(
-      vscode.Uri.file(path.join(this.context.extensionPath, 'dist', 'scripts', 'connection-form.js'))
-    );
+    const distRoot = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
+    const tokensUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'styles', 'tokens.css'));
+    const codiconUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'styles', 'codicon.css'));
+    const styleUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'styles', 'connection-form.css'));
+    const shellUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'webview-shell.js'));
+    const elementsUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'vscode-elements.js'));
+    const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'connection-form.js'));
 
-    this.panel.webview.html = this.buildHtml(styleUri, scriptUri, config, folderDefaults);
+    this.panel.webview.html = this.buildHtml(
+      { tokensUri, codiconUri, styleUri, shellUri, elementsUri, scriptUri },
+      config,
+      folderDefaults,
+    );
 
     this.panel.webview.onDidReceiveMessage(
       async (message) => {
@@ -175,74 +180,78 @@ export class ConnectionFormPanel {
     };
   }
 
-  private buildHtml(styleUri: vscode.Uri, scriptUri: vscode.Uri, config?: ConnectionConfig, defaults?: ConnectionFormDefaults): string {
+  private buildHtml(
+    uris: {
+      tokensUri: vscode.Uri;
+      codiconUri: vscode.Uri;
+      styleUri: vscode.Uri;
+      shellUri: vscode.Uri;
+      elementsUri: vscode.Uri;
+      scriptUri: vscode.Uri;
+    },
+    config?: ConnectionConfig,
+    defaults?: ConnectionFormDefaults,
+  ): string {
     const c = config;
     const isEdit = !!c;
     const readonlyChecked = c ? !!c.readonly : !!defaults?.readonly;
     const folderId = c?.folderId || defaults?.folderId || '';
+    const cspSource = (this.panel?.webview as vscode.Webview).cspSource;
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="${styleUri}">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource};">
+  <link rel="stylesheet" href="${uris.codiconUri}">
+  <link rel="stylesheet" href="${uris.tokensUri}">
+  <link rel="stylesheet" href="${uris.styleUri}">
+  <script src="${uris.shellUri}"></script>
+  <script type="module" src="${uris.elementsUri}"></script>
 </head>
 <body>
   <div class="form-container">
     <h2>${isEdit ? 'Edit Connection' : 'New Connection'}</h2>
 
-    <input type="hidden" id="connId" value="${c?.id || ''}">
+    <input type="hidden" id="connId" value="${esc(c?.id)}">
     <input type="hidden" id="folderId" value="${esc(folderId)}">
 
     <div class="form-group">
-      <label for="dbType">Database Type</label>
-      <select id="dbType" ${isEdit ? 'disabled' : ''}>
-        <option value="postgresql" ${c?.type === 'postgresql' ? 'selected' : ''}>PostgreSQL</option>
-        <option value="redis" ${c?.type === 'redis' ? 'selected' : ''}>Redis</option>
-        <option value="clickhouse" ${c?.type === 'clickhouse' ? 'selected' : ''}>ClickHouse</option>
-        <option value="sqlite" ${c?.type === 'sqlite' ? 'selected' : ''}>SQLite</option>
-      </select>
-    </div>
-
-    <div class="form-group">
-      <label for="safeMode">Safe mode</label>
-      <select id="safeMode">
-        <option value="" ${!c?.safeMode ? 'selected' : ''}>Default (from settings)</option>
-        <option value="block" ${c?.safeMode === 'block' ? 'selected' : ''}>🛡️ Block — beginner-friendly, blocks dangerous queries</option>
-        <option value="warn" ${c?.safeMode === 'warn' ? 'selected' : ''}>⚠️ Warn — recommended for daily work, warns on Seq Scans</option>
-        <option value="off" ${c?.safeMode === 'off' ? 'selected' : ''}>🔓 Off — for Jedi who trust the Force</option>
-      </select>
-      <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-top:4px;line-height:1.4;">
-        Auto-adds LIMIT to SELECTs, runs EXPLAIN to detect full table scans before execution.
-      </div>
-    </div>
-
-    <div class="form-group">
       <label for="connName">Connection Name</label>
-      <input type="text" id="connName" placeholder="My Database" value="${esc(c?.name)}" />
+      <vscode-textfield id="connName" placeholder="My Database" value="${esc(c?.name)}"></vscode-textfield>
     </div>
 
-    <div class="form-row">
+    <div class="form-group">
+      <label for="dbType">Database Type</label>
+      <vscode-single-select id="dbType"${isEdit ? ' disabled' : ''}>
+        <vscode-option value="postgresql"${c?.type === 'postgresql' ? ' selected' : ''}>PostgreSQL</vscode-option>
+        <vscode-option value="redis"${c?.type === 'redis' ? ' selected' : ''}>Redis</vscode-option>
+        <vscode-option value="clickhouse"${c?.type === 'clickhouse' ? ' selected' : ''}>ClickHouse</vscode-option>
+        <vscode-option value="sqlite"${c?.type === 'sqlite' ? ' selected' : ''}>SQLite</vscode-option>
+      </vscode-single-select>
+    </div>
+
+    <div class="form-row" id="hostPortRow">
       <div class="form-group flex-grow">
         <label for="host">Host</label>
-        <input type="text" id="host" placeholder="localhost" value="${esc(c?.host || 'localhost')}" />
+        <vscode-textfield id="host" placeholder="localhost" value="${esc(c?.host || 'localhost')}"></vscode-textfield>
       </div>
       <div class="form-group port-field">
         <label for="port">Port</label>
-        <input type="number" id="port" value="${c?.port || DEFAULT_PORTS[c?.type || 'postgresql']}" />
+        <vscode-textfield id="port" type="number" value="${c?.port || DEFAULT_PORTS[c?.type || 'postgresql']}"></vscode-textfield>
       </div>
     </div>
 
     <div id="authFields">
       <div class="form-group">
         <label for="username">Username</label>
-        <input type="text" id="username" value="${esc(c?.username)}" />
+        <vscode-textfield id="username" value="${esc(c?.username)}"></vscode-textfield>
       </div>
 
       <div class="form-group">
         <label for="password">Password</label>
-        <input type="password" id="password" value="${esc(c?.password)}" />
+        <vscode-textfield id="password" type="password" value="${esc(c?.password)}"></vscode-textfield>
       </div>
     </div>
 
@@ -258,56 +267,53 @@ export class ConnectionFormPanel {
 
     <div id="redisDbField" class="form-group hidden">
       <label for="redisDb">Database Number (0-15)</label>
-      <input type="number" id="redisDb" min="0" max="15" value="${c?.type === 'redis' && c?.database ? esc(c.database) : '0'}" />
+      <vscode-textfield id="redisDb" type="number" min="0" max="15" value="${c?.type === 'redis' && c?.database ? esc(c.database) : '0'}"></vscode-textfield>
     </div>
 
     <div id="sqliteFileField" class="form-group hidden">
       <label for="sqliteFile">Database File</label>
-      <input type="text" id="sqliteFile" placeholder="/path/to/database.sqlite" value="${c?.type === 'sqlite' ? esc(c?.database) : ''}" />
-      <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-top:4px;line-height:1.4;">
+      <vscode-textfield id="sqliteFile" placeholder="/path/to/database.sqlite" value="${c?.type === 'sqlite' ? esc(c?.database) : ''}"></vscode-textfield>
+      <div class="field-hint">
         Path to an existing .sqlite/.db file, or a new file to create. Use <code>:memory:</code> for in-memory database.
       </div>
     </div>
 
-    <div class="form-group checkbox-group">
-      <label>
-        <input type="checkbox" id="ssl" ${c?.ssl ? 'checked' : ''} />
-        Use SSL
-      </label>
+    <div class="form-group checkbox-group" id="sslGroup">
+      <vscode-checkbox id="ssl"${c?.ssl ? ' checked' : ''}>Use SSL</vscode-checkbox>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="proxyGroup">
       <label for="proxyType">Proxy / Tunnel</label>
-      <select id="proxyType">
-        <option value="none" ${(!c?.proxy || c?.proxy?.type === 'none') ? 'selected' : ''}>None</option>
-        <option value="ssh" ${c?.proxy?.type === 'ssh' ? 'selected' : ''}>SSH Tunnel</option>
-        <option value="socks5" ${c?.proxy?.type === 'socks5' ? 'selected' : ''}>SOCKS5 Proxy</option>
-        <option value="http" ${c?.proxy?.type === 'http' ? 'selected' : ''}>HTTP Proxy</option>
-      </select>
+      <vscode-single-select id="proxyType">
+        <vscode-option value="none"${(!c?.proxy || c?.proxy?.type === 'none') ? ' selected' : ''}>None</vscode-option>
+        <vscode-option value="ssh"${c?.proxy?.type === 'ssh' ? ' selected' : ''}>SSH Tunnel</vscode-option>
+        <vscode-option value="socks5"${c?.proxy?.type === 'socks5' ? ' selected' : ''}>SOCKS5 Proxy</vscode-option>
+        <vscode-option value="http"${c?.proxy?.type === 'http' ? ' selected' : ''}>HTTP Proxy</vscode-option>
+      </vscode-single-select>
     </div>
 
     <div id="sshFields" class="hidden">
       <div class="form-row">
         <div class="form-group flex-grow">
           <label for="sshHost">SSH Host</label>
-          <input type="text" id="sshHost" placeholder="bastion.example.com" value="${esc(c?.proxy?.sshHost)}" />
+          <vscode-textfield id="sshHost" placeholder="bastion.example.com" value="${esc(c?.proxy?.sshHost)}"></vscode-textfield>
         </div>
         <div class="form-group port-field">
           <label for="sshPort">SSH Port</label>
-          <input type="number" id="sshPort" value="${c?.proxy?.sshPort || 22}" />
+          <vscode-textfield id="sshPort" type="number" value="${c?.proxy?.sshPort || 22}"></vscode-textfield>
         </div>
       </div>
       <div class="form-group">
         <label for="sshUsername">SSH Username</label>
-        <input type="text" id="sshUsername" value="${esc(c?.proxy?.sshUsername)}" />
+        <vscode-textfield id="sshUsername" value="${esc(c?.proxy?.sshUsername)}"></vscode-textfield>
       </div>
       <div class="form-group">
         <label for="sshPassword">SSH Password</label>
-        <input type="password" id="sshPassword" value="${esc(c?.proxy?.sshPassword)}" />
+        <vscode-textfield id="sshPassword" type="password" value="${esc(c?.proxy?.sshPassword)}"></vscode-textfield>
       </div>
       <div class="form-group">
         <label for="sshPrivateKey">Private Key (paste content)</label>
-        <textarea id="sshPrivateKey" rows="3" style="width:100%;font-size:12px;font-family:monospace;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:2px;padding:6px;resize:vertical;">${esc(c?.proxy?.sshPrivateKey)}</textarea>
+        <vscode-textarea id="sshPrivateKey" rows="3" monospace value="${esc(c?.proxy?.sshPrivateKey)}"></vscode-textarea>
       </div>
     </div>
 
@@ -315,68 +321,87 @@ export class ConnectionFormPanel {
       <div class="form-row">
         <div class="form-group flex-grow">
           <label for="proxyHost">Proxy Host</label>
-          <input type="text" id="proxyHost" placeholder="proxy.example.com" value="${esc(c?.proxy?.proxyHost)}" />
+          <vscode-textfield id="proxyHost" placeholder="proxy.example.com" value="${esc(c?.proxy?.proxyHost)}"></vscode-textfield>
         </div>
         <div class="form-group port-field">
           <label for="proxyPort">Proxy Port</label>
-          <input type="number" id="proxyPort" value="${c?.proxy?.proxyPort || 1080}" />
+          <vscode-textfield id="proxyPort" type="number" value="${c?.proxy?.proxyPort || 1080}"></vscode-textfield>
         </div>
       </div>
       <div class="form-group">
         <label for="proxyUsername">Proxy Username</label>
-        <input type="text" id="proxyUsername" value="${esc(c?.proxy?.proxyUsername)}" />
+        <vscode-textfield id="proxyUsername" value="${esc(c?.proxy?.proxyUsername)}"></vscode-textfield>
       </div>
       <div class="form-group">
         <label for="proxyPassword">Proxy Password</label>
-        <input type="password" id="proxyPassword" value="${esc(c?.proxy?.proxyPassword)}" />
+        <vscode-textfield id="proxyPassword" type="password" value="${esc(c?.proxy?.proxyPassword)}"></vscode-textfield>
       </div>
     </div>
 
     <div class="form-group">
       <label for="connColor">Color</label>
       <div class="color-row">
-        <input type="color" id="connColorPicker" value="${esc(c?.color || '#1e1e1e')}" />
-        <input type="text" id="connColor" placeholder="#e06c75" value="${esc(c?.color)}" />
-        <button type="button" id="btnRandomColor" class="btn btn-secondary btn-small">🎲</button>
-        <button type="button" id="btnClearColor" class="btn btn-secondary btn-small">Clear</button>
+        <span class="color-swatch-preview" id="colorSwatchPreview" title="Pick a color">
+          <span class="swatch-fill" id="colorSwatchFill"></span>
+          <input type="color" id="connColorPicker" value="${esc(c?.color || '#1e1e1e')}" />
+        </span>
+        <vscode-textfield id="connColor" placeholder="#e06c75" value="${esc(c?.color)}"></vscode-textfield>
+        <vscode-button id="btnRandomColor" secondary title="Randomize color">
+          <vscode-icon name="symbol-color" slot="content-before"></vscode-icon>
+        </vscode-button>
+        <vscode-button id="btnClearColor" secondary>Clear</vscode-button>
       </div>
       <div class="color-palette" id="colorPalette"></div>
     </div>
 
-    <div class="form-group">
-      <label for="scope">Store in</label>
-      <select id="scope">
-        <option value="user" ${(c?.scope || 'user') === 'user' ? 'selected' : ''}>User (global)</option>
-        <option value="project" ${c?.scope === 'project' ? 'selected' : ''}>Project (.vscode/viewstor.json)</option>
-      </select>
-      <div id="scopeHint" class="hidden" style="font-size:11px;color:var(--vscode-descriptionForeground);margin-top:4px;">
-        Password is not saved to the project file for security. You will be prompted on connect.
-      </div>
-    </div>
-
     <div class="form-group checkbox-group">
-      <label>
-        <input type="checkbox" id="readonlyMode" ${readonlyChecked ? 'checked' : ''} />
-        Read-only (disable data editing)
-      </label>
+      <vscode-checkbox id="readonlyMode"${readonlyChecked ? ' checked' : ''}>Read-only (disable data editing)</vscode-checkbox>
     </div>
 
-    <div class="form-group" id="hiddenSchemasGroup">
-      <label for="hiddenSchemas">Hidden schemas <small style="color:var(--vscode-descriptionForeground)">(comma-separated)</small></label>
-      <input type="text" id="hiddenSchemas" placeholder="pg_catalog, information_schema" value="${esc(c?.hiddenSchemas ? Object.values(c.hiddenSchemas).flat().join(', ') : '')}" />
-    </div>
+    <vscode-collapsible id="advancedSection" title="Advanced">
+      <div class="collapsible-body">
+        <div class="form-group">
+          <label for="safeMode">Safe mode</label>
+          <vscode-single-select id="safeMode">
+            <vscode-option value=""${!c?.safeMode ? ' selected' : ''}>Default (from settings)</vscode-option>
+            <vscode-option value="block"${c?.safeMode === 'block' ? ' selected' : ''}>Block — blocks dangerous queries</vscode-option>
+            <vscode-option value="warn"${c?.safeMode === 'warn' ? ' selected' : ''}>Warn — recommended for daily work</vscode-option>
+            <vscode-option value="off"${c?.safeMode === 'off' ? ' selected' : ''}>Off — no checks</vscode-option>
+          </vscode-single-select>
+          <div class="field-hint">
+            Auto-adds LIMIT to SELECTs, runs EXPLAIN to detect full table scans before execution.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="scope">Store in</label>
+          <vscode-single-select id="scope">
+            <vscode-option value="user"${(c?.scope || 'user') === 'user' ? ' selected' : ''}>User (global)</vscode-option>
+            <vscode-option value="project"${c?.scope === 'project' ? ' selected' : ''}>Project (.vscode/viewstor.json)</vscode-option>
+          </vscode-single-select>
+          <div id="scopeHint" class="field-hint hidden">
+            Password is not saved to the project file for security. You will be prompted on connect.
+          </div>
+        </div>
+
+        <div class="form-group" id="hiddenSchemasGroup">
+          <label for="hiddenSchemas">Hidden schemas <span class="viewstor-meta">(comma-separated)</span></label>
+          <vscode-textfield id="hiddenSchemas" placeholder="pg_catalog, information_schema" value="${esc(c?.hiddenSchemas ? Object.values(c.hiddenSchemas).flat().join(', ') : '')}"></vscode-textfield>
+        </div>
+      </div>
+    </vscode-collapsible>
 
     <div id="testResult" class="test-result hidden"></div>
 
     <div class="button-row">
-      <button id="btnTest" class="btn btn-secondary">Test Connection</button>
+      <vscode-button id="btnTest" secondary>Test Connection</vscode-button>
       <div class="spacer"></div>
-      <button id="btnCancel" class="btn btn-secondary">Cancel</button>
-      <button id="btnSave" class="btn btn-primary">Save</button>
+      <vscode-button id="btnCancel" secondary>Cancel</vscode-button>
+      <vscode-button id="btnSave">Save</vscode-button>
     </div>
   </div>
 
-  <script src="${scriptUri}"></script>
+  <script src="${uris.scriptUri}"></script>
 </body>
 </html>`;
   }

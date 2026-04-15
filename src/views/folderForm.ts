@@ -38,11 +38,18 @@ export class FolderFormPanel {
 
     this.panel.iconPath = new vscode.ThemeIcon('folder');
 
-    const styleUri = this.panel.webview.asWebviewUri(
-      vscode.Uri.file(path.join(this.context.extensionPath, 'dist', 'styles', 'connection-form.css'))
-    );
+    const distRoot = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
+    const tokensUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'styles', 'tokens.css'));
+    const codiconUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'styles', 'codicon.css'));
+    const styleUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'styles', 'connection-form.css'));
+    const shellUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'webview-shell.js'));
+    const elementsUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'vscode-elements.js'));
+    const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'folder-form.js'));
 
-    this.panel.webview.html = this.buildHtml(styleUri, folder);
+    this.panel.webview.html = this.buildHtml(
+      { tokensUri, codiconUri, styleUri, shellUri, elementsUri, scriptUri },
+      folder,
+    );
 
     this.panel.webview.onDidReceiveMessage(
       async (message) => {
@@ -84,15 +91,31 @@ export class FolderFormPanel {
     this.panel?.dispose();
   }
 
-  private buildHtml(styleUri: vscode.Uri, folder?: ConnectionFolder): string {
+  private buildHtml(
+    uris: {
+      tokensUri: vscode.Uri;
+      codiconUri: vscode.Uri;
+      styleUri: vscode.Uri;
+      shellUri: vscode.Uri;
+      elementsUri: vscode.Uri;
+      scriptUri: vscode.Uri;
+    },
+    folder?: ConnectionFolder,
+  ): string {
     const f = folder;
+    const cspSource = (this.panel?.webview as vscode.Webview).cspSource;
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="${styleUri}">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource};">
+  <link rel="stylesheet" href="${uris.codiconUri}">
+  <link rel="stylesheet" href="${uris.tokensUri}">
+  <link rel="stylesheet" href="${uris.styleUri}">
+  <script src="${uris.shellUri}"></script>
+  <script type="module" src="${uris.elementsUri}"></script>
 </head>
 <body>
   <div class="form-container">
@@ -100,140 +123,45 @@ export class FolderFormPanel {
 
     <div class="form-group">
       <label for="folderName">Folder Name</label>
-      <input type="text" id="folderName" placeholder="My Folder" value="${esc(f?.name)}" />
+      <vscode-textfield id="folderName" placeholder="My Folder" value="${esc(f?.name)}"></vscode-textfield>
     </div>
 
     <div class="form-group">
       <label for="folderColor">Color</label>
       <div class="color-row">
-        <input type="color" id="folderColorPicker" value="${esc(f?.color || '#1e1e1e')}" />
-        <input type="text" id="folderColor" placeholder="#e06c75" value="${esc(f?.color)}" />
-        <button type="button" id="btnRandomColor" class="btn btn-secondary btn-small">🎲</button>
-        <button type="button" id="btnClearColor" class="btn btn-secondary btn-small">Clear</button>
+        <span class="color-swatch-preview" id="colorSwatchPreview" title="Pick a color">
+          <span class="swatch-fill" id="colorSwatchFill"></span>
+          <input type="color" id="folderColorPicker" value="${esc(f?.color || '#1e1e1e')}" />
+        </span>
+        <vscode-textfield id="folderColor" placeholder="#e06c75" value="${esc(f?.color)}"></vscode-textfield>
+        <vscode-button id="btnRandomColor" secondary title="Randomize color">
+          <vscode-icon name="symbol-color" slot="content-before"></vscode-icon>
+        </vscode-button>
+        <vscode-button id="btnClearColor" secondary>Clear</vscode-button>
       </div>
       <div class="color-palette" id="colorPalette"></div>
     </div>
 
     <div class="form-group">
       <label for="scope">Store in</label>
-      <select id="scope">
-        <option value="user" ${(f?.scope || 'user') === 'user' ? 'selected' : ''}>User (global)</option>
-        <option value="project" ${f?.scope === 'project' ? 'selected' : ''}>Project (.vscode/viewstor.json)</option>
-      </select>
+      <vscode-single-select id="scope">
+        <vscode-option value="user"${(f?.scope || 'user') === 'user' ? ' selected' : ''}>User (global)</vscode-option>
+        <vscode-option value="project"${f?.scope === 'project' ? ' selected' : ''}>Project (.vscode/viewstor.json)</vscode-option>
+      </vscode-single-select>
     </div>
 
     <div class="form-group checkbox-group">
-      <label>
-        <input type="checkbox" id="readonlyMode" ${f?.readonly ? 'checked' : ''} />
-        Read-only (default for new connections in this folder)
-      </label>
+      <vscode-checkbox id="readonlyMode"${f?.readonly ? ' checked' : ''}>Read-only (default for new connections in this folder)</vscode-checkbox>
     </div>
 
     <div class="button-row">
       <div class="spacer"></div>
-      <button id="btnCancel" class="btn btn-secondary">Cancel</button>
-      <button id="btnSave" class="btn btn-primary">Save</button>
+      <vscode-button id="btnCancel" secondary>Cancel</vscode-button>
+      <vscode-button id="btnSave">Save</vscode-button>
     </div>
   </div>
 
-  <script>
-  (function() {
-    var vscode = acquireVsCodeApi();
-    var folderName = document.getElementById('folderName');
-    var folderColor = document.getElementById('folderColor');
-    var folderColorPicker = document.getElementById('folderColorPicker');
-    var btnClearColor = document.getElementById('btnClearColor');
-    var readonlyMode = document.getElementById('readonlyMode');
-
-    folderColorPicker.addEventListener('input', function() {
-      folderColor.value = folderColorPicker.value;
-    });
-    folderColor.addEventListener('input', function() {
-      if (/^#[0-9a-fA-F]{6}$/.test(folderColor.value)) {
-        folderColorPicker.value = folderColor.value;
-      }
-    });
-    btnClearColor.addEventListener('click', function() {
-      folderColor.value = '';
-      folderColorPicker.value = '#1e1e1e';
-    });
-
-    // Randomize color
-    document.getElementById('btnRandomColor').addEventListener('click', function() {
-      var h = Math.floor(Math.random() * 360);
-      var s = 60 + Math.floor(Math.random() * 30);
-      var l = 45 + Math.floor(Math.random() * 20);
-      var hex = hslToHex(h, s, l);
-      folderColor.value = hex;
-      folderColorPicker.value = hex;
-    });
-    function hslToHex(h, s, l) {
-      s /= 100; l /= 100;
-      var a = s * Math.min(l, 1 - l);
-      function f(n) { var k = (n + h / 30) % 12; var c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1); return Math.round(255 * c).toString(16).padStart(2, '0'); }
-      return '#' + f(0) + f(8) + f(4);
-    }
-
-    // Color palette
-    var palette = document.getElementById('colorPalette');
-    var themeColors = [
-      { label: 'Red', css: 'var(--vscode-terminal-ansiRed)' },
-      { label: 'Green', css: 'var(--vscode-terminal-ansiGreen)' },
-      { label: 'Yellow', css: 'var(--vscode-terminal-ansiYellow)' },
-      { label: 'Blue', css: 'var(--vscode-terminal-ansiBlue)' },
-      { label: 'Magenta', css: 'var(--vscode-terminal-ansiMagenta)' },
-      { label: 'Cyan', css: 'var(--vscode-terminal-ansiCyan)' },
-      { label: 'Bright Red', css: 'var(--vscode-terminal-ansiBrightRed)' },
-      { label: 'Bright Green', css: 'var(--vscode-terminal-ansiBrightGreen)' },
-      { label: 'Bright Yellow', css: 'var(--vscode-terminal-ansiBrightYellow)' },
-      { label: 'Bright Blue', css: 'var(--vscode-terminal-ansiBrightBlue)' },
-      { label: 'Bright Magenta', css: 'var(--vscode-terminal-ansiBrightMagenta)' },
-      { label: 'Bright Cyan', css: 'var(--vscode-terminal-ansiBrightCyan)' },
-    ];
-    themeColors.forEach(function(tc) {
-      var swatch = document.createElement('button');
-      swatch.type = 'button'; swatch.className = 'color-swatch';
-      swatch.title = tc.label; swatch.style.background = tc.css;
-      swatch.addEventListener('click', function() { folderColor.value = tc.css; });
-      palette.appendChild(swatch);
-    });
-
-    document.getElementById('btnSave').addEventListener('click', function() {
-      document.querySelectorAll('.error-text').forEach(function(el) { el.remove(); });
-      if (!folderName.value.trim()) {
-        var err = document.createElement('div');
-        err.className = 'error-text';
-        err.textContent = 'Folder name is required';
-        folderName.parentNode.appendChild(err);
-        return;
-      }
-      vscode.postMessage({
-        type: 'save',
-        data: {
-          name: folderName.value.trim(),
-          color: folderColor.value.trim(),
-          readonly: readonlyMode.checked ? 'true' : 'false',
-          scope: document.getElementById('scope').value,
-        }
-      });
-    });
-
-    document.getElementById('btnCancel').addEventListener('click', function() {
-      vscode.postMessage({ type: 'cancel' });
-    });
-
-    window.addEventListener('message', function(event) {
-      var message = event.data;
-      if (message.type === 'setFolder' && message.folder) {
-        var f = message.folder;
-        folderName.value = f.name || '';
-        folderColor.value = f.color || '';
-        folderColorPicker.value = f.color || '#1e1e1e';
-        readonlyMode.checked = !!f.readonly;
-      }
-    });
-  })();
-  </script>
+  <script src="${uris.scriptUri}"></script>
 </body>
 </html>`;
   }

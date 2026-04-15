@@ -86,6 +86,7 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 - **Multi-database** — list several databases in one connection, each as a separate tree node
 - **Color coding** — theme-aware palette or hex picker, tints icons; folders pass color to children
 - **SSL** and **SSH tunnel** / **SOCKS5 proxy** support
+- **Native VS Code form chrome** — Connection / Folder forms built on `@vscode-elements/elements` with `@vscode/codicons`; render correctly in light, dark, and high-contrast themes. Power-user settings (Safe mode override, Store in, Hidden schemas) tucked under a collapsible **Advanced** section so the default form stays short
 
 ### Schema Browser
 
