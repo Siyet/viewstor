@@ -2,7 +2,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
 
-  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0 };
+  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0, kafka: 9092 };
 
   // VS Code custom elements expose `value` / `checked` properties just like
   // native form controls and emit `change` / `input` events. Wrappers below
@@ -55,16 +55,22 @@
   function updateFieldVisibility() {
     const isRedis = dbType.value === 'redis';
     const isSqlite = dbType.value === 'sqlite';
-    const isNetworkDb = !isRedis && !isSqlite;
-    authFields.style.display = isNetworkDb ? 'block' : 'none';
-    dbFields.style.display = isNetworkDb ? 'block' : 'none';
+    const isKafka = dbType.value === 'kafka';
+    // Kafka uses host/port + optional SASL creds (username/password) but has no
+    // SQL-style "databases" — topics live under a single cluster.
+    const showDbChips = !isRedis && !isSqlite && !isKafka;
+    const showAuth = !isRedis && !isSqlite;
+    authFields.style.display = showAuth ? 'block' : 'none';
+    dbFields.style.display = showDbChips ? 'block' : 'none';
     if (hostPortRow) hostPortRow.style.display = isSqlite ? 'none' : '';
     redisDbField.classList.toggle('hidden', !isRedis);
     sqliteFileField.classList.toggle('hidden', !isSqlite);
+    const kafkaHint = $('kafkaHint');
+    if (kafkaHint) kafkaHint.classList.toggle('hidden', !isKafka);
     if (sslGroup) sslGroup.style.display = isSqlite ? 'none' : '';
-    if (proxyGroup) proxyGroup.style.display = isSqlite ? 'none' : '';
+    if (proxyGroup) proxyGroup.style.display = (isSqlite || isKafka) ? 'none' : '';
     const hiddenSchemasGroup = $('hiddenSchemasGroup');
-    if (hiddenSchemasGroup) hiddenSchemasGroup.style.display = isSqlite ? 'none' : '';
+    if (hiddenSchemasGroup) hiddenSchemasGroup.style.display = (isSqlite || isKafka) ? 'none' : '';
     updateProxyVisibility();
   }
 

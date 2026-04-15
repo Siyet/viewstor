@@ -243,7 +243,9 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     item.itemType = 'connection';
     item.contextValue = connected ? 'connection-connected' : 'connection-disconnected';
     const iconColor = colorToThemeColor(this.connectionManager.getConnectionColor(config.id));
-    item.iconPath = new vscode.ThemeIcon(`viewstor-${config.type}`, iconColor);
+    // Kafka has no bundled icon in the viewstor icon font — fall back to a codicon.
+    const iconId = config.type === 'kafka' ? 'broadcast' : `viewstor-${config.type}`;
+    item.iconPath = new vscode.ThemeIcon(iconId, iconColor);
     item.description = connected
       ? (config.type === 'sqlite' ? (config.database || ':memory:') : `${config.host}:${config.port}`)
       : '';
@@ -315,6 +317,9 @@ function schemaIcon(type: SchemaObjectType): string {
     case 'trigger': return 'zap';
     case 'sequence': return 'symbol-number';
     case 'group': return 'list-flat';
+    case 'topic': return 'inbox';
+    case 'partition': return 'symbol-numeric';
+    case 'consumer-group': return 'organization';
     default: return 'symbol-misc';
   }
 }

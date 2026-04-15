@@ -33,7 +33,9 @@ Required methods: `connect`, `disconnect`, `ping`, `execute`, `getSchema`, `getT
 
 Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff), `getTableStatistics` (row count, sizes, vacuum info, scan counters — used by stats diff tab; PG uses `pg_table_size`/`pg_indexes_size` + `pg_stat_user_tables`, CH uses `system.tables` + `system.parts`, SQLite uses `COUNT(*)` + optional `dbstat` vtable).
 
-Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
+Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3), `kafka.ts` (kafkajs).
+
+Kafka driver: non-SQL, streaming-oriented. `kafkajs` lazy-required inside `connect()`. `config.host` accepts a comma-separated bootstrap broker list (each part gets `config.port` appended if no `:port` present). `username`/`password` map to SASL/PLAIN; override mechanism via `options.saslMechanism` (`plain`/`scram-sha-256`/`scram-sha-512`). `getSchema()` returns a single `cluster` keyspace with `topics` and `consumer groups` groups; topics carry their partitions as children. `getTableData(topic)` consumes messages via a throwaway consumer group (`viewstor-<ts>-<rand>`) with a 5s max wait. `execute()` parses a small command DSL via `parseKafkaCommand()`: `LIST TOPICS` / `LIST GROUPS` / `DESCRIBE <topic>` / `CONSUME <topic> [N] [from-beginning]` / `PRODUCE <topic> [key] <value>`. Readonly connections reject `PRODUCE`. No SQL autocomplete, no DDL, no safe mode, no index hints.
 
 ### Connections
 `src/connections/connectionManager.ts` — persists in VS Code `globalState` (keys: `viewstor.connections`, `viewstor.connectionFolders`).

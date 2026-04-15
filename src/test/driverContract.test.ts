@@ -27,10 +27,19 @@ vi.mock('ssh2', () => ({
   Client: class MockSSHClient {},
 }));
 
+vi.mock('kafkajs', () => ({
+  Kafka: class MockKafka {
+    admin() { return { connect: vi.fn(), disconnect: vi.fn() }; }
+    producer() { return { connect: vi.fn(), disconnect: vi.fn(), send: vi.fn() }; }
+    consumer() { return { connect: vi.fn(), disconnect: vi.fn(), subscribe: vi.fn(), run: vi.fn() }; }
+  },
+}));
+
 import { PostgresDriver } from '../drivers/postgres';
 import { RedisDriver } from '../drivers/redis';
 import { ClickHouseDriver } from '../drivers/clickhouse';
 import { SqliteDriver } from '../drivers/sqlite';
+import { KafkaDriver } from '../drivers/kafka';
 import { createDriver } from '../drivers';
 import type { DatabaseDriver } from '../types/driver';
 
@@ -57,7 +66,7 @@ const OPTIONAL_METHODS: (keyof DatabaseDriver)[] = [
 
 interface DriverSpec {
   name: string;
-  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
+  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite' | 'kafka';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   DriverClass: new (...args: any[]) => DatabaseDriver;
   expectedOptional: (keyof DatabaseDriver)[];
@@ -112,6 +121,12 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getTableObjects',
       'getTableStatistics',
     ],
+  },
+  {
+    name: 'KafkaDriver',
+    type: 'kafka',
+    DriverClass: KafkaDriver,
+    expectedOptional: [],
   },
 ];
 

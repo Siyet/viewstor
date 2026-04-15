@@ -23,6 +23,7 @@
     "redis",
     "clickhouse",
     "sqlite",
+    "kafka",
     "sql",
     "query",
     "schema"
@@ -375,7 +376,7 @@
       "view/item/context": [
         {
           "command": "viewstor.showTableData",
-          "when": "view == viewstor.connections && viewItem =~ /^(table|view)$/",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view|topic)$/",
           "group": "inline"
         },
         {
@@ -395,7 +396,7 @@
         },
         {
           "command": "viewstor.showTableData",
-          "when": "view == viewstor.connections && viewItem =~ /^(table|view)$/",
+          "when": "view == viewstor.connections && viewItem =~ /^(table|view|topic)$/",
           "group": "2_data"
         },
         {
@@ -610,6 +611,7 @@
     "eslint": "^8.56.0",
     "glob": "^13.0.6",
     "ioredis": "^5.3.0",
+    "kafkajs": "^2.2.4",
     "mocha": "^11.7.5",
     "pg": "^8.11.0",
     "style-loader": "^3.3.4",

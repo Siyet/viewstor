@@ -25,7 +25,10 @@ export type SchemaObjectType =
   | 'keyspace'
   | 'trigger'
   | 'sequence'
-  | 'group';
+  | 'group'
+  | 'topic'
+  | 'partition'
+  | 'consumer-group';
 
 export interface ColumnInfo {
   name: string;
