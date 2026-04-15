@@ -1,3 +1,11 @@
+/*
+ * Connection / Folder form styles.
+ *
+ * Built on top of design tokens (tokens.css) and @vscode-elements/elements
+ * custom elements. Everything that is theme-aware lives in tokens.css —
+ * this file only handles layout and form-specific composition.
+ */
+
 :root {
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
@@ -17,54 +25,49 @@ body {
 }
 
 .form-container {
-  max-width: 520px;
+  max-width: var(--viewstor-form-max-width);
   width: 100%;
-  padding: 24px 32px;
+  padding: 24px 28px;
 }
 
 h2 {
   margin: 0 0 20px;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: var(--viewstor-font-panel-title-size);
+  font-weight: var(--viewstor-font-panel-title-weight);
   color: var(--vscode-foreground);
 }
 
 .form-group {
-  margin-bottom: 14px;
+  margin-bottom: var(--viewstor-form-field-gap);
 }
 
-.form-group label {
+.form-group > label,
+.form-group .field-label {
   display: block;
   margin-bottom: 4px;
-  font-size: 12px;
+  font-size: var(--viewstor-font-section-header-size);
   color: var(--vscode-descriptionForeground);
   font-weight: 500;
 }
 
-.form-group input[type="text"],
-.form-group input[type="number"],
-.form-group input[type="password"],
-.form-group select {
-  width: 100%;
-  padding: 6px 8px;
-  font-size: 13px;
-  font-family: var(--vscode-font-family);
-  color: var(--vscode-input-foreground);
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+.field-hint {
+  font-size: 11px;
+  color: var(--viewstor-text-dimmed);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.field-hint code {
+  font-family: var(--viewstor-font-mono);
+  background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
+  padding: 0 4px;
   border-radius: 2px;
-  outline: none;
 }
 
-.form-group input:focus,
-.form-group select:focus {
-  border-color: var(--vscode-focusBorder);
-}
-
-.form-group input:disabled,
-.form-group select:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+vscode-textfield,
+vscode-single-select,
+vscode-textarea {
+  width: 100%;
 }
 
 .form-row {
@@ -77,67 +80,25 @@ h2 {
 }
 
 .port-field {
-  width: 100px;
+  width: 110px;
   flex-shrink: 0;
 }
 
-.checkbox-group label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--vscode-foreground);
-  cursor: pointer;
-}
-
-.checkbox-group input[type="checkbox"] {
-  accent-color: var(--vscode-button-background);
+.checkbox-group {
+  margin-bottom: var(--viewstor-form-field-gap);
 }
 
 .button-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 20px;
+  gap: var(--viewstor-toolbar-item-gap);
+  margin-top: 24px;
   padding-top: 16px;
-  border-top: 1px solid var(--vscode-panel-border);
+  border-top: 1px solid var(--viewstor-border-subtle);
 }
 
 .spacer {
   flex: 1;
-}
-
-.btn {
-  padding: 6px 14px;
-  font-size: 13px;
-  font-family: var(--vscode-font-family);
-  border: none;
-  border-radius: 2px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.btn-primary {
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-}
-
-.btn-primary:hover {
-  background: var(--vscode-button-hoverBackground);
-}
-
-.btn-secondary {
-  background: var(--vscode-button-secondaryBackground);
-  color: var(--vscode-button-secondaryForeground);
-}
-
-.btn-secondary:hover {
-  background: var(--vscode-button-secondaryHoverBackground);
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .test-result {
@@ -148,85 +109,62 @@ h2 {
 }
 
 .test-result.success {
-  background: var(--vscode-terminal-ansiGreen);
-  color: var(--vscode-editor-background);
+  background: color-mix(in srgb, var(--vscode-terminal-ansiGreen, #6a9955) 35%, transparent);
+  color: var(--vscode-foreground);
 }
 
 .test-result.failure {
-  background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+  background: var(--vscode-inputValidation-errorBackground, color-mix(in srgb, var(--vscode-errorForeground) 25%, transparent));
   color: var(--vscode-errorForeground);
   border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
 }
 
 .test-result.testing {
-  color: var(--vscode-descriptionForeground);
+  color: var(--viewstor-text-dimmed);
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 .color-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--viewstor-toolbar-item-gap);
 }
 
-.color-row input[type="color"] {
-  width: 32px;
+.color-swatch-preview {
+  width: 28px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border: 1px solid var(--viewstor-border-subtle);
   border-radius: 2px;
-  background: none;
-  cursor: pointer;
-}
-
-.color-row input[type="text"] {
-  flex: 1;
-  padding: 6px 8px;
-  font-size: 13px;
-  font-family: var(--vscode-font-family);
-  color: var(--vscode-input-foreground);
   background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
-  border-radius: 2px;
-  outline: none;
-}
-
-.color-row input[type="text"]:focus {
-  border-color: var(--vscode-focusBorder);
-}
-
-.btn-small {
-  padding: 4px 8px;
-  font-size: 12px;
-}
-
-.db-dropdown {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  max-height: 200px;
-  overflow-y: auto;
-  background: var(--vscode-dropdown-background);
-  border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
-  border-radius: 2px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  z-index: 10;
-}
-
-.db-dropdown .db-option {
-  padding: 4px 8px;
-  font-size: 13px;
   cursor: pointer;
-  color: var(--vscode-dropdown-foreground);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
-.db-dropdown .db-option:hover,
-.db-dropdown .db-option.active {
-  background: var(--vscode-list-hoverBackground);
+.color-swatch-preview input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.color-swatch-preview .swatch-fill {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.color-row vscode-textfield {
+  flex: 1;
 }
 
 .color-palette {
@@ -237,29 +175,42 @@ h2 {
 }
 
 .color-swatch {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 4px;
   border: 2px solid transparent;
   cursor: pointer;
   padding: 0;
 }
 
-.color-swatch:hover {
+.color-swatch:hover,
+.color-swatch:focus-visible {
   border-color: var(--vscode-focusBorder);
   transform: scale(1.15);
+  outline: none;
 }
 
+vscode-collapsible {
+  display: block;
+  margin-bottom: var(--viewstor-form-field-gap);
+}
+
+.collapsible-body {
+  padding: 12px 4px 4px;
+}
+
+/* Database chips field — built on top of vscode-textfield's slot */
 .chips-container {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   padding: 4px;
-  min-height: 32px;
+  min-height: 30px;
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
   border-radius: 2px;
   cursor: text;
+  position: relative;
 }
 
 .chips-container:focus-within {
@@ -306,8 +257,38 @@ h2 {
   padding: 2px 4px;
 }
 
+.db-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+  border-radius: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+}
+
+.db-dropdown .db-option {
+  padding: 4px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--vscode-dropdown-foreground);
+}
+
+.db-dropdown .db-option:hover,
+.db-dropdown .db-option.active {
+  background: var(--vscode-list-hoverBackground);
+}
+
 .error-text {
   color: var(--vscode-errorForeground);
   font-size: 12px;
   margin-top: 2px;
+}
+
+vscode-icon[name="symbol-color"] {
+  cursor: pointer;
 }

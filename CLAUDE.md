@@ -57,10 +57,26 @@ Filtering: `filterSchema()` removes hidden schemas/databases recursively.
 
 `contextValue` controls menus: `folder`, `connection-connected`, `connection-disconnected`, `database`, `schema`, `table`, `view`, `column`, `index`, `trigger`, `sequence`, `group`.
 
-### Forms
-`src/views/connectionForm.ts` — webview panel. Fields: DB type, name, host:port, username, password, database (custom dropdown with server autocomplete — uses `postgres` as default DB to fetch list), additional databases (toggle tags), SSL, color (picker + palette + random), readonly, safe mode (block/warn/off), proxy (SSH tunnel / SOCKS5). Hidden folderId. Messages: save, testConnection, fetchDatabases, cancel.
+### Webview UI foundations
+All form / panel webviews share a common UI stack (issue #86):
 
-`src/views/folderForm.ts` — webview panel. Fields: name, color (picker + palette + random), readonly, scope. Accepts parentFolderId for nested creation.
+- **`@vscode-elements/elements`** — VS Code Web Components (`<vscode-textfield>`, `<vscode-single-select>`, `<vscode-checkbox>`, `<vscode-button>`, `<vscode-collapsible>`, `<vscode-icon>`, `<vscode-tabs>`, `<vscode-textarea>`, etc.). Bundled file copied to `dist/scripts/vscode-elements.js`; loaded as `<script type="module">`. Custom elements expose `.value` / `.checked` properties and emit `change` / `input` events just like native form controls.
+- **`@vscode/codicons`** — icon font copied to `dist/styles/codicon.css` + `codicon.ttf`. Use via `<vscode-icon name="..." />` (slot `content-before` / `content-after` for buttons) or directly with `<i class="codicon codicon-..."></i>`.
+- **`src/webview/scripts/webview-shell.js`** — loaded first in every webview HEAD; sets `window.__viewstorShellLoaded` marker. Centralizes the bundle path in case the loading strategy changes.
+- **`src/webview/styles/tokens.css`** — design tokens. Typography scale, spacing grid, semantic colors (`--viewstor-row-added/removed/changed/zebra`, `--viewstor-text-dimmed`, `--viewstor-border-subtle`, `--viewstor-badge-bg-*`, `--viewstor-form-max-width`). All derived from `--vscode-*` so themes apply automatically; high-contrast theme overrides via `@media (forced-colors: active)`.
+- **CSP** — every panel sets `Content-Security-Policy` allowing only `cspSource` for img/style/font/script. Inline styles allowed (`style-src 'unsafe-inline'`) so per-element inline `style=` works.
+
+Component patterns (#84 § 1.4):
+- **Data grid** — zebra striping, monospace data, resizable columns, sticky header. Used in Result Grid + diff tables.
+- **Toolbar** — grouped items with visual separators, consistent icon size (16px). Used in Result Grid + diff toolbar.
+- **Badge** — rounded pill, semantic color, count + label. Used in diff summary, filter counts.
+- **Empty state** — dimmed text + icon, no blank space. Used for zero-value charts and empty diff sections.
+- **Collapsible section** — chevron + header + count badge, smooth toggle. Used for Schema Diff sections + Advanced settings.
+
+### Forms
+`src/views/connectionForm.ts` — webview panel built on `vscode-elements`. Field order (edit-flow optimized, #84 § 4.1): Name → DB Type → Host/Port → Username/Password → Databases (chips with server autocomplete — uses `postgres` as default DB to fetch list) → Database Number (Redis) / Database File (SQLite) → SSL → Proxy (SSH/SOCKS5/HTTP) → Color (picker + palette + random) → Read-only → **Advanced** (`vscode-collapsible`, collapsed by default): Safe mode override (block/warn/off), Store in (user/project), Hidden schemas. Hidden folderId. Footer: Test Connection (left, secondary) — spacer — Cancel / Save (right). Form is `max-width: 480px` centered. Webview script: `src/webview/scripts/connection-form.js`. Messages: save, testConnection, fetchDatabases, cancel.
+
+`src/views/folderForm.ts` — webview panel using the same elements + tokens. Fields: name, color (picker + palette + random), Store in (user/project), readonly. Accepts parentFolderId for nested creation. Webview script: `src/webview/scripts/folder-form.js`.
 
 ### Result Panel
 `src/views/resultPanel.ts` — webview. Server-side pagination (LIMIT/OFFSET). `ShowOptions`: connectionId, tableName, schema, pkColumns, color, readonly, pageSize, currentPage, totalRowCount, isEstimatedCount, orderBy.

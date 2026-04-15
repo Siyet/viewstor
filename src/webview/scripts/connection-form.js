@@ -1,122 +1,137 @@
+/* eslint-disable */
 (function () {
   const vscode = acquireVsCodeApi();
 
   const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0 };
 
-  const dbType = document.getElementById('dbType');
-  const connName = document.getElementById('connName');
-  const host = document.getElementById('host');
-  const port = document.getElementById('port');
-  const username = document.getElementById('username');
-  const password = document.getElementById('password');
-  const database = document.getElementById('database');
-  const ssl = document.getElementById('ssl');
-  const connId = document.getElementById('connId');
-  const folderId = document.getElementById('folderId');
-  const authFields = document.getElementById('authFields');
-  const testResult = document.getElementById('testResult');
-  const connColor = document.getElementById('connColor');
-  const connColorPicker = document.getElementById('connColorPicker');
-  const btnClearColor = document.getElementById('btnClearColor');
-  const readonlyMode = document.getElementById('readonlyMode');
+  // VS Code custom elements expose `value` / `checked` properties just like
+  // native form controls and emit `change` / `input` events. Wrappers below
+  // hide minor quirks (initial property hydration, etc.).
+  const dbType = $('dbType');
+  const connName = $('connName');
+  const host = $('host');
+  const port = $('port');
+  const username = $('username');
+  const password = $('password');
+  const database = $('database');
+  const ssl = $('ssl');
+  const connId = $('connId');
+  const folderId = $('folderId');
+  const authFields = $('authFields');
+  const hostPortRow = $('hostPortRow');
+  const sslGroup = $('sslGroup');
+  const proxyGroup = $('proxyGroup');
+  const testResult = $('testResult');
+  const connColor = $('connColor');
+  const connColorPicker = $('connColorPicker');
+  const colorSwatchFill = $('colorSwatchFill');
+  const colorSwatchPreview = $('colorSwatchPreview');
+  const btnClearColor = $('btnClearColor');
+  const btnRandomColor = $('btnRandomColor');
+  const readonlyMode = $('readonlyMode');
+  const advancedSection = $('advancedSection');
 
-  const btnSave = document.getElementById('btnSave');
-  const btnTest = document.getElementById('btnTest');
-  const btnCancel = document.getElementById('btnCancel');
+  const btnSave = $('btnSave');
+  const btnTest = $('btnTest');
+  const btnCancel = $('btnCancel');
 
-  var dbFields = document.getElementById('dbFields');
-  var redisDbField = document.getElementById('redisDbField');
-  var redisDb = document.getElementById('redisDb');
+  const dbFields = $('dbFields');
+  const redisDbField = $('redisDbField');
+  const redisDb = $('redisDb');
 
-  var proxyType = document.getElementById('proxyType');
-  var sshFields = document.getElementById('sshFields');
-  var proxyFields = document.getElementById('proxyFields');
+  const proxyType = $('proxyType');
+  const sshFields = $('sshFields');
+  const proxyFields = $('proxyFields');
 
-  var sqliteFileField = document.getElementById('sqliteFileField');
-  var sqliteFile = document.getElementById('sqliteFile');
+  const sqliteFileField = $('sqliteFileField');
+  const sqliteFile = $('sqliteFile');
+
+  function $(id) { return document.getElementById(id); }
+
+  function setColorSwatch(color) {
+    colorSwatchFill.style.background = color || 'transparent';
+  }
 
   function updateFieldVisibility() {
-    var isRedis = dbType.value === 'redis';
-    var isSqlite = dbType.value === 'sqlite';
-    var isNetworkDb = !isRedis && !isSqlite;
+    const isRedis = dbType.value === 'redis';
+    const isSqlite = dbType.value === 'sqlite';
+    const isNetworkDb = !isRedis && !isSqlite;
     authFields.style.display = isNetworkDb ? 'block' : 'none';
     dbFields.style.display = isNetworkDb ? 'block' : 'none';
-    document.querySelector('.form-row')?.closest('.form-row')?.setAttribute('style', isSqlite ? 'display:none' : '');
-    var hostPortRow = host.closest('.form-row');
     if (hostPortRow) hostPortRow.style.display = isSqlite ? 'none' : '';
     redisDbField.classList.toggle('hidden', !isRedis);
     sqliteFileField.classList.toggle('hidden', !isSqlite);
-    var sslGroup = ssl.closest('.checkbox-group');
     if (sslGroup) sslGroup.style.display = isSqlite ? 'none' : '';
-    var proxyGroup = proxyType.closest('.form-group');
     if (proxyGroup) proxyGroup.style.display = isSqlite ? 'none' : '';
-    var hiddenSchemasGroup = document.getElementById('hiddenSchemasGroup');
+    const hiddenSchemasGroup = $('hiddenSchemasGroup');
     if (hiddenSchemasGroup) hiddenSchemasGroup.style.display = isSqlite ? 'none' : '';
     updateProxyVisibility();
   }
 
   function updateProxyVisibility() {
-    var pt = proxyType.value;
+    const pt = proxyType.value;
     sshFields.classList.toggle('hidden', pt !== 'ssh');
     proxyFields.classList.toggle('hidden', pt !== 'socks5' && pt !== 'http');
   }
   proxyType.addEventListener('change', updateProxyVisibility);
 
-  // Update default port when type changes
-  var portManuallyChanged = false;
+  let portManuallyChanged = false;
   dbType.addEventListener('change', function () {
     updateFieldVisibility();
     if (!portManuallyChanged) {
-      port.value = defaultPorts[dbType.value];
+      port.value = String(defaultPorts[dbType.value] ?? '');
     }
     testResult.className = 'test-result hidden';
   });
 
-  port.addEventListener('input', function () {
-    portManuallyChanged = true;
-  });
+  port.addEventListener('input', function () { portManuallyChanged = true; });
 
-  // Color sync
+  // Color picker — clicking the swatch fires the native color input behind it
   connColorPicker.addEventListener('input', function () {
     connColor.value = connColorPicker.value;
+    setColorSwatch(connColorPicker.value);
   });
 
   connColor.addEventListener('input', function () {
-    if (/^#[0-9a-fA-F]{6}$/.test(connColor.value)) {
-      connColorPicker.value = connColor.value;
+    const v = connColor.value;
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+      connColorPicker.value = v;
+      setColorSwatch(v);
+    } else if (v.startsWith('var(')) {
+      setColorSwatch(v);
     }
   });
 
   btnClearColor.addEventListener('click', function () {
     connColor.value = '';
     connColorPicker.value = '#1e1e1e';
+    setColorSwatch('');
   });
 
-  // Randomize color
-  var btnRandomColor = document.getElementById('btnRandomColor');
   btnRandomColor.addEventListener('click', function () {
-    var h = Math.floor(Math.random() * 360);
-    var s = 60 + Math.floor(Math.random() * 30);
-    var l = 45 + Math.floor(Math.random() * 20);
-    var hex = hslToHex(h, s, l);
+    const h = Math.floor(Math.random() * 360);
+    const s = 60 + Math.floor(Math.random() * 30);
+    const l = 45 + Math.floor(Math.random() * 20);
+    const hex = hslToHex(h, s, l);
     connColor.value = hex;
     connColorPicker.value = hex;
+    setColorSwatch(hex);
   });
 
   function hslToHex(h, s, l) {
     s /= 100; l /= 100;
-    var a = s * Math.min(l, 1 - l);
+    const a = s * Math.min(l, 1 - l);
     function f(n) {
-      var k = (n + h / 30) % 12;
-      var color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-      return Math.round(255 * color).toString(16).padStart(2, '0');
+      const k = (n + h / 30) % 12;
+      const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+      return Math.round(255 * c).toString(16).padStart(2, '0');
     }
     return '#' + f(0) + f(8) + f(4);
   }
 
   // Color palette
-  var palette = document.getElementById('colorPalette');
-  var themeColors = [
+  const palette = $('colorPalette');
+  const themeColors = [
     { label: 'Red', css: 'var(--vscode-terminal-ansiRed)' },
     { label: 'Green', css: 'var(--vscode-terminal-ansiGreen)' },
     { label: 'Yellow', css: 'var(--vscode-terminal-ansiYellow)' },
@@ -131,34 +146,35 @@
     { label: 'Bright Cyan', css: 'var(--vscode-terminal-ansiBrightCyan)' },
   ];
   themeColors.forEach(function (tc) {
-    var swatch = document.createElement('button');
+    const swatch = document.createElement('button');
     swatch.type = 'button';
     swatch.className = 'color-swatch';
     swatch.title = tc.label;
     swatch.style.background = tc.css;
     swatch.addEventListener('click', function () {
       connColor.value = tc.css;
-      // Can't set native color picker to CSS var, just leave it
+      setColorSwatch(tc.css);
     });
     palette.appendChild(swatch);
   });
 
+  setColorSwatch(connColor.value || connColorPicker.value);
   updateFieldVisibility();
 
-  var databases = document.getElementById('databases');
-  var dbDropdown = document.getElementById('dbDropdown');
-  var dbInput = document.getElementById('dbInput');
-  var chipsContainer = document.getElementById('chipsContainer');
-  var dbListCache = [];
-  var dbFetched = false;
-  var selectedDbs = [];
+  // Databases chips
+  const databases = $('databases');
+  const dbDropdown = $('dbDropdown');
+  const dbInput = $('dbInput');
+  const chipsContainer = $('chipsContainer');
+  let dbListCache = [];
+  let dbFetched = false;
+  let selectedDbs = [];
 
-  // Init chips from existing values
   function initChips() {
     selectedDbs = [];
     if (database.value.trim()) selectedDbs.push(database.value.trim());
     if (databases.value) {
-      databases.value.split(',').filter(Boolean).forEach(function(db) {
+      databases.value.split(',').filter(Boolean).forEach(function (db) {
         if (selectedDbs.indexOf(db) < 0) selectedDbs.push(db);
       });
     }
@@ -179,36 +195,41 @@
   }
 
   function removeChip(name) {
-    selectedDbs = selectedDbs.filter(function(d) { return d !== name; });
+    selectedDbs = selectedDbs.filter(function (d) { return d !== name; });
     syncHiddenFields();
     renderChips();
   }
 
   function renderChips() {
-    // Remove existing chips (keep input)
-    chipsContainer.querySelectorAll('.chip').forEach(function(el) { el.remove(); });
-    selectedDbs.forEach(function(name, idx) {
-      var chip = document.createElement('span');
+    chipsContainer.querySelectorAll('.chip').forEach(function (el) { el.remove(); });
+    selectedDbs.forEach(function (name, idx) {
+      const chip = document.createElement('span');
       chip.className = 'chip' + (idx === 0 ? ' primary' : '');
-      chip.innerHTML = name + ' <span class="chip-remove">&times;</span>';
-      chip.querySelector('.chip-remove').addEventListener('click', function() { removeChip(name); });
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = name;
+      const x = document.createElement('span');
+      x.className = 'chip-remove';
+      x.textContent = '\u00d7';
+      x.addEventListener('click', function () { removeChip(name); });
+      chip.appendChild(nameSpan);
+      chip.appendChild(document.createTextNode(' '));
+      chip.appendChild(x);
       chipsContainer.insertBefore(chip, dbInput);
     });
   }
 
-  // Dropdown
   function showDbDropdown() {
-    var filter = dbInput.value.trim().toLowerCase();
-    var items = dbListCache.filter(function(n) {
+    const filter = dbInput.value.trim().toLowerCase();
+    const items = dbListCache.filter(function (n) {
       return n.toLowerCase().includes(filter) && selectedDbs.indexOf(n) < 0;
     });
     if (items.length === 0) { dbDropdown.classList.add('hidden'); return; }
     dbDropdown.innerHTML = '';
-    items.forEach(function(name) {
-      var div = document.createElement('div');
+    items.forEach(function (name) {
+      const div = document.createElement('div');
       div.className = 'db-option';
       div.textContent = name;
-      div.addEventListener('mousedown', function(e) {
+      div.addEventListener('mousedown', function (e) {
         e.preventDefault();
         addChip(name);
         dbInput.value = '';
@@ -219,7 +240,7 @@
     dbDropdown.classList.remove('hidden');
   }
 
-  dbInput.addEventListener('focus', function() {
+  dbInput.addEventListener('focus', function () {
     if (!dbFetched && host.value.trim()) {
       dbFetched = true;
       vscode.postMessage({ type: 'fetchDatabases', config: getFormData() });
@@ -228,25 +249,22 @@
     }
   });
   dbInput.addEventListener('input', showDbDropdown);
-  dbInput.addEventListener('blur', function() {
-    setTimeout(function() { dbDropdown.classList.add('hidden'); }, 150);
+  dbInput.addEventListener('blur', function () {
+    setTimeout(function () { dbDropdown.classList.add('hidden'); }, 150);
   });
-  var dropdownIdx = -1;
 
+  let dropdownIdx = -1;
   function updateDropdownHighlight() {
-    var options = dbDropdown.querySelectorAll('.db-option');
-    options.forEach(function(o, i) {
-      o.classList.toggle('active', i === dropdownIdx);
-    });
+    const options = dbDropdown.querySelectorAll('.db-option');
+    options.forEach(function (o, i) { o.classList.toggle('active', i === dropdownIdx); });
     if (dropdownIdx >= 0 && options[dropdownIdx]) {
       options[dropdownIdx].scrollIntoView({ block: 'nearest' });
     }
   }
 
-  dbInput.addEventListener('keydown', function(e) {
-    var options = dbDropdown.querySelectorAll('.db-option');
-    var isOpen = !dbDropdown.classList.contains('hidden') && options.length > 0;
-
+  dbInput.addEventListener('keydown', function (e) {
+    const options = dbDropdown.querySelectorAll('.db-option');
+    const isOpen = !dbDropdown.classList.contains('hidden') && options.length > 0;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (!isOpen) { showDbDropdown(); return; }
@@ -256,10 +274,7 @@
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (isOpen) {
-        dropdownIdx = Math.max(dropdownIdx - 1, 0);
-        updateDropdownHighlight();
-      }
+      if (isOpen) { dropdownIdx = Math.max(dropdownIdx - 1, 0); updateDropdownHighlight(); }
       return;
     }
     if (e.key === 'Enter') {
@@ -287,82 +302,74 @@
     }
     dropdownIdx = -1;
   });
-  chipsContainer.addEventListener('click', function() { dbInput.focus(); });
+  chipsContainer.addEventListener('click', function () { dbInput.focus(); });
 
   initChips();
 
-  // Show hint when project scope selected
-  var scopeEl = document.getElementById('scope');
-  var scopeHint = document.getElementById('scopeHint');
-  function updateScopeHint() {
-    scopeHint.classList.toggle('hidden', scopeEl.value !== 'project');
-  }
+  // Scope hint
+  const scopeEl = $('scope');
+  const scopeHint = $('scopeHint');
+  function updateScopeHint() { scopeHint.classList.toggle('hidden', scopeEl.value !== 'project'); }
   scopeEl.addEventListener('change', updateScopeHint);
   updateScopeHint();
 
+  function valueOf(el) { return (el && el.value != null) ? String(el.value) : ''; }
+
   function getFormData() {
+    const isRedis = dbType.value === 'redis';
+    const isSqlite = dbType.value === 'sqlite';
     return {
       id: connId.value || '',
-      name: connName.value.trim(),
+      name: valueOf(connName).trim(),
       type: dbType.value,
-      host: host.value.trim(),
-      port: port.value,
-      username: username.value.trim(),
-      password: password.value,
-      database: dbType.value === 'redis' ? redisDb.value : dbType.value === 'sqlite' ? sqliteFile.value.trim() : database.value.trim(),
-      databases: dbType.value === 'redis' || dbType.value === 'sqlite' ? '' : databases.value.trim(),
+      host: valueOf(host).trim(),
+      port: valueOf(port),
+      username: valueOf(username).trim(),
+      password: valueOf(password),
+      database: isRedis ? valueOf(redisDb) : isSqlite ? valueOf(sqliteFile).trim() : database.value.trim(),
+      databases: (isRedis || isSqlite) ? '' : databases.value.trim(),
       ssl: ssl.checked ? 'true' : 'false',
-      color: connColor.value.trim(),
+      color: valueOf(connColor).trim(),
       readonly: readonlyMode.checked ? 'true' : 'false',
       folderId: folderId.value || '',
-      scope: document.getElementById('scope').value,
-      safeMode: document.getElementById('safeMode').value,
+      scope: scopeEl.value,
+      safeMode: $('safeMode').value,
       proxyType: proxyType.value,
-      sshHost: document.getElementById('sshHost').value.trim(),
-      sshPort: document.getElementById('sshPort').value,
-      sshUsername: document.getElementById('sshUsername').value.trim(),
-      sshPassword: document.getElementById('sshPassword').value,
-      sshPrivateKey: document.getElementById('sshPrivateKey').value.trim(),
-      proxyHost: document.getElementById('proxyHost').value.trim(),
-      proxyPort: document.getElementById('proxyPort').value,
-      proxyUsername: document.getElementById('proxyUsername').value.trim(),
-      proxyPassword: document.getElementById('proxyPassword').value,
-      hiddenSchemas: document.getElementById('hiddenSchemas').value.trim(),
+      sshHost: valueOf($('sshHost')).trim(),
+      sshPort: valueOf($('sshPort')),
+      sshUsername: valueOf($('sshUsername')).trim(),
+      sshPassword: valueOf($('sshPassword')),
+      sshPrivateKey: valueOf($('sshPrivateKey')).trim(),
+      proxyHost: valueOf($('proxyHost')).trim(),
+      proxyPort: valueOf($('proxyPort')),
+      proxyUsername: valueOf($('proxyUsername')).trim(),
+      proxyPassword: valueOf($('proxyPassword')),
+      hiddenSchemas: valueOf($('hiddenSchemas')).trim(),
     };
   }
 
-  function validate() {
-    var valid = true;
-    var isSqlite = dbType.value === 'sqlite';
-    document.querySelectorAll('.error-text').forEach(function (el) { el.remove(); });
-
-    if (!connName.value.trim()) {
-      showError(connName, 'Connection name is required');
-      valid = false;
-    }
-    if (isSqlite) {
-      if (!sqliteFile.value.trim()) {
-        showError(sqliteFile, 'Database file path is required');
-        valid = false;
-      }
-    } else {
-      if (!host.value.trim()) {
-        showError(host, 'Host is required');
-        valid = false;
-      }
-      if (!port.value || isNaN(Number(port.value)) || Number(port.value) <= 0) {
-        showError(port, 'Port must be a positive number');
-        valid = false;
-      }
-    }
-    return valid;
-  }
-
-  function showError(input, message) {
-    var err = document.createElement('div');
+  function showError(field, message) {
+    const err = document.createElement('div');
     err.className = 'error-text';
     err.textContent = message;
-    input.parentNode.appendChild(err);
+    const target = field.closest('.form-group') || field.parentNode;
+    target.appendChild(err);
+  }
+
+  function validate() {
+    let valid = true;
+    const isSqlite = dbType.value === 'sqlite';
+    document.querySelectorAll('.error-text').forEach(function (el) { el.remove(); });
+
+    if (!valueOf(connName).trim()) { showError(connName, 'Connection name is required'); valid = false; }
+    if (isSqlite) {
+      if (!valueOf(sqliteFile).trim()) { showError(sqliteFile, 'Database file path is required'); valid = false; }
+    } else {
+      if (!valueOf(host).trim()) { showError(host, 'Host is required'); valid = false; }
+      const portNum = Number(valueOf(port));
+      if (!valueOf(port) || isNaN(portNum) || portNum <= 0) { showError(port, 'Port must be a positive number'); valid = false; }
+    }
+    return valid;
   }
 
   btnSave.addEventListener('click', function () {
@@ -383,59 +390,55 @@
   });
 
   window.addEventListener('message', function (event) {
-    var message = event.data;
+    const message = event.data;
     switch (message.type) {
       case 'testResult':
         btnTest.disabled = false;
         testResult.textContent = message.message || '';
-        if (message.status === 'success') {
-          testResult.className = 'test-result success';
-        } else if (message.status === 'failure') {
-          testResult.className = 'test-result failure';
-        } else {
-          testResult.className = 'test-result testing';
-        }
+        if (message.status === 'success') testResult.className = 'test-result success';
+        else if (message.status === 'failure') testResult.className = 'test-result failure';
+        else testResult.className = 'test-result testing';
         break;
 
       case 'setConfig':
         if (message.config) {
-          var c = message.config;
+          const c = message.config;
           connId.value = c.id || '';
           dbType.value = c.type || 'postgresql';
           connName.value = c.name || '';
           host.value = c.host || 'localhost';
-          port.value = c.port || defaultPorts[c.type || 'postgresql'];
+          port.value = String(c.port || defaultPorts[c.type || 'postgresql']);
           username.value = c.username || '';
           password.value = c.password || '';
           database.value = c.database || '';
           databases.value = (c.databases || []).join(',');
-          if (c.type === 'redis') { redisDb.value = c.database || '0'; }
-          if (c.type === 'sqlite') { sqliteFile.value = c.database || ''; }
+          if (c.type === 'redis') redisDb.value = c.database || '0';
+          if (c.type === 'sqlite') sqliteFile.value = c.database || '';
           initChips();
           ssl.checked = !!c.ssl;
           connColor.value = c.color || '';
-          connColorPicker.value = c.color || '#1e1e1e';
+          connColorPicker.value = c.color && /^#[0-9a-fA-F]{6}$/.test(c.color) ? c.color : '#1e1e1e';
+          setColorSwatch(c.color || '');
           readonlyMode.checked = !!c.readonly;
           folderId.value = c.folderId || '';
-          document.getElementById('scope').value = c.scope || 'user';
-          document.getElementById('safeMode').value = c.safeMode || '';
-          document.getElementById('hiddenSchemas').value = c.hiddenSchemas ? Object.values(c.hiddenSchemas).flat().join(', ') : '';
+          scopeEl.value = c.scope || 'user';
+          $('safeMode').value = c.safeMode || '';
+          $('hiddenSchemas').value = c.hiddenSchemas ? Object.values(c.hiddenSchemas).flat().join(', ') : '';
           proxyType.value = c.proxy?.type || 'none';
           if (c.proxy) {
-            document.getElementById('sshHost').value = c.proxy.sshHost || '';
-            document.getElementById('sshPort').value = c.proxy.sshPort || 22;
-            document.getElementById('sshUsername').value = c.proxy.sshUsername || '';
-            document.getElementById('sshPassword').value = c.proxy.sshPassword || '';
-            document.getElementById('sshPrivateKey').value = c.proxy.sshPrivateKey || '';
-            document.getElementById('proxyHost').value = c.proxy.proxyHost || '';
-            document.getElementById('proxyPort').value = c.proxy.proxyPort || 1080;
-            document.getElementById('proxyUsername').value = c.proxy.proxyUsername || '';
-            document.getElementById('proxyPassword').value = c.proxy.proxyPassword || '';
+            $('sshHost').value = c.proxy.sshHost || '';
+            $('sshPort').value = String(c.proxy.sshPort || 22);
+            $('sshUsername').value = c.proxy.sshUsername || '';
+            $('sshPassword').value = c.proxy.sshPassword || '';
+            $('sshPrivateKey').value = c.proxy.sshPrivateKey || '';
+            $('proxyHost').value = c.proxy.proxyHost || '';
+            $('proxyPort').value = String(c.proxy.proxyPort || 1080);
+            $('proxyUsername').value = c.proxy.proxyUsername || '';
+            $('proxyPassword').value = c.proxy.proxyPassword || '';
           }
           updateFieldVisibility();
         } else {
-          // New connection — apply folder defaults
-          var defaults = message.defaults || {};
+          const defaults = message.defaults || {};
           if (defaults.folderId) folderId.value = defaults.folderId;
           if (defaults.readonly) readonlyMode.checked = true;
         }
