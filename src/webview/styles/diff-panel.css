@@ -399,8 +399,13 @@ vscode-tab-panel[hidden] {
   max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
-  user-select: text;
+  /* Disable native text selection — grid selection is the way to copy.
+   * Matches Result Grid behavior and prevents drag-select from accidentally
+   * highlighting cell text underneath. */
+  user-select: none;
 }
+
+.diff-table th { user-select: none; }
 
 /* Zebra striping — applied to every tbody row, then status tints override. */
 .diff-table tbody tr:nth-child(even) td {
@@ -531,8 +536,10 @@ vscode-tab-panel[hidden] {
 .diff-schema-table td {
   padding: 6px 10px;
   white-space: nowrap;
-  user-select: text;
+  user-select: none;
 }
+
+.diff-schema-table th { user-select: none; }
 
 /* Zebra striping on schema / objects / Other stats tables. */
 .diff-schema-table tbody tr:nth-child(even) td {
@@ -656,19 +663,31 @@ vscode-tab-panel[hidden] {
   font-size: 10px;
 }
 
-/* ---- Cell selection + context menu (parity with Result Grid) ---- */
+/* ---- Cell selection + context menu (parity with Result Grid) ----
+ * Borders drawn via inset box-shadow so the 2px edges don't change cell
+ * height/width (classic border-box issue). Four CSS custom properties
+ * combine into one box-shadow declaration so per-edge classes stack. */
 .diff-table td.cell-selected,
 .diff-schema-table td.cell-selected {
   background: color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important;
+  --sh-top: 0 0 0 0 transparent;
+  --sh-bottom: 0 0 0 0 transparent;
+  --sh-left: 0 0 0 0 transparent;
+  --sh-right: 0 0 0 0 transparent;
+  box-shadow:
+    inset var(--sh-top),
+    inset var(--sh-bottom),
+    inset var(--sh-left),
+    inset var(--sh-right);
 }
 .diff-table td.sel-top,
-.diff-schema-table td.sel-top { border-top: 2px solid var(--vscode-focusBorder) !important; }
+.diff-schema-table td.sel-top { --sh-top: 0 2px 0 0 var(--vscode-focusBorder); }
 .diff-table td.sel-bottom,
-.diff-schema-table td.sel-bottom { border-bottom: 2px solid var(--vscode-focusBorder) !important; }
+.diff-schema-table td.sel-bottom { --sh-bottom: 0 -2px 0 0 var(--vscode-focusBorder); }
 .diff-table td.sel-left,
-.diff-schema-table td.sel-left { border-left: 2px solid var(--vscode-focusBorder) !important; }
+.diff-schema-table td.sel-left { --sh-left: 2px 0 0 0 var(--vscode-focusBorder); }
 .diff-table td.sel-right,
-.diff-schema-table td.sel-right { border-right: 2px solid var(--vscode-focusBorder) !important; }
+.diff-schema-table td.sel-right { --sh-right: -2px 0 0 0 var(--vscode-focusBorder); }
 
 .diff-ctx-menu {
   position: fixed;

@@ -951,7 +951,10 @@
   }
   function updateCellSelectionUI(table) {
     const sel = getSel(table);
-    table.querySelectorAll('tbody td').forEach(function (td) {
+    // O(previous selection) — only clear currently-marked cells, not every td.
+    // On a 1000-row diff, the alternative (querySelectorAll('tbody td')) was
+    // the drag-select bottleneck.
+    table.querySelectorAll('tbody td.cell-selected').forEach(function (td) {
       td.classList.remove('cell-selected', 'sel-top', 'sel-bottom', 'sel-left', 'sel-right');
     });
     const tbody = table.tBodies[0];
@@ -991,25 +994,30 @@
     activeSelectionTable = null;
   }
 
+  let lastDragCell = null;
+  let dragRafId = null;
+  let pendingDragPoint = null;
+
   document.addEventListener('mousedown', function (e) {
     if (e.button !== 0) return;
     closeDiffContextMenu();
     const td = e.target.closest ? e.target.closest(CELL_SELECT_SELECTOR) : null;
     if (!td) {
-      // Click outside any selectable table clears selection.
       if (!e.target.closest || !e.target.closest('.diff-ctx-menu')) clearAllSelections();
       return;
     }
+    // Block native text selection so the drag stays cleanly inside the grid.
+    e.preventDefault();
     const table = td.closest('table');
     const idx = cellIndex(td);
     clearOtherSelections(table);
     isDragging = true;
     dragTable = table;
     anchorCell = idx;
+    lastDragCell = { row: idx.row, col: idx.col };
     activeSelectionTable = table;
     const sel = getSel(table);
     if (e.shiftKey && sel.size > 0) {
-      // extend from the current top-left of the existing selection
       const cells = [];
       sel.forEach(function (k) { cells.push(k.split(':').map(Number)); });
       const anchorR = Math.min.apply(null, cells.map(function (p) { return p[0]; }));
@@ -1022,19 +1030,36 @@
     }
   });
 
-  document.addEventListener('mousemove', function (e) {
-    if (!isDragging || !dragTable || !anchorCell) return;
-    const el = document.elementFromPoint(e.clientX, e.clientY);
+  function flushDrag() {
+    dragRafId = null;
+    if (!isDragging || !dragTable || !anchorCell || !pendingDragPoint) return;
+    const pt = pendingDragPoint;
+    pendingDragPoint = null;
+    const el = document.elementFromPoint(pt.x, pt.y);
     if (!el) return;
     const td = el.closest ? el.closest('td') : null;
     if (!td || td.closest('table') !== dragTable) return;
     const idx = cellIndex(td);
+    // Bail out when the mouse is still over the same cell — nothing to redraw.
+    if (lastDragCell && lastDragCell.row === idx.row && lastDragCell.col === idx.col) return;
+    lastDragCell = idx;
     selectCellRange(dragTable, anchorCell.row, anchorCell.col, idx.row, idx.col);
+  }
+
+  document.addEventListener('mousemove', function (e) {
+    if (!isDragging) return;
+    pendingDragPoint = { x: e.clientX, y: e.clientY };
+    // Coalesce multiple mousemoves per frame — plain resultPanel parity would
+    // drop frames on a 5000-cell diff without this.
+    if (dragRafId === null) dragRafId = requestAnimationFrame(flushDrag);
   });
 
   document.addEventListener('mouseup', function () {
     isDragging = false;
     dragTable = null;
+    lastDragCell = null;
+    if (dragRafId !== null) { cancelAnimationFrame(dragRafId); dragRafId = null; }
+    pendingDragPoint = null;
   });
 
   function getCellText(tbody, r, c) {
