@@ -24,6 +24,20 @@ export interface ConnectionConfig {
   scope?: 'user' | 'project';
   /** Safe mode override per connection: 'off' | 'warn' | 'block' */
   safeMode?: 'off' | 'warn' | 'block';
+  /**
+   * Agent write-approval policy for MCP tools. Controls how queries sent
+   * through the in-process or standalone MCP servers are gated.
+   *
+   * - `always`: every non-SELECT requires human confirmation (default on new
+   *   connections; safest).
+   * - `ddl-and-admin`: INSERT/UPDATE/DELETE run without prompt, but
+   *   CREATE/ALTER/DROP/TRUNCATE/GRANT/etc. still prompt.
+   * - `never`: no prompts (effectively the pre-0.3.3 behavior).
+   *
+   * The standalone MCP server cannot display a modal; it refuses writes
+   * unless this value is `'never'`. See #75.
+   */
+  agentWriteApproval?: 'always' | 'ddl-and-admin' | 'never';
   /** Proxy/tunnel configuration */
   proxy?: ProxyConfig;
 }
@@ -54,6 +68,8 @@ export interface ConnectionFolder {
   sortOrder: number;
   parentFolderId?: string;
   scope?: 'user' | 'project';
+  /** Inherited by contained connections when they don't override. See ConnectionConfig.agentWriteApproval. */
+  agentWriteApproval?: 'always' | 'ddl-and-admin' | 'never';
 }
 
 export interface ConnectionState {

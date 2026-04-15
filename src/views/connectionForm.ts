@@ -154,6 +154,7 @@ export class ConnectionFormPanel {
       folderId: data.folderId || undefined,
       scope: (data.scope as 'user' | 'project') || 'user',
       safeMode: data.safeMode ? (data.safeMode as 'off' | 'warn' | 'block') : undefined,
+      agentWriteApproval: data.agentWriteApproval ? (data.agentWriteApproval as 'always' | 'ddl-and-admin' | 'never') : undefined,
       proxy: data.proxyType && data.proxyType !== 'none' ? {
         type: data.proxyType as 'ssh' | 'socks5' | 'http',
         sshHost: data.sshHost || undefined,
@@ -215,6 +216,19 @@ export class ConnectionFormPanel {
       </select>
       <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-top:4px;line-height:1.4;">
         Auto-adds LIMIT to SELECTs, runs EXPLAIN to detect full table scans before execution.
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="agentWriteApproval">Agent write approval</label>
+      <select id="agentWriteApproval">
+        <option value="" ${!c?.agentWriteApproval ? 'selected' : ''}>Default (always — safest)</option>
+        <option value="always" ${c?.agentWriteApproval === 'always' ? 'selected' : ''}>🔒 Always — prompt for every write / DDL / admin</option>
+        <option value="ddl-and-admin" ${c?.agentWriteApproval === 'ddl-and-admin' ? 'selected' : ''}>⚠️ DDL &amp; admin only — auto-run INSERT/UPDATE/DELETE</option>
+        <option value="never" ${c?.agentWriteApproval === 'never' ? 'selected' : ''}>🔓 Never — agent runs any query without asking</option>
+      </select>
+      <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-top:4px;line-height:1.4;">
+        Controls queries from MCP tools and <code>@viewstor</code>. The standalone MCP server (CLI agents) refuses writes unless this is set to <code>Never</code>.
       </div>
     </div>
 

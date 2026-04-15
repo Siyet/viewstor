@@ -424,6 +424,27 @@ export class ConnectionManager {
     return undefined;
   }
 
+  /**
+   * Resolve the effective agent-write-approval policy for a connection:
+   * connection override first, then folder (walking up the folder tree),
+   * then the default 'always'.
+   */
+  getAgentWriteApproval(id: string): 'always' | 'ddl-and-admin' | 'never' {
+    const state = this.connections.get(id);
+    if (!state) return 'always';
+    if (state.config.agentWriteApproval) return state.config.agentWriteApproval;
+    let folderId: string | undefined = state.config.folderId;
+    const seen = new Set<string>();
+    while (folderId && !seen.has(folderId)) {
+      seen.add(folderId);
+      const folder = this.folders.get(folderId);
+      if (!folder) break;
+      if (folder.agentWriteApproval) return folder.agentWriteApproval;
+      folderId = folder.parentFolderId;
+    }
+    return 'always';
+  }
+
   /** Check if a connection is effectively readonly (own setting or folder setting) */
   isConnectionReadonly(id: string): boolean {
     const state = this.connections.get(id);

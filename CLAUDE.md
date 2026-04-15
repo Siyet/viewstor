@@ -129,11 +129,20 @@ Settings: `viewstor.diffRowLimit` (default 10000, max 100000).
 ### Chat Participant
 `src/chat/participant.ts` — Copilot Chat participant `@viewstor`. Registered via `vscode.chat.createChatParticipant()`. Slash commands: `/schema` (dump schema), `/describe <table>` (table info), `/query` (generate SQL), `/chart` (generate SQL + open chart visualization). Resolves active connection from query editor URI or first connected connection. Injects schema context (tables + columns + types) as system prompt. Uses `vscode.lm.selectChatModels()` to forward to Copilot LLM. Respects readonly mode in system prompt. Requires VS Code 1.93+.
 
+### MCP Agent Safe Mode
+`src/mcp/queryRisk.ts` — pure, vscode-independent classifier. `classifyQuery(sql)` returns `{ kind: 'read' | 'write' | 'ddl' | 'admin' | 'unknown', verb? }`. Multi-statement scripts return the most-severe kind; `unknown` wins so unparseable SQL is always treated as destructive. Handles leading comments, splits on top-level `;` (ignoring `;` in quotes/backticks/comments). `needsApproval(risk, mode)`: `always` prompts for every non-read, `ddl-and-admin` auto-approves INSERT/UPDATE/DELETE but prompts for DDL/admin/unknown, `never` never prompts. Fully unit-tested.
+
+`ConnectionConfig.agentWriteApproval` (and `ConnectionFolder.agentWriteApproval` with inheritance) picks the policy. Resolved via `ConnectionManager.getAgentWriteApproval(id)` which walks connection → folder → parent folders → default `'always'`. Enforced at both MCP surfaces:
+- In-process (`src/mcp/server.ts` `executeQuery`): VS Code modal with SQL preview, classification, and "Run" / "Run & remember for session" buttons. Session approvals cached in a `sessionApprovals` Map keyed by `${connectionId}:${risk.kind}`, TTL 5 min.
+- Standalone (`src/mcp-server/index.ts` `execute_query`): cannot display a modal, so refuses non-reads with a structured `{ kind: 'approval_required', classification, approvalMode }` response unless `agentWriteApproval === 'never'`.
+
+The `readonly` flag remains an unconditional kill-switch — when set, any non-read returns `{ kind: 'readonly_blocked' }` regardless of approval mode. MCP responses carry `classification: QueryRisk`.
+
 ### MCP
 `src/mcp/server.ts` — 7 VS Code commands for AI agents:
 - `viewstor.mcp.listConnections` → connection list with status
 - `viewstor.mcp.getSchema` → flattened schema (name, type, path, detail)
-- `viewstor.mcp.executeQuery` → SQL execution (readonly enforced: only SELECT/EXPLAIN/SHOW/WITH)
+- `viewstor.mcp.executeQuery` → SQL execution (readonly enforced: only SELECT/EXPLAIN/SHOW/WITH; write/DDL/admin gated by `agentWriteApproval` — see MCP Agent Safe Mode above)
 - `viewstor.mcp.getTableData` → rows with column metadata
 - `viewstor.mcp.getTableInfo` → column details with PK/nullable
 - `viewstor.mcp.visualize` → execute query and open chart panel

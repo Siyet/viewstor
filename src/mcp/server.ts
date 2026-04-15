@@ -2,6 +2,29 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { ChartConfig, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { classifyQuery, needsApproval, describeRisk, QueryRisk } from './queryRisk';
+
+/** Session approval cache keyed by `${connectionId}:${risk.kind}`. TTL-bounded. */
+const sessionApprovals = new Map<string, number>();
+const SESSION_APPROVAL_TTL_MS = 5 * 60 * 1000;
+
+function approvalCacheKey(connectionId: string, risk: QueryRisk): string {
+  return `${connectionId}:${risk.kind}`;
+}
+
+function hasSessionApproval(connectionId: string, risk: QueryRisk): boolean {
+  const expiry = sessionApprovals.get(approvalCacheKey(connectionId, risk));
+  if (!expiry) return false;
+  if (expiry < Date.now()) {
+    sessionApprovals.delete(approvalCacheKey(connectionId, risk));
+    return false;
+  }
+  return true;
+}
+
+function rememberSessionApproval(connectionId: string, risk: QueryRisk): void {
+  sessionApprovals.set(approvalCacheKey(connectionId, risk), Date.now() + SESSION_APPROVAL_TTL_MS);
+}
 
 /**
  * MCP-compatible tool definitions exposed via VS Code commands.
@@ -45,11 +68,39 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
 
     vscode.commands.registerCommand('viewstor.mcp.executeQuery', async (connectionId: string, query: string, database?: string) => {
       const state = connectionManager.get(connectionId);
-      if (state?.config.readonly) {
-        // In readonly mode, only allow SELECT/EXPLAIN/SHOW
-        const trimmed = query.trim().toUpperCase();
-        if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('EXPLAIN') && !trimmed.startsWith('SHOW') && !trimmed.startsWith('WITH')) {
-          return { error: 'Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.' };
+      const risk = classifyQuery(query);
+
+      // Readonly kill-switch: regardless of approval mode, block non-reads.
+      if (state?.config.readonly && risk.kind !== 'read') {
+        return {
+          error: 'Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.',
+          kind: 'readonly_blocked',
+          classification: risk,
+        };
+      }
+
+      // Agent write-approval gate.
+      const approvalMode = connectionManager.getAgentWriteApproval(connectionId);
+      if (needsApproval(risk, approvalMode)) {
+        if (!hasSessionApproval(connectionId, risk)) {
+          const connName = state?.config.name || connectionId;
+          const preview = query.length > 800 ? query.slice(0, 800) + '\n… (truncated)' : query;
+          const detail = `Connection: ${connName}\nClassification: ${describeRisk(risk)}\n\nSQL:\n${preview}`;
+          const pick = await vscode.window.showWarningMessage(
+            'Viewstor: an agent wants to run a query that can modify data.',
+            { modal: true, detail },
+            'Run',
+            'Run & remember for session',
+          );
+          if (pick === 'Run & remember for session') {
+            rememberSessionApproval(connectionId, risk);
+          } else if (pick !== 'Run') {
+            return {
+              error: 'User denied execution',
+              kind: 'user_denied',
+              classification: risk,
+            };
+          }
         }
       }
 
@@ -63,9 +114,13 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
           rowCount: result.rowCount,
           executionTimeMs: result.executionTimeMs,
           error: result.error,
+          classification: risk,
         };
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return {
+          error: err instanceof Error ? err.message : String(err),
+          classification: risk,
+        };
       }
     }),
 
