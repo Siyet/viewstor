@@ -35,6 +35,8 @@ Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / syste
 
 Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
 
+`src/drivers/pgvector.ts` — pure helpers for pgvector support in the PG driver. `formatVectorType(udtName, typmod)` renders `vector(N)` using `pg_attribute.atttypmod` (pgvector stores the dimension there directly, `-1` = unspecified). `pgVectorCompletionItems()` returns distance operators (`<->`, `<#>`, `<=>`, `<+>`) and helper functions (`l2_distance`, `cosine_distance`, `inner_product`, `vector_dims`, `vector_norm`, `l2_normalize`). `PostgresDriver.detectPgvector()` lazily caches the `pg_extension` lookup and is cleared on `disconnect()`.
+
 ### Connections
 `src/connections/connectionManager.ts` — persists in VS Code `globalState` (keys: `viewstor.connections`, `viewstor.connectionFolders`).
 

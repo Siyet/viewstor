@@ -6,6 +6,7 @@ import { CompletionItem } from '../types/driver';
 import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
 import { createSSHTunnel, createSocks5Connection, TunnelInfo } from '../connections/tunnel';
 import { quoteIdentifier } from '../utils/queryHelpers';
+import { formatVectorType, pgVectorCompletionItems } from './pgvector';
 
 // Return raw strings for bigint, numeric, etc. instead of JS number
 types.setTypeParser(20, (val: string) => val); // int8
@@ -24,6 +25,48 @@ function toStringArray(value: unknown): string[] {
 export class PostgresDriver implements DatabaseDriver {
   private client: Client | undefined;
   private tunnel: TunnelInfo | undefined;
+  /** Lazily resolved on first schema/completion query; null = not yet checked. */
+  private hasPgvector: boolean | null = null;
+
+  private async detectPgvector(): Promise<boolean> {
+    if (this.hasPgvector !== null) return this.hasPgvector;
+    try {
+      const res = await this.client!.query(
+        'SELECT 1 FROM pg_extension WHERE extname = \'vector\' LIMIT 1',
+      );
+      this.hasPgvector = (res.rowCount ?? 0) > 0;
+    } catch {
+      this.hasPgvector = false;
+    }
+    return this.hasPgvector;
+  }
+
+  /**
+   * Build a Map<schema.table.column, dimension> for pgvector-typed columns.
+   * Returns an empty Map when pgvector is not installed.
+   */
+  private async fetchVectorDimsMap(): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    if (!(await this.detectPgvector())) return map;
+    try {
+      const res = await this.client!.query(`
+        SELECT n.nspname AS schema, c.relname AS tbl, a.attname AS col, a.atttypmod AS typmod
+        FROM pg_attribute a
+        JOIN pg_class c ON c.oid = a.attrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_type t ON t.oid = a.atttypid
+        WHERE t.typname = 'vector'
+          AND a.attnum > 0 AND NOT a.attisdropped
+          AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+      `);
+      for (const row of res.rows) {
+        map.set(`${row.schema}.${row.tbl}.${row.col}`, parseInt(String(row.typmod), 10));
+      }
+    } catch {
+      // Schema drift or permission issues — fall back to plain "vector".
+    }
+    return map;
+  }
 
   async connect(config: ConnectionConfig): Promise<void> {
     let host = config.host;
@@ -63,6 +106,7 @@ export class PostgresDriver implements DatabaseDriver {
     this.client = undefined;
     this.tunnel?.close();
     this.tunnel = undefined;
+    this.hasPgvector = null;
   }
 
   async ping(): Promise<boolean> {
@@ -207,6 +251,8 @@ export class PostgresDriver implements DatabaseDriver {
       columnIndexesMap.get(key)!.push(row.index_name);
     }
 
+    const vectorDimsMap = await this.fetchVectorDimsMap();
+
     // Triggers
     const triggersRes = await this.client!.query(`
       SELECT trigger_schema, event_object_table, trigger_name
@@ -230,7 +276,9 @@ export class PostgresDriver implements DatabaseDriver {
       if (!columnsMap.has(key)) columnsMap.set(key, []);
       const badges = [];
       if (row.is_pk) badges.push('PK');
-      const displayType = row.data_type === 'USER-DEFINED' ? row.udt_name : row.data_type;
+      const vectorKey = `${row.table_schema}.${row.table_name}.${row.column_name}`;
+      const vectorType = formatVectorType(row.udt_name, vectorDimsMap.get(vectorKey));
+      const displayType = vectorType ?? (row.data_type === 'USER-DEFINED' ? row.udt_name : row.data_type);
       const detail = `${displayType}${badges.length ? ' (' + badges.join(', ') + ')' : ''}`;
       const indexNames = columnIndexesMap.get(`${row.table_schema}.${row.table_name}.${row.column_name}`);
       const notNullable = row.is_nullable === 'NO' && !row.is_pk;
@@ -522,14 +570,42 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY c.ordinal_position
     `, [schema, name]);
 
-    const columns: ColumnInfo[] = res.rows.map(row => ({
-      name: row.column_name,
-      dataType: row.data_type === 'USER-DEFINED' ? row.udt_name : row.data_type,
-      nullable: row.is_nullable === 'YES',
-      isPrimaryKey: row.is_pk,
-      defaultValue: row.column_default,
-      comment: row.comment ?? undefined,
-    }));
+    // For any `vector` columns on this table, pull the dimension out of
+    // pg_attribute.atttypmod so the column metadata reads `vector(N)`
+    // instead of just `vector`.
+    const vectorDims = new Map<string, number>();
+    if (await this.detectPgvector()) {
+      try {
+        const dimRes = await this.client!.query(`
+          SELECT a.attname, a.atttypmod
+          FROM pg_attribute a
+          JOIN pg_class c ON c.oid = a.attrelid
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_type t ON t.oid = a.atttypid
+          WHERE n.nspname = $1 AND c.relname = $2
+            AND t.typname = 'vector'
+            AND a.attnum > 0 AND NOT a.attisdropped
+        `, [schema, name]);
+        for (const row of dimRes.rows) {
+          vectorDims.set(row.attname, parseInt(String(row.atttypmod), 10));
+        }
+      } catch {
+        // Ignore — fall back to bare `vector`.
+      }
+    }
+
+    const columns: ColumnInfo[] = res.rows.map(row => {
+      const vectorType = formatVectorType(row.udt_name, vectorDims.get(row.column_name));
+      const dataType = vectorType ?? (row.data_type === 'USER-DEFINED' ? row.udt_name : row.data_type);
+      return {
+        name: row.column_name,
+        dataType,
+        nullable: row.is_nullable === 'YES',
+        isPrimaryKey: row.is_pk,
+        defaultValue: row.column_default,
+        comment: row.comment ?? undefined,
+      };
+    });
 
     return { name, schema, columns };
   }
@@ -855,6 +931,10 @@ export class PostgresDriver implements DatabaseDriver {
         parent: r.table_name,
         enumValues: enumMap.get(r.udt_name),
       });
+    }
+
+    if (await this.detectPgvector()) {
+      items.push(...pgVectorCompletionItems());
     }
 
     return items;

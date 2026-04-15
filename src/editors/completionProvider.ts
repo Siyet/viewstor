@@ -130,6 +130,13 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
       results.push(item);
     }
 
+    // Driver-provided functions and keyword-kind items (e.g. pgvector operators/functions)
+    for (const c of dbItems) {
+      if (c.kind === 'function' || c.kind === 'keyword') {
+        results.push(toVscodeItem(c));
+      }
+    }
+
     return results;
   }
 
