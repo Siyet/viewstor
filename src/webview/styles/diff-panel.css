@@ -716,3 +716,85 @@ vscode-tab-panel[hidden] {
 .diff-ctx-menu button:hover {
   background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
 }
+
+/* ---- Panel-first placeholder (pending state, #74) ---- */
+.diff-pending {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  overflow: auto;
+}
+
+.diff-pending-pane {
+  flex: 1 1 0;
+  min-width: 180px;
+  max-width: 420px;
+  border: 1px solid var(--viewstor-border-subtle);
+  border-radius: 6px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+}
+
+.diff-pending-filled {
+  justify-content: flex-start;
+}
+
+.diff-pending-placeholder {
+  border-style: dashed;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--viewstor-text-dimmed);
+}
+
+.diff-pending-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--viewstor-text-dimmed);
+}
+
+.diff-pending-value {
+  font-size: var(--viewstor-font-table-data-size);
+  color: var(--vscode-foreground);
+  word-break: break-word;
+}
+
+.diff-pending-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--viewstor-text-dimmed);
+  flex: 0 0 auto;
+  padding: 0 4px;
+}
+
+.diff-pending-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid var(--viewstor-border-subtle);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: var(--viewstor-font-table-data-size);
+  cursor: pointer;
+}
+
+.diff-pending-picker:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-foreground);
+}
+
+.diff-pending-picker:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}

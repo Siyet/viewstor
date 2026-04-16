@@ -146,7 +146,7 @@ Example: pin `SELECT ts, cpu FROM metrics` and `SELECT ts, mem FROM metrics`, op
 
 Compare data between tables — even across different connections (dev vs staging):
 
-- Right-click a table → **Compare With...** → pick another table from any connected database
+- Right-click a table → **Compare With...** → the diff panel opens right away with the source table loaded on the left and a "Pick a table" placeholder on the right. The table picker opens on top; dismiss it and the placeholder stays clickable so you can re-pick from inside the panel.
 - **Row diff** — matches rows by primary key, highlights added/removed/changed cells side-by-side, zebra-striped rows
 - **Schema diff** — compare column names, types, nullability, PK status, plus indexes, constraints, triggers, and sequences
 - **Statistics diff** — side-by-side row count, table/index/total size, dead tuples, last vacuum/analyze, scan counters (PostgreSQL); row count, compressed/uncompressed size, compression ratio, parts, engine (ClickHouse); row count, table size, index/trigger counts (SQLite). Only shown when both sides are the same database type
