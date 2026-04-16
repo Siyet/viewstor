@@ -307,8 +307,10 @@ export class DiffPanelManager {
     const tokensUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'tokens.css'));
     const codiconUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'codicon.css'));
     const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'diff-panel.css'));
+    const ctxMenuCssUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'context-menu.css'));
     const shellUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'webview-shell.js'));
     const elementsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'vscode-elements.js'));
+    const ctxMenuJsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'context-menu.js'));
     const jsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'diff-panel.js'));
     const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
     const cspSource = webview.cspSource;
@@ -374,8 +376,10 @@ export class DiffPanelManager {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource} 'unsafe-inline';">
 <link rel="stylesheet" href="${codiconUri}">
 <link rel="stylesheet" href="${tokensUri}">
+<link rel="stylesheet" href="${ctxMenuCssUri}">
 <link rel="stylesheet" href="${cssUri}">
 <script src="${shellUri}"></script>
+<script src="${ctxMenuJsUri}"></script>
 <script type="module" src="${elementsUri}"></script>
 </head>
 <body>

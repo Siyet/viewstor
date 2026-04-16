@@ -1006,10 +1006,10 @@
 
   document.addEventListener('mousedown', function (e) {
     if (e.button !== 0) return;
-    closeDiffContextMenu();
+    if (window.ViewstorContextMenu) window.ViewstorContextMenu.close();
     const td = e.target.closest ? e.target.closest(CELL_SELECT_SELECTOR) : null;
     if (!td) {
-      if (!e.target.closest || !e.target.closest('.diff-ctx-menu')) clearAllSelections();
+      if (!e.target.closest || !e.target.closest('.viewstor-ctx-menu')) clearAllSelections();
       return;
     }
     // Block native text selection so the drag stays cleanly inside the grid.
@@ -1153,16 +1153,9 @@
   }
 
   // ---- Context menu ----
-  let diffCtxEl = null;
-  function closeDiffContextMenu() {
-    if (diffCtxEl) { diffCtxEl.remove(); diffCtxEl = null; }
-  }
+  // Click-outside / Escape are handled by the shared ViewstorContextMenu primitive.
   function openDiffContextMenu(x, y, table) {
-    closeDiffContextMenu();
-    diffCtxEl = document.createElement('div');
-    diffCtxEl.className = 'diff-ctx-menu';
-    diffCtxEl.style.left = x + 'px';
-    diffCtxEl.style.top = y + 'px';
+    if (!window.ViewstorContextMenu) return;
     const formats = [
       { label: 'Copy', fmt: 'tsv' },
       { label: 'Copy with Headers', fmt: 'tsv-header' },
@@ -1172,22 +1165,13 @@
       { label: 'Copy as Markdown', fmt: 'md' },
       { label: 'Copy as JSON', fmt: 'json' },
     ];
-    formats.forEach(function (f) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.textContent = f.label;
-      btn.addEventListener('click', function () {
-        copyFromTable(table, f.fmt);
-        closeDiffContextMenu();
-      });
-      diffCtxEl.appendChild(btn);
+    window.ViewstorContextMenu.open({
+      x: x,
+      y: y,
+      items: formats.map(function (f) {
+        return { label: f.label, onClick: function () { copyFromTable(table, f.fmt); } };
+      }),
     });
-    document.body.appendChild(diffCtxEl);
-
-    // Clamp to viewport
-    const rect = diffCtxEl.getBoundingClientRect();
-    if (rect.right > window.innerWidth) diffCtxEl.style.left = (window.innerWidth - rect.width - 4) + 'px';
-    if (rect.bottom > window.innerHeight) diffCtxEl.style.top = (window.innerHeight - rect.height - 4) + 'px';
   }
 
   document.addEventListener('contextmenu', function (e) {
@@ -1206,12 +1190,7 @@
     openDiffContextMenu(e.clientX, e.clientY, table);
   });
 
-  document.addEventListener('click', function (e) {
-    if (diffCtxEl && !e.target.closest('.diff-ctx-menu')) closeDiffContextMenu();
-  });
-
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { closeDiffContextMenu(); return; }
     if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C')) {
       if (!activeSelectionTable) return;
       const sel = getSel(activeSelectionTable);

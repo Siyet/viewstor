@@ -1,7 +1,27 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { QueryResult, QueryColumn } from '../types/query';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import path from 'path';
+
+// Shared context-menu primitive (#94). Read once at module load from either
+// the bundled `dist/scripts` (runtime) or the source tree (tests / dev mode)
+// so both surfaces keep in sync with `src/webview/scripts/context-menu.js`.
+const CTX_MENU_SCRIPT = loadWebviewAsset('scripts/context-menu.js');
+const CTX_MENU_CSS = loadWebviewAsset('styles/context-menu.css');
+
+function loadWebviewAsset(relative: string): string {
+  const candidates = [
+    // Bundled runtime: extension.js sits next to dist/scripts and dist/styles.
+    path.join(__dirname, relative),
+    // Source / test mode: src/views/ → src/webview/{scripts,styles}.
+    path.join(__dirname, '..', 'webview', relative),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return fs.readFileSync(candidate, 'utf-8');
+  }
+  throw new Error(`[viewstor] shared webview asset not found: ${relative}`);
+}
 
 export interface ShowOptions {
   connectionId?: string;
@@ -346,9 +366,8 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   td.sel-bottom { border-bottom:2px solid var(--vscode-focusBorder) !important; }
   td.sel-left { border-left:2px solid var(--vscode-focusBorder) !important; }
   td.sel-right { border-right:2px solid var(--vscode-focusBorder) !important; }
-  .ctx-menu { position:fixed; background:var(--vscode-menu-background, var(--vscode-dropdown-background)); border:1px solid var(--vscode-menu-border, var(--vscode-panel-border)); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,0.3); z-index:50; padding:4px 0; min-width:160px; }
-  .ctx-menu button { display:block; width:100%; text-align:left; padding:6px 12px; background:none; border:none; color:var(--vscode-menu-foreground, var(--vscode-foreground)); font-size:12px; cursor:pointer; }
-  .ctx-menu button:hover { background:var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground)); }
+  /* Context-menu styles come from the shared module (#94). */
+  ${CTX_MENU_CSS}
   td.has-handle { overflow:visible !important; }
   .resize-handle { position:absolute; bottom:-5px; right:-5px; width:8px; height:8px; background:var(--vscode-focusBorder); cursor:crosshair; z-index:5; border:2px solid var(--vscode-editor-background); border-radius:1px; }
   .null-val { color:var(--vscode-descriptionForeground); font-style:italic; }
@@ -397,6 +416,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:99; }
   .hidden { display:none; }
 </style>
+<script>
+${CTX_MENU_SCRIPT}
+</script>
 </head>
 <body>
   <div class="toolbar">
@@ -640,23 +662,20 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
       th.addEventListener('click', (e) => { if (e.target.classList && e.target.classList.contains('col-resize-handle')) return; handleSortClick(Number(th.dataset.col), e.shiftKey); });
       th.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        closeContextMenu();
         const ci = Number(th.dataset.col);
-        ctxMenuEl = document.createElement('div');
-        ctxMenuEl.className = 'ctx-menu';
-        ctxMenuEl.style.left = e.clientX + 'px';
-        ctxMenuEl.style.top = e.clientY + 'px';
-        const selectBtn = document.createElement('button');
-        selectBtn.textContent = 'Select Column';
-        selectBtn.addEventListener('click', () => {
-          selectedCells.clear();
-          for (let r = 0; r < pageRows.length; r++) selectedCells.add(cellKey(r, ci));
-          anchorCell = { row: 0, col: ci };
-          updateSelectionUI();
-          closeContextMenu();
+        window.ViewstorContextMenu.open({
+          x: e.clientX,
+          y: e.clientY,
+          items: [{
+            label: 'Select Column',
+            onClick: () => {
+              selectedCells.clear();
+              for (let r = 0; r < pageRows.length; r++) selectedCells.add(cellKey(r, ci));
+              anchorCell = { row: 0, col: ci };
+              updateSelectionUI();
+            },
+          }],
         });
-        ctxMenuEl.appendChild(selectBtn);
-        document.body.appendChild(ctxMenuEl);
       });
       // Column resize handle
       var handle = th.querySelector('.col-resize-handle');
@@ -888,49 +907,27 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   }
 
   // --- Context menu ---
-  let ctxMenuEl = null;
+  // Click-outside / Escape are handled by the shared ViewstorContextMenu primitive.
+  function closeContextMenu() { window.ViewstorContextMenu.close(); }
   function showContextMenu(e) {
     e.preventDefault();
-    closeContextMenu();
     if (selectedCells.size === 0) return;
-    ctxMenuEl = document.createElement('div');
-    ctxMenuEl.className = 'ctx-menu';
-    ctxMenuEl.style.left = e.clientX + 'px';
-    ctxMenuEl.style.top = e.clientY + 'px';
-    const formats = [
-      { label: 'Copy', fmt: 'tsv' },
-      { label: 'Copy as One-row (SQL)', fmt: 'onerow-sq' },
-      { label: 'Copy as One-row (JSON)', fmt: 'onerow-dq' },
-      { label: 'Copy as CSV', fmt: 'csv' },
-      { label: 'Copy as TSV', fmt: 'tsv-explicit' },
-      { label: 'Copy as Markdown', fmt: 'md' },
-      { label: 'Copy as JSON', fmt: 'json' },
+    const items = [
+      { label: 'Copy', onClick: () => copySelection('tsv') },
+      { label: 'Copy as One-row (SQL)', onClick: () => copySelection('onerow-sq') },
+      { label: 'Copy as One-row (JSON)', onClick: () => copySelection('onerow-dq') },
+      { label: 'Copy as CSV', onClick: () => copySelection('csv') },
+      { label: 'Copy as TSV', onClick: () => copySelection('tsv-explicit') },
+      { label: 'Copy as Markdown', onClick: () => copySelection('md') },
+      { label: 'Copy as JSON', onClick: () => copySelection('json') },
     ];
-    formats.forEach(f => {
-      const btn = document.createElement('button');
-      btn.textContent = f.label;
-      btn.addEventListener('click', () => { copySelection(f.fmt); closeContextMenu(); });
-      ctxMenuEl.appendChild(btn);
-    });
-    // Delete row option (only in table mode, not readonly, with PKs)
     if (!IS_READONLY && IS_TABLE_MODE && pkColumns.length > 0) {
-      var sep = document.createElement('div');
-      sep.style.cssText = 'height:1px;background:var(--vscode-menu-separatorBackground, var(--vscode-panel-border));margin:4px 0;';
-      ctxMenuEl.appendChild(sep);
-      var delBtn = document.createElement('button');
-      delBtn.textContent = 'Delete Row(s)';
-      delBtn.style.color = 'var(--vscode-errorForeground)';
-      delBtn.addEventListener('click', function() {
-        closeContextMenu();
-        sendDeleteRows();
-      });
-      ctxMenuEl.appendChild(delBtn);
+      items.push({ separator: true });
+      items.push({ label: 'Delete Row(s)', destructive: true, onClick: () => sendDeleteRows() });
     }
-    document.body.appendChild(ctxMenuEl);
+    window.ViewstorContextMenu.open({ x: e.clientX, y: e.clientY, items });
   }
-  function closeContextMenu() { if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; } }
   document.getElementById('dataBody').addEventListener('contextmenu', showContextMenu);
-  document.addEventListener('click', closeContextMenu);
 
   function getSelectionData() {
     const cells = [...selectedCells].map(k => { const [r,c] = k.split(':').map(Number); return {r,c}; });
