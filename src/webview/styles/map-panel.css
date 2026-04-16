@@ -19,10 +19,13 @@ body {
   border-bottom: 1px solid var(--vscode-panel-border);
   flex-shrink: 0;
 }
-.toolbar label {
+.toolbar label:not([hidden]) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+.toolbar label[hidden] {
+  display: none;
 }
 .toolbar select {
   background: var(--vscode-dropdown-background);
@@ -101,4 +104,10 @@ table.map-popup tr:last-child td {
   color: var(--vscode-foreground);
   border: 1px solid var(--vscode-panel-border);
   font-family: var(--vscode-font-family);
+}
+.leaflet-tooltip.map-label-permanent {
+  background: var(--vscode-editorHoverWidget-background);
+  padding: 1px 6px;
+  font-size: 11px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }

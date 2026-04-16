@@ -29,15 +29,9 @@ export function registerMapCommands(context: vscode.ExtensionContext, ctx: Comma
           ? `Map — ${data.connectionName}`
           : 'Map';
 
-      const ok = ctx.mapPanelManager.show(data.columns, data.rows, title, {
+      ctx.mapPanelManager.show(data.columns, data.rows, title, {
         color: data.color,
       });
-
-      if (!ok) {
-        vscode.window.showWarningMessage(
-          vscode.l10n.t('No geographic coordinates detected. Viewstor looks for a column containing GeoJSON, WKT, {lat,lng} objects, or a separate pair of lat/lng columns.'),
-        );
-      }
     }),
   );
 }
