@@ -258,40 +258,49 @@ export class KafkaDriver implements DatabaseDriver {
     const groupId = `viewstor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const consumer = this.client.consumer({ groupId, sessionTimeout: 10000 });
     await consumer.connect();
-    // kafkajs 2.x replaced single `topic` with `topics[]`; the old shape still works
-    // but logs a deprecation warning on every consume.
-    await consumer.subscribe({ topics: [topic], fromBeginning });
-
-    const collected: Record<string, unknown>[] = [];
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => resolve(), 5000);
-      consumer
-        .run({
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          eachMessage: async ({ topic: t, partition, message }: any) => {
-            if (collected.length >= cap) return;
-            collected.push({
-              offset: message.offset,
-              partition,
-              key: message.key ? message.key.toString() : null,
-              value: message.value ? message.value.toString() : null,
-              timestamp: message.timestamp ? new Date(Number(message.timestamp)).toISOString() : null,
-              headers: message.headers ? JSON.stringify(normalizeHeaders(message.headers)) : null,
-              topic: t,
-            });
-            if (collected.length >= cap) {
-              clearTimeout(timer);
-              resolve();
-            }
-          },
-        })
-        .catch(reject);
-    });
-
+    // Everything past `connect()` must run inside the finally block so we
+    // always disconnect the consumer — otherwise a `subscribe`/`run` failure
+    // leaks a connected consumer and its throwaway group on the broker.
     try {
-      await consumer.disconnect();
-    } catch { /* noop */ }
-    return collected.slice(0, cap);
+      // kafkajs 2.x replaced single `topic` with `topics[]`; the old shape still works
+      // but logs a deprecation warning on every consume.
+      await consumer.subscribe({ topics: [topic], fromBeginning });
+
+      const collected: Record<string, unknown>[] = [];
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(), 5000);
+        consumer
+          .run({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            eachMessage: async ({ topic: t, partition, message }: any) => {
+              if (collected.length >= cap) return;
+              collected.push({
+                offset: message.offset,
+                partition,
+                key: message.key ? message.key.toString() : null,
+                value: message.value ? message.value.toString() : null,
+                timestamp: message.timestamp ? new Date(Number(message.timestamp)).toISOString() : null,
+                headers: message.headers ? JSON.stringify(normalizeHeaders(message.headers)) : null,
+                topic: t,
+              });
+              if (collected.length >= cap) {
+                clearTimeout(timer);
+                resolve();
+              }
+            },
+          })
+          .catch((err: unknown) => {
+            clearTimeout(timer);
+            reject(err);
+          });
+      });
+
+      return collected.slice(0, cap);
+    } finally {
+      try {
+        await consumer.disconnect();
+      } catch { /* noop */ }
+    }
   }
 }
 
