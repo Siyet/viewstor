@@ -21,6 +21,21 @@ export function registerChatParticipant(
     const state = connectionManager.get(connectionId);
     if (!state) return;
 
+    // Honor per-connection AI agent access mode (#71). `none` hides the
+    // connection from agents entirely — surface it as if no connection exists.
+    const access = connectionManager.getAgentAccess(connectionId);
+    if (access === 'none') {
+      stream.markdown(vscode.l10n.t('No active database connection. Connect to a database first, or open a query tab.'));
+      return;
+    }
+
+    // `schema-only` blocks query execution. `/chart` runs SQL, so refuse it
+    // here before we spend an LLM round-trip generating a query we will not run.
+    if (access === 'schema-only' && request.command === 'chart') {
+      stream.markdown(vscode.l10n.t('This connection is set to **schema-only** for AI agents. `/chart` requires query execution and is disabled. Change the AI agent access mode to **Full** to enable it.'));
+      return;
+    }
+
     // Auto-connect if needed
     let driver = connectionManager.getDriver(connectionId);
     if (!driver) {
@@ -191,15 +206,19 @@ function resolveConnectionId(
   connectionManager: ConnectionManager,
   queryEditorProvider: QueryEditorProvider,
 ): string | undefined {
+  // Connections with agentAccess='none' are hidden from AI agents (#71);
+  // skip them at every fallback step so they never leak into the chat.
+  const isVisible = (id: string) => connectionManager.getAgentAccess(id) !== 'none';
+
   // 1. Try active editor
   const editor = vscode.window.activeTextEditor;
   if (editor) {
     const id = queryEditorProvider.getConnectionIdFromUri(editor.document.uri);
-    if (id) return id;
+    if (id && isVisible(id)) return id;
   }
 
   // 2. Fall back to first connected connection
-  const all = connectionManager.getAll();
+  const all = connectionManager.getAll().filter(s => isVisible(s.config.id));
   const connected = all.find(s => s.connected);
   if (connected) return connected.config.id;
 
