@@ -229,6 +229,7 @@ export class ConnectionFormPanel {
         <vscode-option value="redis"${c?.type === 'redis' ? ' selected' : ''}>Redis</vscode-option>
         <vscode-option value="clickhouse"${c?.type === 'clickhouse' ? ' selected' : ''}>ClickHouse</vscode-option>
         <vscode-option value="sqlite"${c?.type === 'sqlite' ? ' selected' : ''}>SQLite</vscode-option>
+        <vscode-option value="kafka"${c?.type === 'kafka' ? ' selected' : ''}>Apache Kafka</vscode-option>
       </vscode-single-select>
     </div>
 
@@ -240,6 +241,13 @@ export class ConnectionFormPanel {
       <div class="form-group port-field">
         <label for="port">Port</label>
         <vscode-textfield id="port" type="number" value="${c?.port || DEFAULT_PORTS[c?.type || 'postgresql']}"></vscode-textfield>
+      </div>
+    </div>
+
+    <div id="kafkaHint" class="form-group hidden">
+      <div class="field-hint">
+        For multi-broker clusters, enter a comma-separated bootstrap list in the Host field
+        (e.g. <code>broker1:9092, broker2:9092</code>). Username/password map to SASL/PLAIN.
       </div>
     </div>
 
