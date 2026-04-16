@@ -173,6 +173,27 @@ Usage in Claude Code config:
 { "mcpServers": { "viewstor": { "command": "node", "args": ["/path/to/viewstor/dist/mcp-server.js"] } } }
 ```
 
+### Agent Anonymization
+`src/mcp/anonymizer.ts` — pure, vscode-independent module that masks PII in rows returned through MCP tools. Applied at both MCP boundaries (in-process + standalone) after drivers return rows and before responses are serialized, so drivers stay agnostic.
+
+Policy fields on `ConnectionConfig` / `ConnectionFolder`:
+- `agentAnonymization`: `'off' | 'heuristic' | 'strict'` (inherited from folder when unset; defaults to `off`)
+- `agentAnonymizationStrategy`: `'hash' | 'shape' | 'null' | 'redacted'` (defaults to `hash`)
+
+`ConnectionManager.getAnonymizationPolicy(id)` / `ConnectionStore.getAnonymizationPolicy(id)` resolve the effective policy via folder inheritance with a cycle guard (mirrors `isConnectionReadonly` / `getConnectionColor`).
+
+Heuristic mode matches column names against `DEFAULT_SENSITIVE_COLUMN_PATTERNS` (email/phone/tel/mobile/ssn/passport/password/iban/card/cvv/token/secret/api_key/auth/addr/first_name/last_name/full_name/dob/birthday). Names are normalized (underscores/hyphens → spaces) so `user_email` matches `\bemail\b`. Strict mode masks every column whose `dataType` is text-like (`text`, `varchar(*)`, `character varying(*)`, `char`, `citext`, `json`, `jsonb`, `bytea`, `blob`, `nvarchar`, `nchar`, `String`, `longtext`, `mediumtext`, `tinytext`) regardless of name — unknown types default to sensitive.
+
+Strategies:
+- `hash` — SHA-256 truncated to 8 hex chars. Deterministic, so agents can still JOIN on masked keys.
+- `shape` — format-preserving: emails → `x@y.xxx`, phones → digits replaced with `0`, Luhn-valid card digit runs → `x`, generic alphanumerics → `x` with separators preserved. Non-string values fall back to hash.
+- `null` — replaces cell with `null`.
+- `redacted` — replaces cell with empty string.
+
+`scrubErrorMessage(msg, policy)` scrubs well-known PII shapes (emails, Luhn-valid digit runs) out of driver error messages so constraint errors don't leak raw values.
+
+Zero-allocation fast path: when `mode === 'off'` or no columns match, the original rows array is returned by reference (no copy, no mutation).
+
 ### Services
 `src/services/exportService.ts` — ExportService static methods: toCsv (configurable delimiter/quotes/null/header/lineEnding), toTsv, toJson, toMarkdownTable, toPlainTextTable.
 

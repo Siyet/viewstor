@@ -11,6 +11,7 @@ import { SchemaObject } from '../types/schema';
 import { ChartConfig, EChartsChartType, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { anonymizeRows, scrubErrorMessage } from '../mcp/anonymizer';
 
 const store = new ConnectionStore();
 
@@ -189,15 +190,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return errorResponse('Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.');
           }
         }
+        const policy = store.getAnonymizationPolicy(connectionId);
         const driver = await resolveDriver(connectionId, database);
         const result = await driver.execute(query);
         return jsonResponse({
           columns: result.columns.map(c => c.name),
           columnTypes: result.columns.map(c => c.dataType),
-          rows: result.rows,
+          rows: anonymizeRows(result.columns, result.rows, policy),
           rowCount: result.rowCount,
           executionTimeMs: result.executionTimeMs,
-          error: result.error,
+          error: result.error ? scrubErrorMessage(result.error, policy) : result.error,
         });
       }
 
@@ -205,11 +207,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { connectionId, tableName, schema, limit, database } = args as {
           connectionId: string; tableName: string; schema?: string; limit?: number; database?: string;
         };
+        const policy = store.getAnonymizationPolicy(connectionId);
         const driver = await resolveDriver(connectionId, database);
         const result = await driver.getTableData(tableName, schema, limit || 100);
         return jsonResponse({
           columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
-          rows: result.rows,
+          rows: anonymizeRows(result.columns, result.rows, policy),
           rowCount: result.rowCount,
         });
       }
@@ -289,8 +292,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const chartDriver = await resolveDriver(connectionId, chartDatabase);
+        const chartPolicy = store.getAnonymizationPolicy(connectionId);
         const chartResult = await chartDriver.execute(effectiveQuery);
-        if (chartResult.error) return errorResponse(chartResult.error);
+        if (chartResult.error) return errorResponse(scrubErrorMessage(chartResult.error, chartPolicy));
+        chartResult.rows = anonymizeRows(chartResult.columns, chartResult.rows, chartPolicy);
 
         const suggested = suggestChartConfig(chartResult);
         const config: ChartConfig = {

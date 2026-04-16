@@ -345,6 +345,8 @@
       proxyUsername: valueOf($('proxyUsername')).trim(),
       proxyPassword: valueOf($('proxyPassword')),
       hiddenSchemas: valueOf($('hiddenSchemas')).trim(),
+      agentAnonymization: $('agentAnonymization').value,
+      agentAnonymizationStrategy: $('agentAnonymizationStrategy').value,
     };
   }
 
@@ -423,6 +425,8 @@
           folderId.value = c.folderId || '';
           scopeEl.value = c.scope || 'user';
           $('safeMode').value = c.safeMode || '';
+          $('agentAnonymization').value = c.agentAnonymization || '';
+          $('agentAnonymizationStrategy').value = c.agentAnonymizationStrategy || '';
           $('hiddenSchemas').value = c.hiddenSchemas ? Object.values(c.hiddenSchemas).flat().join(', ') : '';
           proxyType.value = c.proxy?.type || 'none';
           if (c.proxy) {

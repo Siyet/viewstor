@@ -104,6 +104,8 @@
         color: String(folderColor.value || '').trim(),
         readonly: readonlyMode.checked ? 'true' : 'false',
         scope: scopeEl.value,
+        agentAnonymization: $('agentAnonymization').value,
+        agentAnonymizationStrategy: $('agentAnonymizationStrategy').value,
       },
     });
   });
@@ -121,6 +123,8 @@
       folderColorPicker.value = f.color && /^#[0-9a-fA-F]{6}$/.test(f.color) ? f.color : '#1e1e1e';
       setColorSwatch(f.color || '');
       readonlyMode.checked = !!f.readonly;
+      $('agentAnonymization').value = f.agentAnonymization || '';
+      $('agentAnonymizationStrategy').value = f.agentAnonymizationStrategy || '';
     }
   });
 })();

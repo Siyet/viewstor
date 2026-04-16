@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { ChartConfig, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { anonymizeRows, scrubErrorMessage } from './anonymizer';
 
 /**
  * MCP-compatible tool definitions exposed via VS Code commands.
@@ -53,33 +54,37 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
         }
       }
 
+      const policy = connectionManager.getAnonymizationPolicy(connectionId);
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
         const result = await driver.execute(query);
         return {
           columns: result.columns.map(c => c.name),
           columnTypes: result.columns.map(c => c.dataType),
-          rows: result.rows,
+          rows: anonymizeRows(result.columns, result.rows, policy),
           rowCount: result.rowCount,
           executionTimeMs: result.executionTimeMs,
-          error: result.error,
+          error: result.error ? scrubErrorMessage(result.error, policy) : result.error,
         };
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        const raw = err instanceof Error ? err.message : String(err);
+        return { error: scrubErrorMessage(raw, policy) };
       }
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.getTableData', async (connectionId: string, tableName: string, schema?: string, limit?: number, database?: string) => {
+      const policy = connectionManager.getAnonymizationPolicy(connectionId);
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
         const result = await driver.getTableData(tableName, schema, limit || 100);
         return {
           columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
-          rows: result.rows,
+          rows: anonymizeRows(result.columns, result.rows, policy),
           rowCount: result.rowCount,
         };
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        const raw = err instanceof Error ? err.message : String(err);
+        return { error: scrubErrorMessage(raw, policy) };
       }
     }),
 
@@ -150,12 +155,14 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
         }
 
         const result = await driver.execute(effectiveQuery);
-        if (result.error) return { error: result.error };
+        const policy = connectionManager.getAnonymizationPolicy(connectionId);
+        if (result.error) return { error: scrubErrorMessage(result.error, policy) };
 
         const state = connectionManager.get(connectionId);
+        const maskedRows = anonymizeRows(result.columns, result.rows, policy);
         vscode.commands.executeCommand('viewstor.visualizeResults', {
           columns: result.columns,
-          rows: result.rows,
+          rows: maskedRows,
           query: effectiveQuery,
           connectionId,
           databaseName: state?.config.database,
@@ -171,7 +178,9 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
           columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
         };
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        const policy = connectionManager.getAnonymizationPolicy(connectionId);
+        const raw = err instanceof Error ? err.message : String(err);
+        return { error: scrubErrorMessage(raw, policy) };
       }
     }),
 

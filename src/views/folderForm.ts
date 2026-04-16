@@ -71,19 +71,35 @@ export class FolderFormPanel {
     });
   }
 
-  private async handleSave(data: { name: string; color: string; readonly: string; scope: string }, existing?: ConnectionFolder) {
+  private async handleSave(
+    data: {
+      name: string; color: string; readonly: string; scope: string;
+      agentAnonymization?: string; agentAnonymizationStrategy?: string;
+    },
+    existing?: ConnectionFolder,
+  ) {
     const name = data.name.trim();
     const color = data.color.trim() || undefined;
     const readonly = data.readonly === 'true';
     const scope = (data.scope as 'user' | 'project') || 'user';
+    const agentAnonymization = data.agentAnonymization
+      ? (data.agentAnonymization as 'off' | 'heuristic' | 'strict')
+      : undefined;
+    const agentAnonymizationStrategy = data.agentAnonymizationStrategy
+      ? (data.agentAnonymizationStrategy as 'hash' | 'shape' | 'null' | 'redacted')
+      : undefined;
 
     if (existing) {
-      await this.connectionManager.updateFolder(existing.id, { name, color, readonly });
+      await this.connectionManager.updateFolder(existing.id, {
+        name, color, readonly, agentAnonymization, agentAnonymizationStrategy,
+      });
       vscode.window.showInformationMessage(vscode.l10n.t('Folder "{0}" updated.', name));
     } else {
       const folder = await this.connectionManager.addFolder(name, color, readonly, this.parentFolderIdForNew);
       folder.scope = scope;
-      await this.connectionManager.updateFolder(folder.id, { name, color, readonly });
+      await this.connectionManager.updateFolder(folder.id, {
+        name, color, readonly, agentAnonymization, agentAnonymizationStrategy,
+      });
       vscode.window.showInformationMessage(vscode.l10n.t('Folder "{0}" created.', name));
     }
     this.parentFolderIdForNew = undefined;
@@ -150,6 +166,30 @@ export class FolderFormPanel {
 
     <div class="form-group checkbox-group">
       <vscode-checkbox id="readonlyMode"${f?.readonly ? ' checked' : ''}>Read-only (default for new connections in this folder)</vscode-checkbox>
+    </div>
+
+    <div class="form-group">
+      <label for="agentAnonymization">Agent anonymization</label>
+      <vscode-single-select id="agentAnonymization">
+        <vscode-option value=""${!f?.agentAnonymization ? ' selected' : ''}>None (default)</vscode-option>
+        <vscode-option value="off"${f?.agentAnonymization === 'off' ? ' selected' : ''}>Off</vscode-option>
+        <vscode-option value="heuristic"${f?.agentAnonymization === 'heuristic' ? ' selected' : ''}>Heuristic — mask by column name</vscode-option>
+        <vscode-option value="strict"${f?.agentAnonymization === 'strict' ? ' selected' : ''}>Strict — mask all text columns</vscode-option>
+      </vscode-single-select>
+      <div class="field-hint">
+        Default policy for connections in this folder (inherited unless a connection overrides it).
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="agentAnonymizationStrategy">Anonymization strategy</label>
+      <vscode-single-select id="agentAnonymizationStrategy">
+        <vscode-option value=""${!f?.agentAnonymizationStrategy ? ' selected' : ''}>None (default)</vscode-option>
+        <vscode-option value="hash"${f?.agentAnonymizationStrategy === 'hash' ? ' selected' : ''}>Hash — deterministic (JOIN-safe)</vscode-option>
+        <vscode-option value="shape"${f?.agentAnonymizationStrategy === 'shape' ? ' selected' : ''}>Shape — preserves format</vscode-option>
+        <vscode-option value="null"${f?.agentAnonymizationStrategy === 'null' ? ' selected' : ''}>Null</vscode-option>
+        <vscode-option value="redacted"${f?.agentAnonymizationStrategy === 'redacted' ? ' selected' : ''}>Redacted — empty string</vscode-option>
+      </vscode-single-select>
     </div>
 
     <div class="button-row">

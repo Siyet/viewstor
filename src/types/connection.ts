@@ -26,6 +26,14 @@ export interface ConnectionConfig {
   safeMode?: 'off' | 'warn' | 'block';
   /** Proxy/tunnel configuration */
   proxy?: ProxyConfig;
+  /**
+   * Mask PII in rows returned via the MCP boundary (agent-facing tools).
+   * `off` — no masking. `heuristic` — mask by column-name patterns.
+   * `strict` — mask all text-like columns. Inherited from folder when unset.
+   */
+  agentAnonymization?: 'off' | 'heuristic' | 'strict';
+  /** How masked cells are transformed. Inherited from folder when unset. */
+  agentAnonymizationStrategy?: 'hash' | 'shape' | 'null' | 'redacted';
 }
 
 export type ProxyType = 'none' | 'ssh' | 'socks5' | 'http';
@@ -54,6 +62,10 @@ export interface ConnectionFolder {
   sortOrder: number;
   parentFolderId?: string;
   scope?: 'user' | 'project';
+  /** Default anonymization policy for connections in this folder (unless overridden). */
+  agentAnonymization?: 'off' | 'heuristic' | 'strict';
+  /** Default anonymization strategy for connections in this folder (unless overridden). */
+  agentAnonymizationStrategy?: 'hash' | 'shape' | 'null' | 'redacted';
 }
 
 export interface ConnectionState {
