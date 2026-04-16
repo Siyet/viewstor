@@ -111,7 +111,7 @@ export class FolderFormPanel {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource};">
-  <link rel="stylesheet" href="${uris.codiconUri}">
+  <link id="vscode-codicon-stylesheet" rel="stylesheet" href="${uris.codiconUri}">
   <link rel="stylesheet" href="${uris.tokensUri}">
   <link rel="stylesheet" href="${uris.styleUri}">
   <script src="${uris.shellUri}"></script>

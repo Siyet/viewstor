@@ -29,7 +29,8 @@ interface DiffState {
 }
 
 export class DiffPanelManager {
-  private diffs = new Map<string, DiffState>();
+  /** Readable from outside for e2e tests — keyed by panel title. Do not mutate directly. */
+  readonly diffs = new Map<string, DiffState>();
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -372,7 +373,7 @@ export class DiffPanelManager {
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource} 'unsafe-inline';">
-<link rel="stylesheet" href="${codiconUri}">
+<link id="vscode-codicon-stylesheet" rel="stylesheet" href="${codiconUri}">
 <link rel="stylesheet" href="${tokensUri}">
 <link rel="stylesheet" href="${cssUri}">
 <script src="${shellUri}"></script>

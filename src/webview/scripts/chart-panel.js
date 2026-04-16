@@ -242,14 +242,33 @@
 
   function setSelectValue(id, value) {
     var el = document.getElementById(id);
-    if (el && value) el.value = value;
+    if (!el || !value) return;
+    // Mark the matching vscode-option with `selected` attribute so the component picks it up
+    // even if the custom element hasn't fully upgraded yet (property setter alone races with upgrade)
+    var opts = el.querySelectorAll('vscode-option');
+    var matched = false;
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i].getAttribute('value') === value) {
+        opts[i].setAttribute('selected', '');
+        matched = true;
+      } else {
+        opts[i].removeAttribute('selected');
+      }
+    }
+    if (matched) {
+      try { el.value = value; } catch (e) { /* upgrade may be pending — attribute already set */ }
+    }
   }
 
   function setMultiSelectValues(id, values) {
     var container = document.getElementById(id);
     if (!container || !values) return;
+    // Set both `checked` attribute (survives upgrade) and property
     container.querySelectorAll('vscode-checkbox').forEach(function(cb) {
-      cb.checked = values.indexOf(cb.value) >= 0;
+      var wanted = values.indexOf(cb.value) >= 0;
+      if (wanted) cb.setAttribute('checked', '');
+      else cb.removeAttribute('checked');
+      try { cb.checked = wanted; } catch (e) { /* ignore */ }
     });
   }
 
@@ -297,7 +316,7 @@
     configSidebar.innerHTML = html;
 
     // Bind change events
-    configSidebar.querySelectorAll("vscode-single-select, vscode-checkbox, vscode-textfield, input").forEach(function (el) {
+    configSidebar.querySelectorAll("vscode-single-select, vscode-checkbox, vscode-textfield").forEach(function (el) {
       if (!el.closest(".ds-item")) {
         el.addEventListener("change", function () {
           if (suppressChangeEvents) return;
@@ -374,7 +393,7 @@
       html += '<div class="ds-item">';
       html += '<div class="ds-header">';
       html += '<span class="ds-label" title="' + escapeHtml(ds.label) + '">' + escapeHtml(truncate(ds.label, 30)) + "</span>";
-      html += '<vscode-button class="ds-remove-btn" secondary data-ds-id="' + escapeHtml(ds.id) + '" title="Remove"><vscode-icon name="close"></vscode-icon></vscode-button>';
+      html += '<vscode-button class="ds-remove-btn" secondary icon="close" data-ds-id="' + escapeHtml(ds.id) + '" title="Remove" aria-label="Remove data source"></vscode-button>';
       html += "</div>";
       html += '<div class="ds-detail">';
       html += "<span>" + escapeHtml(ds.mergeMode) + (ds.joinColumn ? " on " + escapeHtml(ds.joinColumn) : "") + "</span>";
@@ -601,17 +620,31 @@
 
   // ---- Helpers ----
   function getChartType() { return chartTypeSelect ? chartTypeSelect.value : "line"; }
-  function getSelectValue(id) { var el = document.getElementById(id); return el ? el.value : ""; }
+  function getSelectValue(id) {
+    var el = document.getElementById(id);
+    if (!el) return "";
+    // Prefer property; fall back to selected-option attribute for pre-upgrade reads
+    if (el.value) return el.value;
+    var sel = el.querySelector('vscode-option[selected]');
+    if (sel) return sel.getAttribute('value') || "";
+    var first = el.querySelector('vscode-option');
+    return first ? first.getAttribute('value') || "" : "";
+  }
   function getMultiSelectValues(id) {
     var container = document.getElementById(id);
     if (!container) return [];
-    return Array.from(container.querySelectorAll('vscode-checkbox')).filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+    return Array.from(container.querySelectorAll('vscode-checkbox'))
+      .filter(function (cb) { return cb.checked || cb.hasAttribute('checked'); })
+      .map(function (cb) { return cb.value || cb.getAttribute('value') || ''; });
   }
   function buildSelect(id, label, options) {
     // label may contain HTML from tip() — do NOT escape it
+    // vscode-single-select auto-selects the first vscode-option; no `selected` attribute needed
     var html = '<div class="field"><label for="' + id + '">' + label + "</label>";
     html += '<vscode-single-select id="' + id + '">';
-    options.forEach(function (opt) { html += '<vscode-option value="' + escapeHtml(opt) + '">' + escapeHtml(opt) + "</vscode-option>"; });
+    options.forEach(function (opt) {
+      html += '<vscode-option value="' + escapeHtml(opt) + '">' + escapeHtml(opt) + "</vscode-option>";
+    });
     return html + "</vscode-single-select></div>";
   }
   function buildMultiSelect(id, label, options) {

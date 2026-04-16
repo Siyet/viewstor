@@ -44,6 +44,10 @@ interface ChartState {
   rows: Record<string, unknown>[];
   /** Whether auto-sync with result panel is active */
   syncEnabled: boolean;
+  /** Set once onDidDispose fires — guards against late timers touching the webview */
+  disposed: boolean;
+  /** Pending init-data timer so we can cancel it on disposal */
+  initTimer?: NodeJS.Timeout;
   /** Disposable for message handler */
   disposable: vscode.Disposable;
 }
@@ -87,7 +91,11 @@ export class ChartPanelManager {
       );
       panel.onDidDispose(() => {
         const chartState = this.charts.get(panelKey);
-        if (chartState) chartState.disposable.dispose();
+        if (chartState) {
+          chartState.disposed = true;
+          if (chartState.initTimer) clearTimeout(chartState.initTimer);
+          chartState.disposable.dispose();
+        }
         this.charts.delete(panelKey);
         this.grafanaJson.delete(panelKey);
       });
@@ -98,6 +106,7 @@ export class ChartPanelManager {
         columns: result.columns,
         rows: result.rows,
         syncEnabled: true,
+        disposed: false,
         disposable: new vscode.Disposable(() => {}),
       };
       this.charts.set(panelKey, state);
@@ -107,19 +116,27 @@ export class ChartPanelManager {
     state.disposable.dispose();
     state.disposable = this.registerMessageHandler(state, panelKey);
 
-    // Send initial data after webview initializes
+    // Send initial data after webview initializes. Guard + cancel the timer on disposal so tests
+    // that dispose panels quickly don't see a late "Webview is disposed" error leak into the next test.
     const sendState = state;
-    setTimeout(() => {
-      sendState.panel.webview.postMessage({
-        type: 'setData',
-        columns: sendState.columns,
-        rows: sendState.rows,
-        syncEnabled: sendState.syncEnabled,
-        tableName: sendState.opts.tableName,
-        schema: sendState.opts.schema,
-        databaseType: sendState.opts.databaseType,
-        connectionId: sendState.opts.connectionId,
-      });
+    if (sendState.initTimer) clearTimeout(sendState.initTimer);
+    sendState.initTimer = setTimeout(() => {
+      sendState.initTimer = undefined;
+      if (sendState.disposed) return;
+      try {
+        sendState.panel.webview.postMessage({
+          type: 'setData',
+          columns: sendState.columns,
+          rows: sendState.rows,
+          syncEnabled: sendState.syncEnabled,
+          tableName: sendState.opts.tableName,
+          schema: sendState.opts.schema,
+          databaseType: sendState.opts.databaseType,
+          connectionId: sendState.opts.connectionId,
+        });
+      } catch {
+        // panel was disposed between the guard and the postMessage — safe to ignore
+      }
     }, 100);
   }
 
@@ -454,7 +471,7 @@ export class ChartPanelManager {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource};">
-<link rel="stylesheet" href="${codiconUri}">
+<link id="vscode-codicon-stylesheet" rel="stylesheet" href="${codiconUri}">
 <link rel="stylesheet" href="${tokensUri}">
 <link rel="stylesheet" href="${styleUri}">
 <script src="${shellUri}"></script>
@@ -482,9 +499,7 @@ export class ChartPanelManager {
     <div class="separator"></div>
 
     <vscode-checkbox id="syncToggle" checked label="Sync"></vscode-checkbox>
-    <vscode-button id="refreshBtn" class="hidden" secondary title="Refresh data from table">
-      <vscode-icon name="refresh" slot="content-before"></vscode-icon>
-    </vscode-button>
+    <vscode-button id="refreshBtn" class="hidden" secondary icon="refresh" title="Refresh data from table" aria-label="Refresh data from table"></vscode-button>
 
     <vscode-checkbox id="fullDataToggle" label="Full Data"></vscode-checkbox>
 
@@ -501,10 +516,7 @@ export class ChartPanelManager {
 
     <div class="separator"></div>
 
-    <vscode-button id="addDataSourceBtn" secondary>
-      <vscode-icon name="add" slot="content-before"></vscode-icon>
-      Source
-    </vscode-button>
+    <vscode-button id="addDataSourceBtn" secondary icon="add">Source</vscode-button>
     <vscode-button id="exportGrafanaBtn" style="display:none">Export to Grafana</vscode-button>
   </div>
 
@@ -521,9 +533,7 @@ export class ChartPanelManager {
     <div class="popup" style="width:50vw">
       <div class="popup-header">
         <span>Add Data Source from Pinned Queries</span>
-        <vscode-button id="closePinnedPicker" secondary class="popup-close-btn">
-          <vscode-icon name="close"></vscode-icon>
-        </vscode-button>
+        <vscode-button id="closePinnedPicker" secondary class="popup-close-btn" icon="close" aria-label="Close"></vscode-button>
       </div>
       <div class="popup-body">
         <div id="pinnedQueryList" class="pinned-query-list"></div>
@@ -537,9 +547,7 @@ export class ChartPanelManager {
     <div class="popup" style="width:40vw">
       <div class="popup-header">
         <span>Configure Data Source</span>
-        <vscode-button id="closeDsConfig" secondary class="popup-close-btn">
-          <vscode-icon name="close"></vscode-icon>
-        </vscode-button>
+        <vscode-button id="closeDsConfig" secondary class="popup-close-btn" icon="close" aria-label="Close"></vscode-button>
       </div>
       <div class="popup-body" id="dsConfigBody"></div>
       <div class="popup-footer">
@@ -554,26 +562,15 @@ export class ChartPanelManager {
     <div class="popup">
       <div class="popup-header">
         <span>Grafana Dashboard JSON</span>
-        <vscode-button id="closePopup" secondary class="popup-close-btn">
-          <vscode-icon name="close"></vscode-icon>
-        </vscode-button>
+        <vscode-button id="closePopup" secondary class="popup-close-btn" icon="close" aria-label="Close"></vscode-button>
       </div>
       <div class="popup-body">
         <pre></pre>
       </div>
       <div class="popup-footer">
-        <vscode-button id="copyJsonBtn" secondary>
-          <vscode-icon name="copy" slot="content-before"></vscode-icon>
-          Copy JSON
-        </vscode-button>
-        <vscode-button id="saveJsonBtn" secondary>
-          <vscode-icon name="save" slot="content-before"></vscode-icon>
-          Save as File
-        </vscode-button>
-        <vscode-button id="pushGrafanaBtn">
-          <vscode-icon name="cloud-upload" slot="content-before"></vscode-icon>
-          Push to Grafana
-        </vscode-button>
+        <vscode-button id="copyJsonBtn" secondary icon="copy">Copy JSON</vscode-button>
+        <vscode-button id="saveJsonBtn" secondary icon="save">Save as File</vscode-button>
+        <vscode-button id="pushGrafanaBtn" icon="cloud-upload">Push to Grafana</vscode-button>
       </div>
     </div>
   </div>
