@@ -248,7 +248,7 @@
   function setMultiSelectValues(id, values) {
     var container = document.getElementById(id);
     if (!container || !values) return;
-    container.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+    container.querySelectorAll('vscode-checkbox').forEach(function(cb) {
       cb.checked = values.indexOf(cb.value) >= 0;
     });
   }
@@ -283,12 +283,12 @@
     html += '<div id="timeBucketSection" style="display:none">';
     html += buildSelect("timeBucketPreset", "Time Bucket" + tip("timeBucket"), TIME_BUCKET_PRESETS);
     html += '<div id="customBucketField" class="field" style="display:none"><label>Custom' + tip("customBucket") + '</label>';
-    html += '<input type="text" id="customBucket" placeholder="1h" style="width:100%"></div>';
+    html += '<vscode-textfield id="customBucket" placeholder="1h" style="width:100%"></vscode-textfield></div>';
     html += "</div>";
 
     // Server-side execute button
     if (tableName) {
-      html += '<div class="field" style="margin-top:8px"><button id="runAggBtn" class="sidebar-btn" title="' + escapeHtml(TT.runOnServer || "") + '">Run on Server</button></div>';
+      html += '<div class="field" style="margin-top:8px"><vscode-button id="runAggBtn" class="sidebar-btn" title="' + escapeHtml(TT.runOnServer || "") + '">Run on Server</vscode-button></div>';
     }
 
     // Data sources
@@ -297,7 +297,7 @@
     configSidebar.innerHTML = html;
 
     // Bind change events
-    configSidebar.querySelectorAll("select, input").forEach(function (el) {
+    configSidebar.querySelectorAll("vscode-single-select, vscode-checkbox, vscode-textfield, input").forEach(function (el) {
       if (!el.closest(".ds-item")) {
         el.addEventListener("change", function () {
           if (suppressChangeEvents) return;
@@ -313,7 +313,8 @@
     // Bind remove buttons for data sources
     configSidebar.querySelectorAll(".ds-remove-btn").forEach(function (btn) {
       btn.addEventListener("click", function (event) {
-        var dsId = event.target.dataset.dsId;
+        var target = event.currentTarget || event.target.closest(".ds-remove-btn");
+        var dsId = target ? target.dataset.dsId : undefined;
         dataSources = dataSources.filter(function (ds) { return ds.id !== dsId; });
         buildSidebar();
         updateChart();
@@ -373,7 +374,7 @@
       html += '<div class="ds-item">';
       html += '<div class="ds-header">';
       html += '<span class="ds-label" title="' + escapeHtml(ds.label) + '">' + escapeHtml(truncate(ds.label, 30)) + "</span>";
-      html += '<button class="ds-remove-btn" data-ds-id="' + escapeHtml(ds.id) + '" title="Remove">&times;</button>';
+      html += '<vscode-button class="ds-remove-btn" secondary data-ds-id="' + escapeHtml(ds.id) + '" title="Remove"><vscode-icon name="close"></vscode-icon></vscode-button>';
       html += "</div>";
       html += '<div class="ds-detail">';
       html += "<span>" + escapeHtml(ds.mergeMode) + (ds.joinColumn ? " on " + escapeHtml(ds.joinColumn) : "") + "</span>";
@@ -412,8 +413,8 @@
   function buildGaugeConfig(numericCols) {
     var html = "<h3>Gauge Mapping</h3>";
     html += buildSelect("valueColumn", "Value Column" + tip("gaugeValueCol"), numericCols.map(function (c) { return c.name; }));
-    html += '<div class="field"><label>Min' + tip("gaugeMin") + '</label><input type="number" id="gaugeMin" value="0"></div>';
-    html += '<div class="field"><label>Max' + tip("gaugeMax") + '</label><input type="number" id="gaugeMax" value="100"></div>';
+    html += '<div class="field"><label>Min' + tip("gaugeMin") + '</label><vscode-textfield type="number" id="gaugeMin" value="0"></vscode-textfield></div>';
+    html += '<div class="field"><label>Max' + tip("gaugeMax") + '</label><vscode-textfield type="number" id="gaugeMax" value="100"></vscode-textfield></div>';
     return html;
   }
 
@@ -538,17 +539,17 @@
     var numericCols = pendingDsConfig.columns.filter(function (c) { return isNumericType(c.dataType); });
     var allCols = pendingDsConfig.columns;
     var primaryCols = currentColumns;
-    var html = '<div class="field"><label>Label</label><input type="text" id="dsLabel" value="' + escapeHtml(truncate(pendingDsConfig.label, 40)) + '"></div>';
-    html += '<div class="field"><label>Merge Mode</label><select id="dsMergeMode"><option value="separate">Separate series</option><option value="join">Join by column</option></select></div>';
+    var html = '<div class="field"><label>Label</label><vscode-textfield id="dsLabel" value="' + escapeHtml(truncate(pendingDsConfig.label, 40)) + '"></vscode-textfield></div>';
+    html += '<div class="field"><label>Merge Mode</label><vscode-single-select id="dsMergeMode"><vscode-option value="separate" selected>Separate series</vscode-option><vscode-option value="join">Join by column</vscode-option></vscode-single-select></div>';
     html += '<div id="dsJoinConfig" style="display:none">';
-    html += '<div class="field"><label>Join: primary column</label><select id="dsJoinPrimaryCol">';
-    primaryCols.forEach(function (c) { html += '<option value="' + escapeHtml(c.name) + '">' + escapeHtml(c.name) + "</option>"; });
-    html += "</select></div>";
-    html += '<div class="field"><label>Join: source column</label><select id="dsJoinSourceCol">';
-    allCols.forEach(function (c) { html += '<option value="' + escapeHtml(c.name) + '">' + escapeHtml(c.name) + "</option>"; });
-    html += "</select></div></div>";
+    html += '<div class="field"><label>Join: primary column</label><vscode-single-select id="dsJoinPrimaryCol">';
+    primaryCols.forEach(function (c) { html += '<vscode-option value="' + escapeHtml(c.name) + '">' + escapeHtml(c.name) + "</vscode-option>"; });
+    html += "</vscode-single-select></div>";
+    html += '<div class="field"><label>Join: source column</label><vscode-single-select id="dsJoinSourceCol">';
+    allCols.forEach(function (c) { html += '<vscode-option value="' + escapeHtml(c.name) + '">' + escapeHtml(c.name) + "</vscode-option>"; });
+    html += "</vscode-single-select></div></div>";
     html += '<div class="field"><label>Y Columns</label><div class="multi-select" id="dsYColumns">';
-    numericCols.forEach(function (c) { html += '<label><input type="checkbox" value="' + escapeHtml(c.name) + '" checked>' + escapeHtml(c.name) + "</label>"; });
+    numericCols.forEach(function (c) { html += '<vscode-checkbox value="' + escapeHtml(c.name) + '" checked>' + escapeHtml(c.name) + "</vscode-checkbox>"; });
     html += "</div></div>";
     body.innerHTML = html;
     var mergeSelect = document.getElementById("dsMergeMode");
@@ -567,7 +568,8 @@
   var dsConfigConfirmBtn = document.getElementById("dsConfigConfirm");
   if (dsConfigConfirmBtn) dsConfigConfirmBtn.addEventListener("click", function () {
     if (!pendingDsConfig) return;
-    var label = (document.getElementById("dsLabel") || {}).value || pendingDsConfig.label;
+    var dsLabelEl = document.getElementById("dsLabel");
+    var label = (dsLabelEl ? dsLabelEl.value : "") || pendingDsConfig.label;
     var mergeMode = getSelectValue("dsMergeMode") || "separate";
     var yColumns = getMultiSelectValues("dsYColumns");
     if (yColumns.length === 0) return;
@@ -603,19 +605,19 @@
   function getMultiSelectValues(id) {
     var container = document.getElementById(id);
     if (!container) return [];
-    return Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map(function (cb) { return cb.value; });
+    return Array.from(container.querySelectorAll('vscode-checkbox')).filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
   }
   function buildSelect(id, label, options) {
     // label may contain HTML from tip() — do NOT escape it
     var html = '<div class="field"><label for="' + id + '">' + label + "</label>";
-    html += '<select id="' + id + '">';
-    options.forEach(function (opt) { html += '<option value="' + escapeHtml(opt) + '">' + escapeHtml(opt) + "</option>"; });
-    return html + "</select></div>";
+    html += '<vscode-single-select id="' + id + '">';
+    options.forEach(function (opt) { html += '<vscode-option value="' + escapeHtml(opt) + '">' + escapeHtml(opt) + "</vscode-option>"; });
+    return html + "</vscode-single-select></div>";
   }
   function buildMultiSelect(id, label, options) {
     var html = '<div class="field"><label>' + label + '</label><div class="multi-select" id="' + id + '">';
     options.forEach(function (opt, idx) {
-      html += '<label><input type="checkbox" value="' + escapeHtml(opt) + '"' + (idx === 0 ? " checked" : "") + ">" + escapeHtml(opt) + "</label>";
+      html += '<vscode-checkbox value="' + escapeHtml(opt) + '"' + (idx === 0 ? " checked" : "") + ">" + escapeHtml(opt) + "</vscode-checkbox>";
     });
     return html + "</div></div>";
   }

@@ -421,6 +421,11 @@ export class ChartPanelManager {
     const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'chart-panel.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'chart-panel.css'));
+    const tokensUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'tokens.css'));
+    const codiconUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'codicon.css'));
+    const shellUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'webview-shell.js'));
+    const elementsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'vscode-elements.js'));
+    const cspSource = webview.cspSource;
     const colorBorder = opts?.color ? `border-top: 2px solid ${opts.color};` : '';
 
     const tooltips = JSON.stringify({
@@ -444,60 +449,63 @@ export class ChartPanelManager {
     }).replace(/<\//g, '<\\/');
 
     return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource};">
+<link rel="stylesheet" href="${codiconUri}">
+<link rel="stylesheet" href="${tokensUri}">
 <link rel="stylesheet" href="${styleUri}">
+<script src="${shellUri}"></script>
+<script type="module" src="${elementsUri}"></script>
 </head>
 <body data-tooltips='${tooltips}'>
   <div class="toolbar" style="${esc(colorBorder)}">
     <label>Chart
-      <select id="chartType">
-        <option value="line">Line</option>
-        <option value="bar">Bar</option>
-        <option value="scatter">Scatter</option>
-        <option value="pie">Pie</option>
-        <option value="heatmap">Heatmap</option>
-        <option value="radar">Radar</option>
-        <option value="funnel">Funnel</option>
-        <option value="gauge">Gauge</option>
-        <option value="boxplot">Boxplot</option>
-        <option value="candlestick">Candlestick</option>
-        <option value="treemap">Treemap</option>
-        <option value="sunburst">Sunburst</option>
-      </select>
+      <vscode-single-select id="chartType">
+        <vscode-option value="line" selected>Line</vscode-option>
+        <vscode-option value="bar">Bar</vscode-option>
+        <vscode-option value="scatter">Scatter</vscode-option>
+        <vscode-option value="pie">Pie</vscode-option>
+        <vscode-option value="heatmap">Heatmap</vscode-option>
+        <vscode-option value="radar">Radar</vscode-option>
+        <vscode-option value="funnel">Funnel</vscode-option>
+        <vscode-option value="gauge">Gauge</vscode-option>
+        <vscode-option value="boxplot">Boxplot</vscode-option>
+        <vscode-option value="candlestick">Candlestick</vscode-option>
+        <vscode-option value="treemap">Treemap</vscode-option>
+        <vscode-option value="sunburst">Sunburst</vscode-option>
+      </vscode-single-select>
     </label>
 
     <div class="separator"></div>
 
-    <label class="toggle-label">
-      <input type="checkbox" id="syncToggle" checked> Sync
-    </label>
-    <button id="refreshBtn" class="hidden" title="Refresh data from table">&#8635;</button>
+    <vscode-checkbox id="syncToggle" checked label="Sync"></vscode-checkbox>
+    <vscode-button id="refreshBtn" class="hidden" secondary title="Refresh data from table">
+      <vscode-icon name="refresh" slot="content-before"></vscode-icon>
+    </vscode-button>
 
-    <label class="toggle-label">
-      <input type="checkbox" id="fullDataToggle"> Full Data
-    </label>
+    <vscode-checkbox id="fullDataToggle" label="Full Data"></vscode-checkbox>
 
     <div class="separator"></div>
 
-    <label>
-      <input type="checkbox" id="areaFill"> Area Fill
-    </label>
-    <label>
-      <input type="checkbox" id="showLegend" checked> Legend
-    </label>
+    <vscode-checkbox id="areaFill" label="Area Fill"></vscode-checkbox>
+    <vscode-checkbox id="showLegend" checked label="Legend"></vscode-checkbox>
 
     <div class="separator"></div>
 
     <label>Title
-      <input type="text" id="chartTitle" placeholder="Chart title..." style="width:120px">
+      <vscode-textfield id="chartTitle" placeholder="Chart title..." style="width:120px"></vscode-textfield>
     </label>
 
     <div class="separator"></div>
 
-    <button id="addDataSourceBtn">+ Source</button>
-    <button id="exportGrafanaBtn" class="btn-primary" style="display:none">Export to Grafana</button>
+    <vscode-button id="addDataSourceBtn" secondary>
+      <vscode-icon name="add" slot="content-before"></vscode-icon>
+      Source
+    </vscode-button>
+    <vscode-button id="exportGrafanaBtn" style="display:none">Export to Grafana</vscode-button>
   </div>
 
   <div class="main">
@@ -513,7 +521,9 @@ export class ChartPanelManager {
     <div class="popup" style="width:50vw">
       <div class="popup-header">
         <span>Add Data Source from Pinned Queries</span>
-        <button id="closePinnedPicker">&times;</button>
+        <vscode-button id="closePinnedPicker" secondary class="popup-close-btn">
+          <vscode-icon name="close"></vscode-icon>
+        </vscode-button>
       </div>
       <div class="popup-body">
         <div id="pinnedQueryList" class="pinned-query-list"></div>
@@ -527,12 +537,14 @@ export class ChartPanelManager {
     <div class="popup" style="width:40vw">
       <div class="popup-header">
         <span>Configure Data Source</span>
-        <button id="closeDsConfig">&times;</button>
+        <vscode-button id="closeDsConfig" secondary class="popup-close-btn">
+          <vscode-icon name="close"></vscode-icon>
+        </vscode-button>
       </div>
       <div class="popup-body" id="dsConfigBody"></div>
       <div class="popup-footer">
-        <button id="dsConfigCancel">Cancel</button>
-        <button id="dsConfigConfirm" class="btn-primary">Add</button>
+        <vscode-button id="dsConfigCancel" secondary>Cancel</vscode-button>
+        <vscode-button id="dsConfigConfirm">Add</vscode-button>
       </div>
     </div>
   </div>
@@ -542,15 +554,26 @@ export class ChartPanelManager {
     <div class="popup">
       <div class="popup-header">
         <span>Grafana Dashboard JSON</span>
-        <button id="closePopup">&times;</button>
+        <vscode-button id="closePopup" secondary class="popup-close-btn">
+          <vscode-icon name="close"></vscode-icon>
+        </vscode-button>
       </div>
       <div class="popup-body">
         <pre></pre>
       </div>
       <div class="popup-footer">
-        <button id="copyJsonBtn">Copy JSON</button>
-        <button id="saveJsonBtn">Save as File</button>
-        <button id="pushGrafanaBtn" class="btn-primary">Push to Grafana</button>
+        <vscode-button id="copyJsonBtn" secondary>
+          <vscode-icon name="copy" slot="content-before"></vscode-icon>
+          Copy JSON
+        </vscode-button>
+        <vscode-button id="saveJsonBtn" secondary>
+          <vscode-icon name="save" slot="content-before"></vscode-icon>
+          Save as File
+        </vscode-button>
+        <vscode-button id="pushGrafanaBtn">
+          <vscode-icon name="cloud-upload" slot="content-before"></vscode-icon>
+          Push to Grafana
+        </vscode-button>
       </div>
     </div>
   </div>
