@@ -2,6 +2,24 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { ChartConfig, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { isAgentOpAllowed, AgentOp } from './agentAccess';
+
+/**
+ * Gate an MCP tool call by the connection's `agentAccess` mode.
+ * Returns `null` when allowed; an `{ error }` object when denied.
+ * `none`-mode connections are indistinguishable from missing connections
+ * so agents can't infer their existence.
+ */
+function gateAgent(cm: ConnectionManager, connectionId: string, op: AgentOp): { error: string } | null {
+  const state = cm.get(connectionId);
+  if (!state) return { error: `Connection "${connectionId}" not found` };
+  const mode = cm.getAgentAccess(connectionId);
+  if (mode === 'none') return { error: `Connection "${connectionId}" not found` };
+  if (!isAgentOpAllowed(mode, op)) {
+    return { error: `Connection "${connectionId}" is in "${mode}" agent access mode; operation not permitted.` };
+  }
+  return null;
+}
 
 /**
  * MCP-compatible tool definitions exposed via VS Code commands.
@@ -20,20 +38,25 @@ import { buildGrafanaDashboard } from '../chart/grafanaExport';
 export function registerMcpCommands(context: vscode.ExtensionContext, connectionManager: ConnectionManager) {
   context.subscriptions.push(
     vscode.commands.registerCommand('viewstor.mcp.listConnections', () => {
-      return connectionManager.getAll().map(s => ({
-        id: s.config.id,
-        name: s.config.name,
-        type: s.config.type,
-        host: s.config.host,
-        port: s.config.port,
-        database: s.config.database,
-        databases: s.config.databases,
-        connected: s.connected,
-        readonly: s.config.readonly,
-      }));
+      return connectionManager.getAll()
+        .filter(s => connectionManager.getAgentAccess(s.config.id) !== 'none')
+        .map(s => ({
+          id: s.config.id,
+          name: s.config.name,
+          type: s.config.type,
+          host: s.config.host,
+          port: s.config.port,
+          database: s.config.database,
+          databases: s.config.databases,
+          connected: s.connected,
+          readonly: s.config.readonly,
+          agentAccess: connectionManager.getAgentAccess(s.config.id),
+        }));
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.getSchema', async (connectionId: string, database?: string) => {
+      const gate = gateAgent(connectionManager, connectionId, 'schema-read');
+      if (gate) return gate;
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
         const schema = await driver.getSchema();
@@ -44,6 +67,8 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.executeQuery', async (connectionId: string, query: string, database?: string) => {
+      const gate = gateAgent(connectionManager, connectionId, 'data-read');
+      if (gate) return gate;
       const state = connectionManager.get(connectionId);
       if (state?.config.readonly) {
         // In readonly mode, only allow SELECT/EXPLAIN/SHOW
@@ -70,6 +95,8 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.getTableData', async (connectionId: string, tableName: string, schema?: string, limit?: number, database?: string) => {
+      const gate = gateAgent(connectionManager, connectionId, 'data-read');
+      if (gate) return gate;
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
         const result = await driver.getTableData(tableName, schema, limit || 100);
@@ -84,6 +111,8 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.getTableInfo', async (connectionId: string, tableName: string, schema?: string, database?: string) => {
+      const gate = gateAgent(connectionManager, connectionId, 'schema-read');
+      if (gate) return gate;
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
         const info = await driver.getTableInfo(tableName, schema);
@@ -118,6 +147,8 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
         areaFill?: boolean;
       },
     ) => {
+      const gate = gateAgent(connectionManager, connectionId, 'data-read');
+      if (gate) return gate;
       let driver = connectionManager.getDriver(connectionId);
       if (!driver) {
         try {
@@ -183,6 +214,8 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       options?: { databaseName?: string; execute?: boolean },
     ) => {
       if (!connectionId || !query) return { error: 'connectionId and query are required' };
+      const gate = gateAgent(connectionManager, connectionId, 'ui-open');
+      if (gate) return gate;
       const state = connectionManager.get(connectionId);
       if (!state) return { error: `Connection "${connectionId}" not found` };
 
@@ -211,6 +244,8 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       options?: { schema?: string; databaseName?: string; query?: string; execute?: boolean },
     ) => {
       if (!connectionId || !tableName) return { error: 'connectionId and tableName are required' };
+      const gate = gateAgent(connectionManager, connectionId, 'ui-open');
+      if (gate) return gate;
       const state = connectionManager.get(connectionId);
       if (!state) return { error: `Connection "${connectionId}" not found` };
 
@@ -235,6 +270,8 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.exportGrafana', async (connectionId: string, query: string, chartConfig: ChartConfig) => {
+      const gate = gateAgent(connectionManager, connectionId, 'data-read');
+      if (gate) return gate;
       const state = connectionManager.get(connectionId);
       if (!isGrafanaCompatible(chartConfig.chartType)) {
         return { error: `Chart type "${chartConfig.chartType}" is not compatible with Grafana` };

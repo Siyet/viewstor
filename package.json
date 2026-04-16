@@ -534,6 +534,21 @@
           ],
           "description": "%config.safeMode.description%"
         },
+        "viewstor.defaultAgentAccess": {
+          "type": "string",
+          "default": "full",
+          "enum": [
+            "full",
+            "schema-only",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Full — agents can read schema and execute queries.",
+            "Schema only — agents can read schema and describe tables, but cannot run queries.",
+            "None — connections are hidden from AI agents entirely."
+          ],
+          "description": "Default AI agent (chat participant + MCP tools) access for connections that don't override it and don't inherit from a folder."
+        },
         "viewstor.indexHintThreshold": {
           "type": "number",
           "default": 100000,

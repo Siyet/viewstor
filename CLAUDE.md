@@ -173,6 +173,15 @@ Usage in Claude Code config:
 { "mcpServers": { "viewstor": { "command": "node", "args": ["/path/to/viewstor/dist/mcp-server.js"] } } }
 ```
 
+### Agent Access Mode
+`src/mcp/agentAccess.ts` — pure helper: `resolveAgentAccess(config, getFolder, default)` returns the effective `AgentAccessMode` (`full | schema-only | none`) for a connection. Resolution order: own override → walk up folder chain via `parentFolderId` (cycle-guarded, nearest ancestor wins) → `viewstor.defaultAgentAccess` setting (default `full` for backwards compat). `isAgentOpAllowed(mode, op)` gates `list | schema-read | data-read | ui-open`.
+
+Both MCP surfaces enforce the gate at the handler entry. `none`-mode connections are filtered out of `listConnections`/`list_connections` AND return "not found" from every other tool, so agents can't infer their existence. `schema-only` exposes `getSchema`/`getTableInfo` but blocks `executeQuery`/`getTableData`/`build_chart`/`exportGrafana`/`visualize`/`openQuery`/`openTableData`.
+
+Storage: `agentAccess?: AgentAccessMode` on both `ConnectionConfig` and `ConnectionFolder`. `ConnectionManager.getAgentAccess(id)` delegates to the pure helper, reading the VS Code setting via `workspace.getConfiguration('viewstor').get('defaultAgentAccess')`. `ConnectionStore.getAgentAccess(id)` (standalone MCP) does the same but uses a hard-coded `'full'` default (no VS Code API). The standalone store now loads `folders[]` from both user and project config files to make folder inheritance work outside VS Code.
+
+Forms: Advanced section in both connection + folder forms gets an `AI agent access` dropdown (Default / Full / Schema only / None). Tree view shows `[agents: schema-only]` / `[agents: none]` after the connection description for non-full modes (plain text; `$(codicon)` doesn't render in `TreeItem.description`).
+
 ### Services
 `src/services/exportService.ts` — ExportService static methods: toCsv (configurable delimiter/quotes/null/header/lineEnding), toTsv, toJson, toMarkdownTable, toPlainTextTable.
 

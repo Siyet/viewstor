@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { ConnectionConfig, ConnectionState, ConnectionFolder } from '../types/connection';
+import { ConnectionConfig, ConnectionState, ConnectionFolder, AgentAccessMode } from '../types/connection';
+import { resolveAgentAccess } from '../mcp/agentAccess';
 import { DatabaseDriver } from '../types/driver';
 import { SchemaObject } from '../types/schema';
 import { createDriver } from '../drivers';
@@ -358,10 +359,16 @@ export class ConnectionManager {
     return this.folders.get(id);
   }
 
-  async addFolder(name: string, color?: string, readonly?: boolean, parentFolderId?: string): Promise<ConnectionFolder> {
+  async addFolder(
+    name: string,
+    color?: string,
+    readonly?: boolean,
+    parentFolderId?: string,
+    agentAccess?: AgentAccessMode,
+  ): Promise<ConnectionFolder> {
     const id = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
     const sortOrder = this.folders.size;
-    const folder: ConnectionFolder = { id, name, color, readonly, sortOrder, parentFolderId };
+    const folder: ConnectionFolder = { id, name, color, readonly, sortOrder, parentFolderId, agentAccess };
     this.folders.set(id, folder);
     await this.saveFolders();
     this._onDidChange.fire();
@@ -384,7 +391,7 @@ export class ConnectionManager {
     this._onDidChange.fire();
   }
 
-  async updateFolder(id: string, updates: Partial<Pick<ConnectionFolder, 'name' | 'color' | 'readonly' | 'sortOrder'>>): Promise<void> {
+  async updateFolder(id: string, updates: Partial<Pick<ConnectionFolder, 'name' | 'color' | 'readonly' | 'sortOrder' | 'agentAccess'>>): Promise<void> {
     const folder = this.folders.get(id);
     if (!folder) return;
     Object.assign(folder, updates);
@@ -433,6 +440,24 @@ export class ConnectionManager {
       return this.folders.get(state.config.folderId)?.readonly || false;
     }
     return false;
+  }
+
+  /**
+   * Get the effective AI agent access mode for a connection. Resolution order:
+   *   1. Connection's own `agentAccess` (if set)
+   *   2. Walk up the folder chain via `parentFolderId` until an `agentAccess` is found
+   *   3. Fall back to the `viewstor.defaultAgentAccess` setting (default: `'full'`)
+   */
+  getAgentAccess(id: string): AgentAccessMode {
+    const state = this.connections.get(id);
+    if (!state) return this.getDefaultAgentAccess();
+    return resolveAgentAccess(state.config, (folderId) => this.folders.get(folderId), this.getDefaultAgentAccess());
+  }
+
+  private getDefaultAgentAccess(): AgentAccessMode {
+    const setting = vscode.workspace.getConfiguration('viewstor').get<string>('defaultAgentAccess');
+    if (setting === 'schema-only' || setting === 'none' || setting === 'full') return setting;
+    return 'full';
   }
 
   dispose() {

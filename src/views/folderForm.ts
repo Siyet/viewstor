@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { ConnectionFolder } from '../types/connection';
+import { ConnectionFolder, AgentAccessMode } from '../types/connection';
 import { ConnectionManager } from '../connections/connectionManager';
 
 export class FolderFormPanel {
@@ -71,19 +71,20 @@ export class FolderFormPanel {
     });
   }
 
-  private async handleSave(data: { name: string; color: string; readonly: string; scope: string }, existing?: ConnectionFolder) {
+  private async handleSave(data: { name: string; color: string; readonly: string; scope: string; agentAccess: string }, existing?: ConnectionFolder) {
     const name = data.name.trim();
     const color = data.color.trim() || undefined;
     const readonly = data.readonly === 'true';
     const scope = (data.scope as 'user' | 'project') || 'user';
+    const agentAccess = data.agentAccess ? (data.agentAccess as AgentAccessMode) : undefined;
 
     if (existing) {
-      await this.connectionManager.updateFolder(existing.id, { name, color, readonly });
+      await this.connectionManager.updateFolder(existing.id, { name, color, readonly, agentAccess });
       vscode.window.showInformationMessage(vscode.l10n.t('Folder "{0}" updated.', name));
     } else {
-      const folder = await this.connectionManager.addFolder(name, color, readonly, this.parentFolderIdForNew);
+      const folder = await this.connectionManager.addFolder(name, color, readonly, this.parentFolderIdForNew, agentAccess);
       folder.scope = scope;
-      await this.connectionManager.updateFolder(folder.id, { name, color, readonly });
+      await this.connectionManager.updateFolder(folder.id, { name, color, readonly, agentAccess });
       vscode.window.showInformationMessage(vscode.l10n.t('Folder "{0}" created.', name));
     }
     this.parentFolderIdForNew = undefined;
@@ -150,6 +151,19 @@ export class FolderFormPanel {
 
     <div class="form-group checkbox-group">
       <vscode-checkbox id="readonlyMode"${f?.readonly ? ' checked' : ''}>Read-only (default for new connections in this folder)</vscode-checkbox>
+    </div>
+
+    <div class="form-group">
+      <label for="agentAccess">AI agent access</label>
+      <vscode-single-select id="agentAccess">
+        <vscode-option value=""${!f?.agentAccess ? ' selected' : ''}>Default (inherit from parent / settings)</vscode-option>
+        <vscode-option value="full"${f?.agentAccess === 'full' ? ' selected' : ''}>Full — schema + execute queries</vscode-option>
+        <vscode-option value="schema-only"${f?.agentAccess === 'schema-only' ? ' selected' : ''}>Schema only — no query execution</vscode-option>
+        <vscode-option value="none"${f?.agentAccess === 'none' ? ' selected' : ''}>None — hide from AI agents</vscode-option>
+      </vscode-single-select>
+      <div class="field-hint">
+        Default for connections in this folder (and nested folders). Individual connections can override.
+      </div>
     </div>
 
     <div class="button-row">

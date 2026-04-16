@@ -11,6 +11,7 @@
   const btnRandomColor = $('btnRandomColor');
   const readonlyMode = $('readonlyMode');
   const scopeEl = $('scope');
+  const agentAccessEl = $('agentAccess');
 
   function setColorSwatch(color) {
     colorSwatchFill.style.background = color || 'transparent';
@@ -104,6 +105,7 @@
         color: String(folderColor.value || '').trim(),
         readonly: readonlyMode.checked ? 'true' : 'false',
         scope: scopeEl.value,
+        agentAccess: agentAccessEl.value || '',
       },
     });
   });
@@ -121,6 +123,7 @@
       folderColorPicker.value = f.color && /^#[0-9a-fA-F]{6}$/.test(f.color) ? f.color : '#1e1e1e';
       setColorSwatch(f.color || '');
       readonlyMode.checked = !!f.readonly;
+      agentAccessEl.value = f.agentAccess || '';
     }
   });
 })();

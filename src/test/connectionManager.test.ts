@@ -93,6 +93,9 @@ vi.mock('vscode', () => {
         writeFile: async () => {},
       },
       createFileSystemWatcher: () => mockFileSystemWatcher,
+      getConfiguration: (_section?: string) => ({
+        get: (_key: string) => undefined,
+      }),
     },
   };
 });
@@ -764,6 +767,47 @@ describe('ConnectionManager', () => {
     it('returns false for nonexistent connection', () => {
       const manager = createManager();
       expect(manager.isConnectionReadonly('ghost')).toBe(false);
+    });
+  });
+
+  describe('getAgentAccess', () => {
+    it('returns connection\'s own agentAccess when set', async () => {
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'a1', agentAccess: 'schema-only' }));
+      expect(manager.getAgentAccess('a1')).toBe('schema-only');
+    });
+
+    it('defaults to "full" when nothing overrides it', async () => {
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'a2' }));
+      expect(manager.getAgentAccess('a2')).toBe('full');
+    });
+
+    it('inherits from direct folder', async () => {
+      const manager = createManager();
+      const folder = await manager.addFolder('Locked', undefined, false, undefined, 'none');
+      await manager.add(makeConfig({ id: 'a3', folderId: folder.id }));
+      expect(manager.getAgentAccess('a3')).toBe('none');
+    });
+
+    it('walks up the folder chain (grandparent wins when parent is unset)', async () => {
+      const manager = createManager();
+      const grand = await manager.addFolder('Grand', undefined, false, undefined, 'schema-only');
+      const parent = await manager.addFolder('Parent', undefined, false, grand.id);
+      await manager.add(makeConfig({ id: 'a4', folderId: parent.id }));
+      expect(manager.getAgentAccess('a4')).toBe('schema-only');
+    });
+
+    it('connection override wins over folder', async () => {
+      const manager = createManager();
+      const folder = await manager.addFolder('Locked', undefined, false, undefined, 'none');
+      await manager.add(makeConfig({ id: 'a5', folderId: folder.id, agentAccess: 'full' }));
+      expect(manager.getAgentAccess('a5')).toBe('full');
+    });
+
+    it('returns default "full" for unknown connection', () => {
+      const manager = createManager();
+      expect(manager.getAgentAccess('ghost')).toBe('full');
     });
   });
 

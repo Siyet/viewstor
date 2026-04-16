@@ -11,8 +11,25 @@ import { SchemaObject } from '../types/schema';
 import { ChartConfig, EChartsChartType, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { isAgentOpAllowed, AgentOp } from '../mcp/agentAccess';
 
 const store = new ConnectionStore();
+
+/**
+ * Gate a standalone MCP tool call by the connection's `agentAccess` mode.
+ * Returns `null` when allowed; an error response when denied.
+ * `none`-mode connections report "not found" so agents cannot infer their existence.
+ */
+function gateAgent(connectionId: string, op: AgentOp): ReturnType<typeof errorResponse> | null {
+  const config = store.get(connectionId);
+  if (!config) return errorResponse(`Connection "${connectionId}" not found`);
+  const mode = store.getAgentAccess(connectionId);
+  if (mode === 'none') return errorResponse(`Connection "${connectionId}" not found`);
+  if (!isAgentOpAllowed(mode, op)) {
+    return errorResponse(`Connection "${connectionId}" is in "${mode}" agent access mode; operation not permitted.`);
+  }
+  return null;
+}
 
 const server = new Server(
   { name: 'viewstor-mcp', version: '0.1.2' },
@@ -158,7 +175,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case 'list_connections': {
-        const all = store.getAll();
+        const all = store.getAll()
+          .filter(c => store.getAgentAccess(c.id) !== 'none');
         const result = all.map(c => ({
           id: c.id,
           name: c.name,
@@ -169,12 +187,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           databases: c.databases,
           connected: !!store.getDriver(c.id),
           readonly: c.readonly,
+          agentAccess: store.getAgentAccess(c.id),
         }));
         return jsonResponse(result);
       }
 
       case 'get_schema': {
         const { connectionId, database } = args as { connectionId: string; database?: string };
+        const gate = gateAgent(connectionId, 'schema-read');
+        if (gate) return gate;
         const driver = await resolveDriver(connectionId, database);
         const schema = await driver.getSchema();
         return jsonResponse(flattenSchema(schema));
@@ -182,6 +203,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'execute_query': {
         const { connectionId, query, database } = args as { connectionId: string; query: string; database?: string };
+        const gate = gateAgent(connectionId, 'data-read');
+        if (gate) return gate;
         const config = store.get(connectionId);
         if (config?.readonly) {
           const trimmed = query.trim().toUpperCase();
@@ -205,6 +228,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { connectionId, tableName, schema, limit, database } = args as {
           connectionId: string; tableName: string; schema?: string; limit?: number; database?: string;
         };
+        const gate = gateAgent(connectionId, 'data-read');
+        if (gate) return gate;
         const driver = await resolveDriver(connectionId, database);
         const result = await driver.getTableData(tableName, schema, limit || 100);
         return jsonResponse({
@@ -218,6 +243,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { connectionId, tableName, schema, database } = args as {
           connectionId: string; tableName: string; schema?: string; database?: string;
         };
+        const gate = gateAgent(connectionId, 'schema-read');
+        if (gate) return gate;
         const driver = await resolveDriver(connectionId, database);
         const info = await driver.getTableInfo(tableName, schema);
         return jsonResponse({
@@ -262,6 +289,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           groupByColumn?: string; nameColumn?: string; valueColumn?: string;
           aggregation?: string; timeBucket?: string; title?: string;
         };
+        const gate = gateAgent(connectionId, 'data-read');
+        if (gate) return gate;
 
         // Build SQL: either from raw query, or auto-generate from table + aggregation
         let effectiveQuery: string;
@@ -323,6 +352,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           connectionId: string; query: string; chartType: string;
           title?: string; xColumn?: string; yColumns?: string[];
         };
+        const gate = gateAgent(grafConnId, 'data-read');
+        if (gate) return gate;
         if (!isGrafanaCompatible(grafChartType as EChartsChartType)) {
           return errorResponse(`Chart type "${grafChartType}" is not compatible with Grafana. Use: line, bar, scatter, pie, gauge, heatmap.`);
         }

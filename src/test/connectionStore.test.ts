@@ -215,3 +215,73 @@ describe('MCP handler routing for database parameter', () => {
     expect(ensureDriverForDatabase).not.toHaveBeenCalled();
   });
 });
+
+// -------------------------------------------------------------------------
+// ConnectionStore.getAgentAccess — inheritance for the standalone MCP server
+// -------------------------------------------------------------------------
+describe('ConnectionStore.getAgentAccess', () => {
+  const HOME_DIR = path.join(os.tmpdir(), `viewstor-home-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const USER_CONFIG = path.join(HOME_DIR, '.viewstor', 'connections.json');
+
+  beforeEach(() => {
+    fs.mkdirSync(path.dirname(USER_CONFIG), { recursive: true });
+    vi.stubEnv('HOME', HOME_DIR);
+    // os.homedir() is cached at module import time in connectionStore.ts,
+    // so we reload the module each test with a fresh env.
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    fs.rmSync(HOME_DIR, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+
+  async function makeStoreWith(data: unknown) {
+    fs.writeFileSync(USER_CONFIG, JSON.stringify(data, null, 2), 'utf8');
+    const { ConnectionStore } = await import('../mcp-server/connectionStore');
+    return new ConnectionStore();
+  }
+
+  it('returns "full" by default when no override or folder applies', async () => {
+    const store = await makeStoreWith({
+      connections: [{ id: 'c1', name: 'C1', type: 'postgresql', host: 'h', port: 5432 }],
+      folders: [],
+    });
+    expect(store.getAgentAccess('c1')).toBe('full');
+  });
+
+  it('returns the connection\'s own agentAccess when set', async () => {
+    const store = await makeStoreWith({
+      connections: [{ id: 'c1', name: 'C1', type: 'postgresql', host: 'h', port: 5432, agentAccess: 'none' }],
+      folders: [],
+    });
+    expect(store.getAgentAccess('c1')).toBe('none');
+  });
+
+  it('inherits schema-only from folder', async () => {
+    const store = await makeStoreWith({
+      connections: [{ id: 'c1', name: 'C1', type: 'postgresql', host: 'h', port: 5432, folderId: 'f1' }],
+      folders: [{ id: 'f1', name: 'F', sortOrder: 0, agentAccess: 'schema-only' }],
+    });
+    expect(store.getAgentAccess('c1')).toBe('schema-only');
+  });
+
+  it('walks up the folder chain', async () => {
+    const store = await makeStoreWith({
+      connections: [{ id: 'c1', name: 'C1', type: 'postgresql', host: 'h', port: 5432, folderId: 'child' }],
+      folders: [
+        { id: 'grand', name: 'Grand', sortOrder: 0, agentAccess: 'none' },
+        { id: 'child', name: 'Child', sortOrder: 1, parentFolderId: 'grand' },
+      ],
+    });
+    expect(store.getAgentAccess('c1')).toBe('none');
+  });
+
+  it('returns "none" for unknown connection (so MCP treats it as missing)', async () => {
+    const store = await makeStoreWith({
+      connections: [{ id: 'c1', name: 'C1', type: 'postgresql', host: 'h', port: 5432 }],
+      folders: [],
+    });
+    expect(store.getAgentAccess('ghost')).toBe('none');
+  });
+});

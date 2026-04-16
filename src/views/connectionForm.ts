@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { ConnectionConfig, DatabaseType, DEFAULT_PORTS } from '../types/connection';
+import { ConnectionConfig, DatabaseType, DEFAULT_PORTS, AgentAccessMode } from '../types/connection';
 import { ConnectionManager } from '../connections/connectionManager';
 import { createDriver } from '../drivers';
 
@@ -159,6 +159,7 @@ export class ConnectionFormPanel {
       folderId: data.folderId || undefined,
       scope: (data.scope as 'user' | 'project') || 'user',
       safeMode: data.safeMode ? (data.safeMode as 'off' | 'warn' | 'block') : undefined,
+      agentAccess: data.agentAccess ? (data.agentAccess as AgentAccessMode) : undefined,
       proxy: data.proxyType && data.proxyType !== 'none' ? {
         type: data.proxyType as 'ssh' | 'socks5' | 'http',
         sshHost: data.sshHost || undefined,
@@ -379,6 +380,19 @@ export class ConnectionFormPanel {
           </vscode-single-select>
           <div id="scopeHint" class="field-hint hidden">
             Password is not saved to the project file for security. You will be prompted on connect.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="agentAccess">AI agent access</label>
+          <vscode-single-select id="agentAccess">
+            <vscode-option value=""${!c?.agentAccess ? ' selected' : ''}>Default (inherit from folder / settings)</vscode-option>
+            <vscode-option value="full"${c?.agentAccess === 'full' ? ' selected' : ''}>Full — schema + execute queries</vscode-option>
+            <vscode-option value="schema-only"${c?.agentAccess === 'schema-only' ? ' selected' : ''}>Schema only — no query execution</vscode-option>
+            <vscode-option value="none"${c?.agentAccess === 'none' ? ' selected' : ''}>None — hide from AI agents</vscode-option>
+          </vscode-single-select>
+          <div class="field-hint">
+            Controls what VS Code chat and MCP tools can do with this connection. Overrides the folder / global default.
           </div>
         </div>
 

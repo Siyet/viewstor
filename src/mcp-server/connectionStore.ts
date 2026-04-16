@@ -1,9 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { ConnectionConfig } from '../types/connection';
+import { ConnectionConfig, ConnectionFolder, AgentAccessMode } from '../types/connection';
 import { DatabaseDriver } from '../types/driver';
 import { createDriver } from '../drivers';
+import { resolveAgentAccess } from '../mcp/agentAccess';
 
 const USER_CONFIG_DIR = path.join(os.homedir(), '.viewstor');
 const USER_CONFIG_FILE = path.join(USER_CONFIG_DIR, 'connections.json');
@@ -11,11 +12,12 @@ const PROJECT_CONFIG_FILE = '.vscode/viewstor.json';
 
 interface ConfigData {
   connections: ConnectionConfig[];
-  folders?: unknown[];
+  folders?: ConnectionFolder[];
 }
 
 export class ConnectionStore {
   private connections = new Map<string, ConnectionConfig>();
+  private folders = new Map<string, ConnectionFolder>();
   private drivers = new Map<string, DatabaseDriver>();
   private dbDrivers = new Map<string, DatabaseDriver>();
   private dbDriverLocks = new Map<string, Promise<DatabaseDriver>>();
@@ -26,6 +28,7 @@ export class ConnectionStore {
 
   reload() {
     this.connections.clear();
+    this.folders.clear();
     // Load user-level config
     this.loadFile(USER_CONFIG_FILE, 'user');
 
@@ -43,9 +46,20 @@ export class ConnectionStore {
         config.scope = scope;
         this.connections.set(config.id, config);
       }
+      for (const folder of data.folders || []) {
+        folder.scope = scope;
+        this.folders.set(folder.id, folder);
+      }
     } catch {
       // File doesn't exist or invalid JSON — skip silently
     }
+  }
+
+  /** Resolve the effective agent access mode for a connection (walks folder chain). */
+  getAgentAccess(id: string): AgentAccessMode {
+    const config = this.connections.get(id);
+    if (!config) return 'none';
+    return resolveAgentAccess(config, (folderId) => this.folders.get(folderId), 'full');
   }
 
   getAll(): ConnectionConfig[] {
