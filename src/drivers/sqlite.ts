@@ -2,7 +2,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
-import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, DatabaseStatistics, TopTableEntry } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
 // Lazy-load better-sqlite3 to avoid crashing the entire extension on ABI mismatch.
@@ -390,6 +390,87 @@ export class SqliteDriver implements DatabaseDriver {
       { key: 'index_count', label: 'Index count', value: idxCount.cnt, unit: 'count' },
       { key: 'trigger_count', label: 'Trigger count', value: triggerCount.cnt, unit: 'count' },
     ];
+  }
+
+  async getDatabaseStatistics(
+    options: { topTablesLimit?: number; hiddenSchemas?: string[] } = {},
+  ): Promise<DatabaseStatistics> {
+    const limit = Math.max(1, Math.min(options.topTablesLimit ?? 50, 500));
+
+    const tables = this.db!.prepare(
+      'SELECT name FROM sqlite_master WHERE type = \'table\' AND name NOT LIKE \'sqlite_%\' ORDER BY name'
+    ).all() as Array<{ name: string }>;
+
+    const viewCount = this.db!.prepare(
+      'SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type = \'view\''
+    ).get() as { cnt: number };
+
+    const indexCount = this.db!.prepare(
+      'SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type = \'index\' AND name NOT LIKE \'sqlite_%\''
+    ).get() as { cnt: number };
+
+    // Try dbstat for per-table sizes (optional vtable).
+    let dbstatRows: Array<{ name: string; sz: number }> = [];
+    try {
+      dbstatRows = this.db!.prepare(
+        'SELECT name, SUM(pgsize) AS sz FROM dbstat GROUP BY name'
+      ).all() as Array<{ name: string; sz: number }>;
+    } catch { /* dbstat unavailable — sizes left null */ }
+    const sizeMap = new Map<string, number>();
+    for (const row of dbstatRows) sizeMap.set(row.name, row.sz ?? 0);
+
+    // Per-table row counts run one `COUNT(*)` per table. Bound at 200 tables
+    // (per #73) to avoid hammering the file on very large schemas; above that
+    // rowCount is left null rather than blocking the whole panel.
+    const ROW_COUNT_TABLE_LIMIT = 200;
+    const countRows = tables.length <= ROW_COUNT_TABLE_LIMIT;
+
+    const topTables: TopTableEntry[] = tables.map(table => {
+      const rowCount = countRows ? this.getRowCountSync(table.name) : null;
+      const sizeBytes = sizeMap.has(table.name) ? sizeMap.get(table.name)! : null;
+      return {
+        name: table.name,
+        rowCount,
+        sizeBytes,
+        indexesSizeBytes: null,
+        deadTuplesPct: null,
+        lastVacuum: null,
+      };
+    });
+    // Rank by sizeBytes desc (nulls last), then rowCount desc.
+    topTables.sort((left, right) => {
+      const leftSize = left.sizeBytes ?? -1;
+      const rightSize = right.sizeBytes ?? -1;
+      if (leftSize !== rightSize) return rightSize - leftSize;
+      return (right.rowCount ?? 0) - (left.rowCount ?? 0);
+    });
+
+    // PRAGMA page_count / page_size → total database file size.
+    const pageCountRow = this.db!.prepare('PRAGMA page_count').get() as { page_count: number } | undefined;
+    const pageSizeRow = this.db!.prepare('PRAGMA page_size').get() as { page_size: number } | undefined;
+    const freelistRow = this.db!.prepare('PRAGMA freelist_count').get() as { freelist_count: number } | undefined;
+    const journalRow = this.db!.prepare('PRAGMA journal_mode').get() as { journal_mode: string } | undefined;
+
+    const pageCount = pageCountRow?.page_count ?? 0;
+    const pageSize = pageSizeRow?.page_size ?? 0;
+    const freelist = freelistRow?.freelist_count ?? 0;
+    const totalSize = pageCount * pageSize;
+
+    return {
+      overview: [
+        { key: 'db_size', label: 'Database size', value: totalSize || null, unit: 'bytes' },
+        { key: 'table_count', label: 'Tables', value: tables.length, unit: 'count' },
+        { key: 'view_count', label: 'Views', value: viewCount.cnt, unit: 'count' },
+        { key: 'index_count', label: 'Indexes', value: indexCount.cnt, unit: 'count' },
+      ],
+      topTables: topTables.slice(0, limit),
+      connectionLevel: [
+        { key: 'page_count', label: 'Page count', value: pageCount || null, unit: 'count' },
+        { key: 'page_size', label: 'Page size', value: pageSize || null, unit: 'bytes' },
+        { key: 'free_pages', label: 'Free pages', value: freelist, unit: 'count', badWhen: 'higher' },
+        { key: 'journal_mode', label: 'Journal mode', value: journalRow?.journal_mode ?? null, unit: 'text' },
+      ],
+    };
   }
 
   // --- Private helpers ---

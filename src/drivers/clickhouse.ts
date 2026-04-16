@@ -2,7 +2,7 @@ import { createClient, type ClickHouseClient } from '@clickhouse/client';
 import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
-import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, DatabaseStatistics, TopTableEntry } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
 export class ClickHouseDriver implements DatabaseDriver {
@@ -324,6 +324,99 @@ export class ClickHouseDriver implements DatabaseDriver {
       { key: 'engine', label: 'Engine', value: row?.engine ?? null, unit: 'text' },
       { key: 'metadata_modified', label: 'Metadata modified', value: row?.metadata_modification_time ?? null, unit: 'date' },
     ];
+  }
+
+  async getDatabaseStatistics(
+    options: { topTablesLimit?: number; hiddenSchemas?: string[] } = {},
+  ): Promise<DatabaseStatistics> {
+    const limit = Math.max(1, Math.min(options.topTablesLimit ?? 50, 500));
+    const hiddenSchemas = options.hiddenSchemas ?? [];
+
+    const toNumber = (value: unknown): number | null => {
+      if (value === null || value === undefined) return null;
+      const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    // Scope: connected database if set, otherwise non-system databases.
+    const dbWhere = this.database
+      ? 'database = {db:String}'
+      : 'database NOT IN (\'system\',\'INFORMATION_SCHEMA\',\'information_schema\')';
+    const queryParams: Record<string, string> = this.database ? { db: this.database } : {};
+
+    // Overview + per-table sizes in one scan of system.tables.
+    const overviewRes = await this.client!.query({
+      query: `SELECT database, name, engine,
+                     total_rows, total_bytes, metadata_modification_time
+              FROM system.tables
+              WHERE ${dbWhere}`,
+      format: 'JSONEachRow',
+      query_params: queryParams,
+    });
+    const rows = await overviewRes.json<{
+      database: string;
+      name: string;
+      engine: string;
+      total_rows: string | number | null;
+      total_bytes: string | number | null;
+      metadata_modification_time: string | null;
+    }[]>();
+
+    const hiddenSet = new Set(hiddenSchemas);
+    const visible = rows.filter(r => !hiddenSet.has(r.database));
+
+    const tableCount = visible.filter(r => !String(r.engine || '').includes('View')).length;
+    const viewCount = visible.filter(r => String(r.engine || '').includes('View')).length;
+    const totalSize = visible.reduce((acc, r) => acc + (toNumber(r.total_bytes) ?? 0), 0);
+
+    const topTables: TopTableEntry[] = visible
+      .map(r => ({
+        name: r.name,
+        schema: r.database,
+        rowCount: toNumber(r.total_rows),
+        sizeBytes: toNumber(r.total_bytes),
+        indexesSizeBytes: null,
+        deadTuplesPct: null,
+        lastVacuum: r.metadata_modification_time ?? null,
+      }))
+      .sort((left, right) => (right.sizeBytes ?? -1) - (left.sizeBytes ?? -1))
+      .slice(0, limit);
+
+    // Connection-level: active parts (MergeTree), running queries, replicas.
+    let activeParts: number | null = null;
+    try {
+      const partsRes = await this.client!.query({
+        query: `SELECT countIf(active) AS active_parts FROM system.parts WHERE ${dbWhere}`,
+        format: 'JSONEachRow',
+        query_params: queryParams,
+      });
+      const partsRows = await partsRes.json<{ active_parts: string | number }[]>();
+      activeParts = toNumber(partsRows[0]?.active_parts);
+    } catch { /* unavailable */ }
+
+    let runningQueries: number | null = null;
+    try {
+      const procRes = await this.client!.query({
+        query: 'SELECT count() AS cnt FROM system.processes',
+        format: 'JSONEachRow',
+      });
+      const procRows = await procRes.json<{ cnt: string | number }[]>();
+      runningQueries = toNumber(procRows[0]?.cnt);
+    } catch { /* unavailable */ }
+
+    return {
+      overview: [
+        { key: 'db_name', label: 'Database', value: this.database ?? null, unit: 'text' },
+        { key: 'db_size', label: 'Total size (compressed)', value: totalSize || null, unit: 'bytes' },
+        { key: 'table_count', label: 'Tables', value: tableCount, unit: 'count' },
+        { key: 'view_count', label: 'Views', value: viewCount, unit: 'count' },
+      ],
+      topTables,
+      connectionLevel: [
+        { key: 'active_parts', label: 'Active parts', value: activeParts, unit: 'count' },
+        { key: 'running_queries', label: 'Running queries', value: runningQueries, unit: 'count' },
+      ],
+    };
   }
 
   async getCompletions(): Promise<CompletionItem[]> {

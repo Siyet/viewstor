@@ -1,0 +1,236 @@
+/*
+ * Database Statistics panel webview styles.
+ *
+ * Matches the visual language of the diff panel / result grid: design tokens
+ * from tokens.css, @vscode-elements chrome, codicons. No custom colors outside
+ * the semantic token set.
+ */
+
+:root {
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  font-size: var(--viewstor-font-table-data-size);
+}
+
+.stats-container {
+  padding: 16px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--viewstor-section-gap);
+  max-width: 1400px;
+}
+
+/* ---- Header ---- */
+.stats-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--viewstor-border-subtle);
+}
+
+.stats-header h2 {
+  margin: 0;
+  font-size: var(--viewstor-font-panel-title-size);
+  font-weight: var(--viewstor-font-panel-title-weight);
+}
+
+.stats-header-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dimmed {
+  color: var(--viewstor-text-dimmed);
+  font-size: var(--viewstor-font-meta-size);
+}
+
+/* ---- Error banner ---- */
+.error-banner {
+  padding: 8px 12px;
+  background: var(--viewstor-badge-bg-removed);
+  color: var(--vscode-foreground);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.error-banner[hidden] { display: none; }
+
+/* ---- Section ---- */
+.stats-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stats-section h3 {
+  margin: 0;
+  font-size: var(--viewstor-font-section-header-size);
+  font-weight: var(--viewstor-font-section-header-weight);
+}
+
+/* ---- Overview tiles ---- */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.tile {
+  padding: 10px 12px;
+  border: 1px solid var(--viewstor-border-subtle);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tile-label {
+  font-size: var(--viewstor-font-meta-size);
+  color: var(--viewstor-text-dimmed);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.tile-value {
+  font-size: 16px;
+  font-weight: 600;
+  font-family: var(--viewstor-font-mono);
+}
+
+/* ---- Top tables table ---- */
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--viewstor-font-table-data-size);
+}
+
+.stats-table thead th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  padding: var(--viewstor-cell-padding);
+  font-size: var(--viewstor-font-table-header-size);
+  font-weight: var(--viewstor-font-table-header-weight);
+  border-bottom: 1px solid var(--viewstor-border-subtle);
+  background: var(--vscode-editor-background);
+  user-select: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stats-table thead th.num {
+  text-align: right;
+}
+
+.stats-table thead th.sort-asc::after { content: ' ▲'; opacity: 0.7; }
+.stats-table thead th.sort-desc::after { content: ' ▼'; opacity: 0.7; }
+
+.stats-table tbody td {
+  padding: var(--viewstor-cell-padding);
+  border-bottom: 1px solid var(--viewstor-border-subtle);
+  vertical-align: middle;
+}
+
+.stats-table tbody tr:nth-child(even) {
+  background: var(--viewstor-row-zebra);
+}
+
+.stats-table td.num {
+  text-align: right;
+  font-family: var(--viewstor-font-mono);
+  white-space: nowrap;
+}
+
+.stats-table td.name-cell {
+  font-family: var(--viewstor-font-mono);
+  word-break: break-all;
+}
+
+.stats-table td.warn {
+  color: var(--vscode-errorForeground);
+}
+
+/* inline bar within a numeric cell */
+.bar-cell {
+  min-width: 140px;
+}
+
+.bar-wrap {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar {
+  height: 4px;
+  width: 100%;
+  background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  transition: width 120ms ease-out;
+}
+
+.bar-value {
+  font-family: var(--viewstor-font-mono);
+  white-space: nowrap;
+}
+
+/* ---- Empty state ---- */
+.empty-state {
+  color: var(--viewstor-text-dimmed);
+  font-size: 12px;
+  padding: 8px 0;
+  list-style: none;
+}
+
+/* ---- Connection-level metrics list ---- */
+.metrics-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 6px 16px;
+}
+
+.metric-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--viewstor-border-subtle);
+}
+
+.metric-label {
+  color: var(--viewstor-text-dimmed);
+}
+
+.metric-value {
+  font-family: var(--viewstor-font-mono);
+  font-weight: 600;
+}
+
+/* High-contrast tweaks */
+@media (forced-colors: active) {
+  .bar { border: 1px solid CanvasText; }
+  .bar-fill { background: LinkText; }
+}

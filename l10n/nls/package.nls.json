@@ -51,5 +51,8 @@
   "chat.command.chart": "Generate a chart visualization from a query",
   "command.compareWith": "Compare With...",
   "command.compareData": "Compare Data",
-  "config.diffRowLimit.description": "Maximum number of rows to compare per table. Larger values use more memory."
+  "config.diffRowLimit.description": "Maximum number of rows to compare per table. Larger values use more memory.",
+  "command.showDatabaseStatistics": "Show Database Statistics",
+  "config.databaseStats.topTablesLimit.description": "Maximum number of rows in the top-tables list of the Database Statistics view.",
+  "config.databaseStats.autoRefreshSeconds.description": "Auto-refresh interval (seconds) for the Database Statistics view. 0 disables auto-refresh."
 }
