@@ -20,6 +20,10 @@ interface DiffState {
   rightObjects?: TableObjects;
   leftStats?: TableStatistic[];
   rightStats?: TableStatistic[];
+  /** DB type of the left connection (undefined when we have no connection manager / the source is a query-only DiffSource). */
+  leftType?: string;
+  /** DB type of the right connection. */
+  rightType?: string;
   leftQuery: string;
   rightQuery: string;
   syncMode: boolean;
@@ -48,6 +52,10 @@ export class DiffPanelManager {
     rightStats?: TableStatistic[],
     queryState?: { leftQuery?: string; rightQuery?: string; syncMode?: boolean },
   ) {
+    const leftType = left.connectionId ? this.connectionManager?.get(left.connectionId)?.config.type : undefined;
+    const rightType = right.connectionId ? this.connectionManager?.get(right.connectionId)?.config.type : undefined;
+    const crossType = !!(leftType && rightType && leftType !== rightType);
+
     const rowDiff = computeRowDiff(left, right, options);
     const schemaDiff = leftTableInfo && rightTableInfo
       ? computeSchemaDiff(leftTableInfo.columns, rightTableInfo.columns)
@@ -56,7 +64,7 @@ export class DiffPanelManager {
       ? computeObjectsDiff(leftObjects, rightObjects)
       : null;
     const statsDiff = (leftStats || rightStats)
-      ? computeStatsDiff(leftStats, rightStats)
+      ? computeStatsDiff(leftStats, rightStats, { crossType })
       : null;
 
     const panelTitle = `Diff \u2014 ${left.label} \u2194 ${right.label}`;
@@ -66,8 +74,6 @@ export class DiffPanelManager {
     const defaultRightQuery = right.tableName ? buildDefaultDiffQuery(right.tableName, right.schema, options.rowLimit) : '';
     const leftQuery = queryState?.leftQuery ?? defaultLeftQuery;
     const rightQuery = queryState?.rightQuery ?? defaultRightQuery;
-    const leftType = left.connectionId ? this.connectionManager?.get(left.connectionId)?.config.type : undefined;
-    const rightType = right.connectionId ? this.connectionManager?.get(right.connectionId)?.config.type : undefined;
     const syncMode = queryState?.syncMode ?? !!(leftType && rightType && leftType === rightType);
 
     let state = this.diffs.get(panelKey);
@@ -86,6 +92,8 @@ export class DiffPanelManager {
       state.rightObjects = rightObjects;
       state.leftStats = leftStats;
       state.rightStats = rightStats;
+      state.leftType = leftType;
+      state.rightType = rightType;
       state.leftQuery = leftQuery;
       state.rightQuery = rightQuery;
       state.syncMode = syncMode;
@@ -124,6 +132,8 @@ export class DiffPanelManager {
         rightObjects,
         leftStats,
         rightStats,
+        leftType,
+        rightType,
         leftQuery,
         rightQuery,
         syncMode,
@@ -560,6 +570,8 @@ export class DiffPanelManager {
         </div>
       </div>
 
+      ${renderCrossTypeBanner(state)}
+
       <div class="diff-stats-container">
         <div id="statsZeroSummary" class="diff-stats-zero-summary" hidden></div>
         <div id="statsChart"></div>
@@ -590,6 +602,27 @@ function readonlyError(cm: Pick<ConnectionManager, 'isConnectionReadonly'>, sour
 
 function esc(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * Render the cross-type stats info banner. Shown only when the two sides are
+ * connections of different DB types AND at least one per-side metric was
+ * dropped from the diff (leftOnly + rightOnly > 0). Explains to the user why
+ * the metric set is narrower than the per-side panels would suggest.
+ */
+function renderCrossTypeBanner(state: DiffState): string {
+  const summary = state.statsDiff?.summary;
+  if (!summary || !summary.crossType) return '';
+  const hidden = summary.leftOnlyCount + summary.rightOnlyCount;
+  if (hidden === 0) return '';
+  const common = state.statsDiff!.items.length;
+  const leftName = state.leftType || 'left';
+  const rightName = state.rightType || 'right';
+  const parts: string[] = [];
+  if (summary.leftOnlyCount > 0) parts.push(`${summary.leftOnlyCount} ${esc(leftName)}-specific`);
+  if (summary.rightOnlyCount > 0) parts.push(`${summary.rightOnlyCount} ${esc(rightName)}-specific`);
+  const hiddenClause = parts.length > 0 ? `${parts.join(' and ')} metric${hidden === 1 ? '' : 's'} hidden.` : '';
+  return `<div class="diff-cross-type-banner" role="note"><vscode-icon name="info"></vscode-icon> <span>Comparing ${esc(leftName)} \u2194 ${esc(rightName)} \u2014 showing ${common} metric${common === 1 ? '' : 's'} common to both. ${hiddenClause}</span></div>`;
 }
 
 function safeJsonForScript(data: unknown): string {
