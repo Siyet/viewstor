@@ -36,6 +36,36 @@ export class DiffPanelManager {
     private readonly connectionManager?: ConnectionManager,
   ) {}
 
+  /**
+   * Open a "pending" diff panel with the left source loaded and the right pane
+   * in a placeholder state prompting the user to pick a table. Returns the
+   * created panel so the caller can `show(..., pendingPanel)` once the right
+   * side is resolved, adopting the same panel instead of creating a second one.
+   *
+   * `onPickRight` is invoked whenever the placeholder is clicked — the caller
+   * typically runs its table picker there. The placeholder stays visible until
+   * `show()` adopts the panel or the user closes it.
+   */
+  showPending(leftLabel: string, onPickRight: () => void): vscode.WebviewPanel {
+    const panelTitle = `Diff \u2014 ${leftLabel} \u2194 \u2026`;
+    const panel = vscode.window.createWebviewPanel(
+      'viewstor.diff',
+      panelTitle,
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, 'dist'))],
+      },
+    );
+    panel.webview.html = this.buildPendingHtml(panel.webview, leftLabel);
+    const sub = panel.webview.onDidReceiveMessage((msg) => {
+      if (msg && msg.type === 'pickRightTable') onPickRight();
+    });
+    panel.onDidDispose(() => sub.dispose());
+    return panel;
+  }
+
   show(
     left: DiffSource,
     right: DiffSource,
@@ -47,6 +77,7 @@ export class DiffPanelManager {
     leftStats?: TableStatistic[],
     rightStats?: TableStatistic[],
     queryState?: { leftQuery?: string; rightQuery?: string; syncMode?: boolean },
+    existingPanel?: vscode.WebviewPanel,
   ) {
     const rowDiff = computeRowDiff(left, right, options);
     const schemaDiff = leftTableInfo && rightTableInfo
@@ -93,16 +124,22 @@ export class DiffPanelManager {
       // is treated as stale and its result is dropped.
       state.queryRunId++;
     } else {
-      const panel = vscode.window.createWebviewPanel(
-        'viewstor.diff',
-        panelTitle,
-        vscode.ViewColumn.Active,
-        {
-          enableScripts: true,
-          retainContextWhenHidden: true,
-          localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, 'dist'))],
-        },
-      );
+      let panel: vscode.WebviewPanel;
+      if (existingPanel) {
+        panel = existingPanel;
+        panel.title = panelTitle;
+      } else {
+        panel = vscode.window.createWebviewPanel(
+          'viewstor.diff',
+          panelTitle,
+          vscode.ViewColumn.Active,
+          {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+            localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, 'dist'))],
+          },
+        );
+      }
       panel.onDidDispose(() => {
         const diffState = this.diffs.get(panelKey);
         if (diffState) diffState.disposable.dispose();
@@ -300,6 +337,52 @@ export class DiffPanelManager {
       rowDiff: state.rowDiff,
       truncated: state.rowDiff.truncated,
     });
+  }
+
+  private buildPendingHtml(webview: vscode.Webview, leftLabel: string): string {
+    const distUri = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
+    const tokensUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'tokens.css'));
+    const codiconUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'codicon.css'));
+    const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'diff-panel.css'));
+    const shellUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'webview-shell.js'));
+    const elementsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'vscode-elements.js'));
+    const cspSource = webview.cspSource;
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource} 'unsafe-inline';">
+<link rel="stylesheet" href="${codiconUri}">
+<link rel="stylesheet" href="${tokensUri}">
+<link rel="stylesheet" href="${cssUri}">
+<script src="${shellUri}"></script>
+<script type="module" src="${elementsUri}"></script>
+</head>
+<body>
+  <div class="diff-pending" role="region" aria-label="Comparison sources">
+    <div class="diff-pending-pane diff-pending-filled">
+      <div class="diff-pending-label">Left</div>
+      <div class="diff-pending-value" id="leftSourceLabel">${esc(leftLabel)}</div>
+    </div>
+    <div class="diff-pending-arrow" aria-hidden="true"><vscode-icon name="arrow-both"></vscode-icon></div>
+    <div class="diff-pending-pane diff-pending-placeholder">
+      <div class="diff-pending-label">Right</div>
+      <button type="button" id="pickRight" class="diff-pending-picker" aria-label="Pick a table to compare with">
+        <vscode-icon name="add"></vscode-icon>
+        <span>Pick a table to compare with</span>
+      </button>
+    </div>
+  </div>
+  <script>
+    (function() {
+      const vscode = acquireVsCodeApi();
+      const btn = document.getElementById('pickRight');
+      btn.addEventListener('click', () => vscode.postMessage({ type: 'pickRightTable' }));
+    })();
+  </script>
+</body>
+</html>`;
   }
 
   private buildHtml(webview: vscode.Webview, state: DiffState): string {
