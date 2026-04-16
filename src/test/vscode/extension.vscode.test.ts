@@ -85,6 +85,7 @@ suite('Extension Activation', () => {
       'viewstor.unpinHistoryEntry',
       'viewstor.visualizeResults',
       'viewstor.exportGrafana',
+      'viewstor.showOnMap',
       'viewstor.openQueryFromHistory',
       // Internal commands used by webview panels
       'viewstor._noop',
