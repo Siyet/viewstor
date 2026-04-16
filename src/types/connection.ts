@@ -1,5 +1,15 @@
 export type DatabaseType = 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
 
+/**
+ * Per-connection / per-folder agent access mode, controlling what
+ * AI agents (VS Code chat participant, MCP tools) can do with the connection.
+ *
+ * - `full`        — agents may read schema and execute queries
+ * - `schema-only` — agents may read schema + describe tables, but cannot run queries
+ * - `none`        — connection is hidden from agents entirely
+ */
+export type AgentAccessMode = 'full' | 'schema-only' | 'none';
+
 export interface ConnectionConfig {
   id: string;
   name: string;
@@ -26,6 +36,8 @@ export interface ConnectionConfig {
   safeMode?: 'off' | 'warn' | 'block';
   /** Proxy/tunnel configuration */
   proxy?: ProxyConfig;
+  /** AI agent access mode. If unset, inherits from folder, then from `viewstor.defaultAgentAccess`. */
+  agentAccess?: AgentAccessMode;
 }
 
 export type ProxyType = 'none' | 'ssh' | 'socks5' | 'http';
@@ -54,6 +66,8 @@ export interface ConnectionFolder {
   sortOrder: number;
   parentFolderId?: string;
   scope?: 'user' | 'project';
+  /** AI agent access mode, inherited by child folders + connections. */
+  agentAccess?: AgentAccessMode;
 }
 
 export interface ConnectionState {

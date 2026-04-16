@@ -244,9 +244,19 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     item.contextValue = connected ? 'connection-connected' : 'connection-disconnected';
     const iconColor = colorToThemeColor(this.connectionManager.getConnectionColor(config.id));
     item.iconPath = new vscode.ThemeIcon(`viewstor-${config.type}`, iconColor);
-    item.description = connected
+    const baseDescription = connected
       ? (config.type === 'sqlite' ? (config.database || ':memory:') : `${config.host}:${config.port}`)
       : '';
+    // Mark restricted AI agent access with a short text badge so users can tell
+    // at a glance which connections are hidden from / schema-only to agents.
+    // (TreeItem.description is plain text and does not render $(codicon) syntax.)
+    const access = this.connectionManager.getAgentAccess(config.id);
+    const accessBadge = access === 'none' ? ' [agents: none]'
+      : access === 'schema-only' ? ' [agents: schema-only]'
+      : '';
+    item.description = baseDescription + accessBadge;
+    if (access === 'schema-only') item.tooltip = `${config.name} — AI agents: schema only`;
+    else if (access === 'none') item.tooltip = `${config.name} — hidden from AI agents`;
     item.command = { command: 'viewstor._noop', title: '' };
     return item;
   }

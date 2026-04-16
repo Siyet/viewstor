@@ -334,6 +334,7 @@
       folderId: folderId.value || '',
       scope: scopeEl.value,
       safeMode: $('safeMode').value,
+      agentAccess: $('agentAccess').value,
       proxyType: proxyType.value,
       sshHost: valueOf($('sshHost')).trim(),
       sshPort: valueOf($('sshPort')),
@@ -423,6 +424,7 @@
           folderId.value = c.folderId || '';
           scopeEl.value = c.scope || 'user';
           $('safeMode').value = c.safeMode || '';
+          $('agentAccess').value = c.agentAccess || '';
           $('hiddenSchemas').value = c.hiddenSchemas ? Object.values(c.hiddenSchemas).flat().join(', ') : '';
           proxyType.value = c.proxy?.type || 'none';
           if (c.proxy) {
