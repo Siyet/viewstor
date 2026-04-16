@@ -1,6 +1,6 @@
 import { ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
 import { quoteTable } from '../utils/queryHelpers';
-import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult } from './diffTypes';
+import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult, StatsDiffSummary } from './diffTypes';
 
 /**
  * Generate the default diff query for a given table.
@@ -441,30 +441,55 @@ export function toggleFilter(
 /**
  * Compute diff between two lists of table statistics.
  * Matches items by key, preserves order of left (right-only items appended at the end).
+ *
+ * When `options.crossType` is true (the two sides are connections of different DB
+ * types, e.g. PG ↔ ClickHouse), the result is restricted to the intersection of
+ * metric keys present on both sides — driver-specific metrics are dropped from
+ * `items` and reported via `summary.leftOnlyCount` / `summary.rightOnlyCount` so
+ * the UI can surface "N left-type-specific and M right-type-specific metrics
+ * hidden" without misleading the user (e.g. showing a PG `dead_tuples` row with
+ * an empty right cell just because ClickHouse doesn't have that concept).
  */
 export function computeStatsDiff(
   leftStats: TableStatistic[] | undefined,
   rightStats: TableStatistic[] | undefined,
+  options?: { crossType?: boolean },
 ): StatsDiffResult {
+  const crossType = !!options?.crossType;
   const left = leftStats || [];
   const right = rightStats || [];
   const rightMap = new Map(right.map(stat => [stat.key, stat]));
 
   const items: StatsDiffItem[] = [];
   const seen = new Set<string>();
+  let leftOnlyCount = 0;
+  let rightOnlyCount = 0;
 
   for (const leftStat of left) {
     seen.add(leftStat.key);
     const rightStat = rightMap.get(leftStat.key);
-    items.push(buildStatsDiffItem(leftStat, rightStat));
+    if (!rightStat) {
+      if (crossType) {
+        leftOnlyCount++;
+        continue;
+      }
+      items.push(buildStatsDiffItem(leftStat, undefined));
+    } else {
+      items.push(buildStatsDiffItem(leftStat, rightStat));
+    }
   }
 
   for (const rightStat of right) {
     if (seen.has(rightStat.key)) continue;
+    if (crossType) {
+      rightOnlyCount++;
+      continue;
+    }
     items.push(buildStatsDiffItem(undefined, rightStat));
   }
 
-  return { items };
+  const summary: StatsDiffSummary = { crossType, leftOnlyCount, rightOnlyCount };
+  return { items, summary };
 }
 
 function buildStatsDiffItem(leftStat: TableStatistic | undefined, rightStat: TableStatistic | undefined): StatsDiffItem {

@@ -212,6 +212,19 @@ vscode-tab-panel[hidden] {
   display: none;
 }
 
+/* ---- Cross-type stats info banner ---- */
+.diff-cross-type-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--vscode-editorInfo-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorInfo-background, rgba(100, 160, 220, 0.08));
+  border-bottom: 1px solid var(--viewstor-border-subtle);
+  flex-shrink: 0;
+}
+
 /* ---- SQL editor (collapsible body) ---- */
 #diffQueryEditor {
   flex-shrink: 0;
