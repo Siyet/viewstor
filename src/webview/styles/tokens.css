@@ -1,0 +1,78 @@
+/*
+ * Viewstor design tokens.
+ *
+ * Foundation for the cohesive visual language across all webviews
+ * (forms, result grid, diff, charts). Derived from VS Code theme
+ * variables so it adapts to light, dark, and high-contrast themes.
+ *
+ * See issue #84 / #86 for the design rationale.
+ */
+
+:root {
+  /* Typography scale (§ 1.1) */
+  --viewstor-font-panel-title-size: 13px;
+  --viewstor-font-panel-title-weight: 600;
+  --viewstor-font-section-header-size: 12px;
+  --viewstor-font-section-header-weight: 600;
+  --viewstor-font-table-header-size: 11px;
+  --viewstor-font-table-header-weight: 600;
+  --viewstor-font-table-data-size: 11px;
+  --viewstor-font-table-data-weight: 400;
+  --viewstor-font-type-annotation-size: 10px;
+  --viewstor-font-type-annotation-weight: 400;
+  --viewstor-font-meta-size: 10px;
+  --viewstor-font-meta-weight: 400;
+  --viewstor-font-meta-opacity: 0.6;
+
+  --viewstor-font-mono: var(--vscode-editor-font-family, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+
+  /* Spacing (§ 1.2) */
+  --viewstor-cell-padding: 4px 8px;
+  --viewstor-section-gap: 16px;
+  --viewstor-toolbar-item-gap: 8px;
+  --viewstor-toolbar-group-gap: 16px;
+  --viewstor-form-field-gap: 14px;
+
+  /* Layout */
+  --viewstor-form-max-width: 480px;
+
+  /* Semantic colors (§ 1.3) */
+  --viewstor-row-added: color-mix(in srgb, var(--vscode-terminal-ansiGreen, #6a9955) 25%, transparent);
+  --viewstor-row-removed: color-mix(in srgb, var(--vscode-terminal-ansiRed, #f48771) 25%, transparent);
+  --viewstor-row-changed: color-mix(in srgb, var(--vscode-terminal-ansiYellow, #d7ba7d) 25%, transparent);
+  --viewstor-row-zebra: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+
+  --viewstor-text-dimmed: var(--vscode-descriptionForeground, color-mix(in srgb, var(--vscode-foreground) 60%, transparent));
+  --viewstor-border-subtle: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+
+  --viewstor-badge-bg-unchanged: var(--vscode-badge-background);
+  --viewstor-badge-bg-added: color-mix(in srgb, var(--vscode-terminal-ansiGreen, #6a9955) 35%, transparent);
+  --viewstor-badge-bg-removed: color-mix(in srgb, var(--vscode-terminal-ansiRed, #f48771) 35%, transparent);
+  --viewstor-badge-bg-changed: color-mix(in srgb, var(--vscode-terminal-ansiYellow, #d7ba7d) 35%, transparent);
+}
+
+/* High-contrast theme overrides — boost subtle borders for accessibility */
+@media (forced-colors: active) {
+  :root {
+    --viewstor-border-subtle: CanvasText;
+    --viewstor-text-dimmed: CanvasText;
+  }
+}
+
+/* Common helpers */
+.viewstor-meta {
+  font-size: var(--viewstor-font-meta-size);
+  font-weight: var(--viewstor-font-meta-weight);
+  opacity: var(--viewstor-font-meta-opacity);
+  color: var(--viewstor-text-dimmed);
+}
+
+.viewstor-section-header {
+  font-size: var(--viewstor-font-section-header-size);
+  font-weight: var(--viewstor-font-section-header-weight);
+  margin: 0 0 8px;
+}
+
+.viewstor-mono {
+  font-family: var(--viewstor-font-mono);
+}

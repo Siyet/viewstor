@@ -2196,3 +2196,128 @@ suite('SQLite Computed Column Types', () => {
     }
   });
 });
+
+// ============================================================
+// Diff Panel — HTML structure + tab visibility regression (#87)
+// ============================================================
+
+suite('Diff Panel (vscode-elements)', () => {
+  interface DiffStateLike {
+    panel: vscode.WebviewPanel;
+  }
+
+  async function openDiffPanel() {
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    const api = await ext!.activate();
+    const mgr = api.diffPanelManager as {
+      show: (
+        left: Record<string, unknown>,
+        right: Record<string, unknown>,
+        options: { keyColumns: string[]; rowLimit: number },
+      ) => void;
+      // Private field accessed for test inspection — DiffPanelManager stores
+      // created panels in a Map keyed by panel title.
+      diffs: Map<string, DiffStateLike>;
+    };
+    assert.ok(mgr, 'diffPanelManager not exposed via extension API');
+
+    const left = {
+      label: 'Left Source',
+      columns: [{ name: 'id' }, { name: 'value' }],
+      rows: [{ id: 1, value: 'a' }, { id: 2, value: 'b' }],
+    };
+    const right = {
+      label: 'Right Source',
+      columns: [{ name: 'id' }, { name: 'value' }],
+      rows: [{ id: 1, value: 'a' }, { id: 2, value: 'X' }],
+    };
+    mgr.show(left, right, { keyColumns: ['id'], rowLimit: 100 });
+
+    const states = Array.from(mgr.diffs.values());
+    assert.strictEqual(states.length, 1, 'exactly one diff panel should be created');
+    const state = states[0];
+    const html = state.panel.webview.html;
+    return { state, html, mgr };
+  }
+
+  test('webview HTML uses vscode-tabs with header/panel pairs', async () => {
+    const { state, html } = await openDiffPanel();
+    try {
+      assert.ok(html.includes('<vscode-tabs'), 'HTML should mount <vscode-tabs>');
+      const headerCount = (html.match(/<vscode-tab-header\b/g) || []).length;
+      const panelCount = (html.match(/<vscode-tab-panel\b/g) || []).length;
+      assert.strictEqual(headerCount, 2, 'Row Diff + Schema Diff tab headers (no stats without same-type)');
+      assert.strictEqual(panelCount, 2, 'matching panel count');
+      assert.ok(html.includes('id="tabBadge-rows"'), 'Row Diff tab shows count badge');
+      assert.ok(html.includes('id="tabBadge-schema"'), 'Schema Diff tab shows count badge');
+    } finally {
+      state.panel.dispose();
+    }
+  });
+
+  test('filter chips + sticky source bar + swap/export buttons are present', async () => {
+    const { state, html } = await openDiffPanel();
+    try {
+      // All four row filter chips are active by default — the user sees the complete picture.
+      for (const key of ['unchanged', 'changed', 'added', 'removed']) {
+        const re = new RegExp(`<button[^>]*class="diff-chip ${key} active"[^>]*aria-pressed="true"`);
+        assert.ok(re.test(html), `${key} chip must default to active (aria-pressed="true")`);
+      }
+      // Schema / stats chips default to active too.
+      assert.strictEqual(
+        (html.match(/diff-chip differs active/g) || []).length,
+        1,
+        'schema "differs" chip active by default (stats tab is absent without same-type)',
+      );
+      assert.strictEqual(
+        (html.match(/diff-chip same active/g) || []).length,
+        1,
+        'schema "same" chip active by default',
+      );
+      // UX #84 § 3.4 — sticky Left/Right bar under tabs.
+      assert.ok(html.includes('class="diff-source-bar"'), 'sticky source bar present');
+      assert.ok(html.includes('id="leftSourceLabel"'), 'left source label id present');
+      // Action buttons via vscode-button.
+      assert.ok(html.includes('id="swapSides"'), 'swap button wired');
+      assert.ok(html.includes('id="exportCsv"'), 'CSV export button wired');
+      assert.ok(html.includes('id="exportJson"'), 'JSON export button wired');
+    } finally {
+      state.panel.dispose();
+    }
+  });
+
+  test('diff-panel.css applies zebra striping on every tbody row', async () => {
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    await ext!.activate();
+    const cssPath = path.join(ext!.extensionPath, 'dist', 'styles', 'diff-panel.css');
+    const css = fs.readFileSync(cssPath, 'utf-8');
+    // Row Diff + Schema/Objects/Other tables must both apply the zebra token.
+    assert.ok(
+      /\.diff-table\s+tbody\s+tr:nth-child\(even\)\s+td\s*\{[^}]*--viewstor-row-zebra/.test(css),
+      'row diff tables must zebra-stripe with --viewstor-row-zebra',
+    );
+    assert.ok(
+      /\.diff-schema-table\s+tbody\s+tr:nth-child\(even\)\s+td\s*\{[^}]*--viewstor-row-zebra/.test(css),
+      'schema / objects / Other tables must zebra-stripe with --viewstor-row-zebra',
+    );
+  });
+
+  test('diff-panel.css hides inactive tab panels via [hidden] rule', async () => {
+    // Regression for #87 v1: without `vscode-tab-panel[hidden] { display: none }`,
+    // our `display: flex` on vscode-tab-panel overrode the native hidden attribute
+    // that the tabs component sets on inactive panels, making all tabs render stacked.
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    await ext!.activate();
+    const cssPath = path.join(ext!.extensionPath, 'dist', 'styles', 'diff-panel.css');
+    assert.ok(fs.existsSync(cssPath), 'diff-panel.css must be copied to dist');
+    const css = fs.readFileSync(cssPath, 'utf-8');
+    // Allow flexible whitespace between selector and block.
+    assert.ok(
+      /vscode-tab-panel\[hidden\]\s*\{\s*display\s*:\s*none\s*;?\s*\}/.test(css),
+      'diff-panel.css must contain `vscode-tab-panel[hidden] { display: none }` — otherwise inactive tabs stack on top of each other',
+    );
+  });
+});

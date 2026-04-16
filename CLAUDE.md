@@ -57,10 +57,26 @@ Filtering: `filterSchema()` removes hidden schemas/databases recursively.
 
 `contextValue` controls menus: `folder`, `connection-connected`, `connection-disconnected`, `database`, `schema`, `table`, `view`, `column`, `index`, `trigger`, `sequence`, `group`.
 
-### Forms
-`src/views/connectionForm.ts` — webview panel. Fields: DB type, name, host:port, username, password, database (custom dropdown with server autocomplete — uses `postgres` as default DB to fetch list), additional databases (toggle tags), SSL, color (picker + palette + random), readonly, safe mode (block/warn/off), proxy (SSH tunnel / SOCKS5). Hidden folderId. Messages: save, testConnection, fetchDatabases, cancel.
+### Webview UI foundations
+All form / panel webviews share a common UI stack (issue #86):
 
-`src/views/folderForm.ts` — webview panel. Fields: name, color (picker + palette + random), readonly, scope. Accepts parentFolderId for nested creation.
+- **`@vscode-elements/elements`** — VS Code Web Components (`<vscode-textfield>`, `<vscode-single-select>`, `<vscode-checkbox>`, `<vscode-button>`, `<vscode-collapsible>`, `<vscode-icon>`, `<vscode-tabs>`, `<vscode-textarea>`, etc.). Bundled file copied to `dist/scripts/vscode-elements.js`; loaded as `<script type="module">`. Custom elements expose `.value` / `.checked` properties and emit `change` / `input` events just like native form controls.
+- **`@vscode/codicons`** — icon font copied to `dist/styles/codicon.css` + `codicon.ttf`. Use via `<vscode-icon name="..." />` (slot `content-before` / `content-after` for buttons) or directly with `<i class="codicon codicon-..."></i>`.
+- **`src/webview/scripts/webview-shell.js`** — loaded first in every webview HEAD; sets `window.__viewstorShellLoaded` marker. Centralizes the bundle path in case the loading strategy changes.
+- **`src/webview/styles/tokens.css`** — design tokens. Typography scale, spacing grid, semantic colors (`--viewstor-row-added/removed/changed/zebra`, `--viewstor-text-dimmed`, `--viewstor-border-subtle`, `--viewstor-badge-bg-*`, `--viewstor-form-max-width`). All derived from `--vscode-*` so themes apply automatically; high-contrast theme overrides via `@media (forced-colors: active)`.
+- **CSP** — every panel sets `Content-Security-Policy` allowing only `cspSource` for img/style/font/script. Inline styles allowed (`style-src 'unsafe-inline'`) so per-element inline `style=` works.
+
+Component patterns (#84 § 1.4):
+- **Data grid** — zebra striping, monospace data, resizable columns, sticky header. Used in Result Grid + diff tables.
+- **Toolbar** — grouped items with visual separators, consistent icon size (16px). Used in Result Grid + diff toolbar.
+- **Badge** — rounded pill, semantic color, count + label. Used in diff summary, filter counts.
+- **Empty state** — dimmed text + icon, no blank space. Used for zero-value charts and empty diff sections.
+- **Collapsible section** — chevron + header + count badge, smooth toggle. Used for Schema Diff sections + Advanced settings.
+
+### Forms
+`src/views/connectionForm.ts` — webview panel built on `vscode-elements`. Field order (edit-flow optimized, #84 § 4.1): Name → DB Type → Host/Port → Username/Password → Databases (chips with server autocomplete — uses `postgres` as default DB to fetch list) → Database Number (Redis) / Database File (SQLite) → SSL → Proxy (SSH/SOCKS5/HTTP) → Color (picker + palette + random) → Read-only → **Advanced** (`vscode-collapsible`, collapsed by default): Safe mode override (block/warn/off), Store in (user/project), Hidden schemas. Hidden folderId. Footer: Test Connection (left, secondary) — spacer — Cancel / Save (right). Form is `max-width: 480px` centered. Webview script: `src/webview/scripts/connection-form.js`. Messages: save, testConnection, fetchDatabases, cancel.
+
+`src/views/folderForm.ts` — webview panel using the same elements + tokens. Fields: name, color (picker + palette + random), Store in (user/project), readonly. Accepts parentFolderId for nested creation. Webview script: `src/webview/scripts/folder-form.js`.
 
 ### Result Panel
 `src/views/resultPanel.ts` — webview. Server-side pagination (LIMIT/OFFSET). `ShowOptions`: connectionId, tableName, schema, pkColumns, color, readonly, pageSize, currentPage, totalRowCount, isEstimatedCount, orderBy.
@@ -101,11 +117,11 @@ Multi-source: `ChartDataSource` in config, resolved via `PinnedQueryProvider` (i
 Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana push.
 
 ### Data Diff
-`src/diff/diffEngine.ts` — pure functions: `computeRowDiff()` matches rows by key columns (PK or user-specified), compares all non-key columns by stringifying values. `computeSchemaDiff()` compares column names, types, nullability, PK status. `computeObjectsDiff()` compares indexes, constraints, triggers, sequences. `computeStatsDiff()` compares table-level statistics key-by-key, computes numeric delta + percent, preserves `badWhen` hint for red/green coloring. `formatStatValue()` formats bytes/count/percent/date. `exportDiffAsCsv()` / `exportDiffAsJson()` for diff export. No vscode dependency, fully unit-tested.
+`src/diff/diffEngine.ts` — pure functions: `computeRowDiff()` matches rows by key columns (PK or user-specified), compares all non-key columns by stringifying values. `computeSchemaDiff()` compares column names, types, nullability, PK status. `computeObjectsDiff()` compares indexes, constraints, triggers, sequences. `computeStatsDiff()` compares table-level statistics key-by-key, computes numeric delta + percent, preserves `badWhen` hint for red/green coloring. `formatStatValue()` formats bytes/count/percent/date. `buildDefaultDiffQuery()` generates the initial `SELECT * FROM <table> LIMIT <rowLimit>` for the editable-query UI. `exportDiffAsCsv()` / `exportDiffAsJson()` for diff export. No vscode dependency, fully unit-tested.
 
 `src/diff/diffTypes.ts` — `DiffSource`, `DiffOptions`, `RowDiffResult`, `MatchedRow`, `SchemaDiffResult`, `ColumnCompare`, `ObjectsDiffResult`, `ObjectDiffItem`, `StatsDiffResult`, `StatsDiffItem`.
 
-`src/diff/diffPanel.ts` — `DiffPanelManager`, webview panel for side-by-side diff visualization. Row diff tab (added/removed/changed rows with cell-level highlighting), Schema diff tab (column comparison + objects), Statistics tab (horizontal bar chart built with ECharts — each row normalized to its own max so bytes/counts/percents are visually comparable; non-numeric metrics rendered in a small table below). Export as CSV/JSON. Swap sides button. Loads `dist/scripts/echarts.min.js` only when stats are present.
+`src/diff/diffPanel.ts` — `DiffPanelManager`, webview panel for side-by-side diff visualization. Built on `@vscode-elements/elements` (`vscode-tabs` / `vscode-tab-header` / `vscode-tab-panel` / `vscode-collapsible` / `vscode-button` / `vscode-checkbox` / `vscode-icon`) + codicons + shared `tokens.css`. Tab headers carry custom `tab-badge` count chips that tint warn-color when the tab has real differences. Row Diff tab (added/removed/changed rows with cell-level highlighting; zebra striping via `--viewstor-row-zebra` on every tbody row, status classes win), Schema Diff tab (column comparison + objects, rendered as card blocks with the same zebra striping), Statistics tab (horizontal bar chart built with ECharts — each row normalized to its own max; zero-on-both-sides metrics collapse into an inline summary line rather than rendering empty cells; non-numeric "Other" metrics render as a card matching the chart/schema cards). Sticky `diff-source-bar` under the tabs labels Left / Right once so per-column sub-headers don't repeat source labels. All filter chips default to active so the diff opens with the complete picture; click to solo / Shift+click to toggle. Filter chips use shared `--viewstor-badge-bg-*` tokens. CSS rule `vscode-tab-panel[hidden] { display: none }` is load-bearing — without it the `display: flex` on `vscode-tab-panel` overrides the native hidden attribute and inactive tabs render stacked. Export as CSV/JSON. Swap sides button (preserves edited queries). Loads `dist/scripts/echarts.min.js` only when stats are present. Row Diff tab has a `vscode-collapsible` titled "SQL" with per-side `<textarea>` + `vscode-checkbox` Synced toggle (with visible `lock` codicon while on) + "Run Diff" button — when both connections are the same type, sync defaults ON and mirrors edits between panes. `runDiffQuery` message re-executes both queries via the drivers (`DiffPanelManager` takes an optional `ConnectionManager`) and recomputes only the row diff; schema / objects / stats tabs stay bound to the original tables. Rejects with inline errors if the new result sets don't carry the key columns.
 
 `src/commands/diffCommands.ts` — `viewstor.compareWith` (context menu on tables), `viewstor.compareData` (command palette). Auto-detects PK columns; prompts user if no PK found. Fetches data + objects + statistics from both sources (stats only when both connections are the same `type`), computes diff, opens panel.
 
@@ -160,6 +176,8 @@ All auto-connect. Returns structured JSON or `{ error }`.
 `src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle.
 
 9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`.
+
+Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter. `ConnectionStore.ensureDriverForDatabase()` mirrors `ConnectionManager.getDriverForDatabase()` — caches per `connectionId:database`, reuses host/user/password/ssl. VS Code MCP commands accept `database` as a trailing optional arg.
 
 Usage in Claude Code config:
 ```json

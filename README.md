@@ -1,7 +1,11 @@
 # Viewstor
 
 <p align="center">
-  <img src="resources/banner-light.png" alt="Viewstor" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="resources/banner-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="resources/banner-light.png">
+    <img src="resources/banner-dark.png" alt="Viewstor" width="100%">
+  </picture>
 </p>
 
 <p align="center">
@@ -83,6 +87,7 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 - **Multi-database** — list several databases in one connection, each as a separate tree node
 - **Color coding** — theme-aware palette or hex picker, tints icons; folders pass color to children
 - **SSL** and **SSH tunnel** / **SOCKS5 proxy** support
+- **Native VS Code form chrome** — Connection / Folder forms built on `@vscode-elements/elements` with `@vscode/codicons`; render correctly in light, dark, and high-contrast themes. Power-user settings (Safe mode override, Store in, Hidden schemas) tucked under a collapsible **Advanced** section so the default form stays short
 
 ### Schema Browser
 
@@ -143,9 +148,11 @@ Example: pin `SELECT ts, cpu FROM metrics` and `SELECT ts, mem FROM metrics`, op
 Compare data between tables — even across different connections (dev vs staging):
 
 - Right-click a table → **Compare With...** → pick another table from any connected database
-- **Row diff** — matches rows by primary key, highlights added/removed/changed cells side-by-side
+- **Row diff** — matches rows by primary key, highlights added/removed/changed cells side-by-side, zebra-striped rows
 - **Schema diff** — compare column names, types, nullability, PK status, plus indexes, constraints, triggers, and sequences
 - **Statistics diff** — side-by-side row count, table/index/total size, dead tuples, last vacuum/analyze, scan counters (PostgreSQL); row count, compressed/uncompressed size, compression ratio, parts, engine (ClickHouse); row count, table size, index/trigger counts (SQLite). Only shown when both sides are the same database type
+- **Custom SQL** — editable queries per side under the collapsible "SQL" block, with Synced toggle + lock indicator for mirrored edits
+- Tab headers show colored count badges (e.g. `Schema Diff •6`); filter chips per tab (click to solo, Shift+click to toggle)
 - Export diff as CSV or JSON
 - Configure max rows in settings (`viewstor.diffRowLimit`, default 10,000)
 
@@ -216,6 +223,8 @@ Or add manually:
 9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
 
 All MCP interfaces auto-connect and respect read-only mode.
+
+Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter — query another database on the same server without creating a new connection or re-entering the password.
 
 ### Other
 

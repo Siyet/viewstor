@@ -25,7 +25,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'list_connections',
-      description: 'List all configured database connections with their status',
+      description: 'List all configured database connections with their status. The "databases" field shows additional databases on the same server that can be queried via the "database" parameter of other tools.',
       inputSchema: { type: 'object' as const, properties: {} },
     },
     {
@@ -35,6 +35,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           connectionId: { type: 'string', description: 'Connection ID' },
+          database: { type: 'string', description: 'Optional database name to query (reuses connection credentials). Use this to inspect a different database on the same server without creating a new connection.' },
         },
         required: ['connectionId'],
       },
@@ -47,6 +48,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           connectionId: { type: 'string', description: 'Connection ID' },
           query: { type: 'string', description: 'SQL query to execute' },
+          database: { type: 'string', description: 'Optional database name to run the query against (reuses connection credentials). Use this to query a different database on the same server without creating a new connection.' },
         },
         required: ['connectionId', 'query'],
       },
@@ -61,6 +63,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           tableName: { type: 'string', description: 'Table name' },
           schema: { type: 'string', description: 'Schema name (optional)' },
           limit: { type: 'number', description: 'Row limit (default 100)' },
+          database: { type: 'string', description: 'Optional database name to query (reuses connection credentials).' },
         },
         required: ['connectionId', 'tableName'],
       },
@@ -74,6 +77,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           connectionId: { type: 'string', description: 'Connection ID' },
           tableName: { type: 'string', description: 'Table name' },
           schema: { type: 'string', description: 'Schema name (optional)' },
+          database: { type: 'string', description: 'Optional database name to query (reuses connection credentials).' },
         },
         required: ['connectionId', 'tableName'],
       },
@@ -109,6 +113,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           connectionId: { type: 'string', description: 'Connection ID' },
+          database: { type: 'string', description: 'Optional database name to query (reuses connection credentials).' },
           query: { type: 'string', description: 'Raw SQL query. If tableName + aggregation are provided, this is auto-generated and can be omitted.' },
           tableName: { type: 'string', description: 'Table name for server-side aggregation (e.g. "quotes")' },
           schema: { type: 'string', description: 'Schema name (e.g. "public")' },
@@ -132,6 +137,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           connectionId: { type: 'string', description: 'Connection ID' },
+          database: { type: 'string', description: 'Optional database name to query (reuses connection credentials).' },
           query: { type: 'string', description: 'SQL query' },
           chartType: { type: 'string', description: 'Chart type: line, bar, scatter, pie, gauge, heatmap' },
           title: { type: 'string', description: 'Dashboard title' },
@@ -160,6 +166,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           host: c.host,
           port: c.port,
           database: c.database,
+          databases: c.databases,
           connected: !!store.getDriver(c.id),
           readonly: c.readonly,
         }));
@@ -167,14 +174,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_schema': {
-        const { connectionId } = args as { connectionId: string };
-        const driver = await store.ensureDriver(connectionId);
+        const { connectionId, database } = args as { connectionId: string; database?: string };
+        const driver = await resolveDriver(connectionId, database);
         const schema = await driver.getSchema();
         return jsonResponse(flattenSchema(schema));
       }
 
       case 'execute_query': {
-        const { connectionId, query } = args as { connectionId: string; query: string };
+        const { connectionId, query, database } = args as { connectionId: string; query: string; database?: string };
         const config = store.get(connectionId);
         if (config?.readonly) {
           const trimmed = query.trim().toUpperCase();
@@ -182,7 +189,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return errorResponse('Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.');
           }
         }
-        const driver = await store.ensureDriver(connectionId);
+        const driver = await resolveDriver(connectionId, database);
         const result = await driver.execute(query);
         return jsonResponse({
           columns: result.columns.map(c => c.name),
@@ -195,10 +202,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_table_data': {
-        const { connectionId, tableName, schema, limit } = args as {
-          connectionId: string; tableName: string; schema?: string; limit?: number;
+        const { connectionId, tableName, schema, limit, database } = args as {
+          connectionId: string; tableName: string; schema?: string; limit?: number; database?: string;
         };
-        const driver = await store.ensureDriver(connectionId);
+        const driver = await resolveDriver(connectionId, database);
         const result = await driver.getTableData(tableName, schema, limit || 100);
         return jsonResponse({
           columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
@@ -208,10 +215,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_table_info': {
-        const { connectionId, tableName, schema } = args as {
-          connectionId: string; tableName: string; schema?: string;
+        const { connectionId, tableName, schema, database } = args as {
+          connectionId: string; tableName: string; schema?: string; database?: string;
         };
-        const driver = await store.ensureDriver(connectionId);
+        const driver = await resolveDriver(connectionId, database);
         const info = await driver.getTableInfo(tableName, schema);
         return jsonResponse({
           name: info.name,
@@ -247,10 +254,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'build_chart': {
-        const { connectionId, query, tableName: chartTable, schema: chartSchema, chartType,
+        const { connectionId, database: chartDatabase, query, tableName: chartTable, schema: chartSchema, chartType,
           xColumn, yColumns, groupByColumn, nameColumn, valueColumn,
           aggregation: aggFunc, timeBucket, title: chartTitle } = args as {
-          connectionId: string; query?: string; tableName?: string; schema?: string;
+          connectionId: string; database?: string; query?: string; tableName?: string; schema?: string;
           chartType?: string; xColumn?: string; yColumns?: string[];
           groupByColumn?: string; nameColumn?: string; valueColumn?: string;
           aggregation?: string; timeBucket?: string; title?: string;
@@ -281,7 +288,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return errorResponse('Provide either "query" or "tableName" parameter');
         }
 
-        const chartDriver = await store.ensureDriver(connectionId);
+        const chartDriver = await resolveDriver(connectionId, chartDatabase);
         const chartResult = await chartDriver.execute(effectiveQuery);
         if (chartResult.error) return errorResponse(chartResult.error);
 
@@ -343,6 +350,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return errorResponse(err instanceof Error ? err.message : String(err));
   }
 });
+
+async function resolveDriver(connectionId: string, database?: string) {
+  if (database) return store.ensureDriverForDatabase(connectionId, database);
+  return store.ensureDriver(connectionId);
+}
 
 function jsonResponse(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
