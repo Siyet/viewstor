@@ -44,10 +44,11 @@ export class FolderFormPanel {
     const styleUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'styles', 'connection-form.css'));
     const shellUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'webview-shell.js'));
     const elementsUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'vscode-elements.js'));
+    const colorPickerUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'color-picker.js'));
     const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'folder-form.js'));
 
     this.panel.webview.html = this.buildHtml(
-      { tokensUri, codiconUri, styleUri, shellUri, elementsUri, scriptUri },
+      { tokensUri, codiconUri, styleUri, shellUri, elementsUri, colorPickerUri, scriptUri },
       folder,
     );
 
@@ -98,6 +99,7 @@ export class FolderFormPanel {
       styleUri: vscode.Uri;
       shellUri: vscode.Uri;
       elementsUri: vscode.Uri;
+      colorPickerUri: vscode.Uri;
       scriptUri: vscode.Uri;
     },
     folder?: ConnectionFolder,
@@ -159,6 +161,7 @@ export class FolderFormPanel {
     </div>
   </div>
 
+  <script src="${uris.colorPickerUri}"></script>
   <script src="${uris.scriptUri}"></script>
 </body>
 </html>`;

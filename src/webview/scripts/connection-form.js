@@ -24,10 +24,6 @@
   const testResult = $('testResult');
   const connColor = $('connColor');
   const connColorPicker = $('connColorPicker');
-  const colorSwatchFill = $('colorSwatchFill');
-  const colorSwatchPreview = $('colorSwatchPreview');
-  const btnClearColor = $('btnClearColor');
-  const btnRandomColor = $('btnRandomColor');
   const readonlyMode = $('readonlyMode');
   const advancedSection = $('advancedSection');
 
@@ -48,9 +44,14 @@
 
   function $(id) { return document.getElementById(id); }
 
-  function setColorSwatch(color) {
-    colorSwatchFill.style.background = color || 'transparent';
-  }
+  const colorPicker = window.ViewstorColorPicker.attach({
+    textEl: connColor,
+    pickerEl: connColorPicker,
+    swatchEl: $('colorSwatchFill'),
+    clearBtn: $('btnClearColor'),
+    randomBtn: $('btnRandomColor'),
+    paletteEl: $('colorPalette'),
+  });
 
   function updateFieldVisibility() {
     const isRedis = dbType.value === 'redis';
@@ -86,79 +87,6 @@
 
   port.addEventListener('input', function () { portManuallyChanged = true; });
 
-  // Color picker — clicking the swatch fires the native color input behind it
-  connColorPicker.addEventListener('input', function () {
-    connColor.value = connColorPicker.value;
-    setColorSwatch(connColorPicker.value);
-  });
-
-  connColor.addEventListener('input', function () {
-    const v = connColor.value;
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-      connColorPicker.value = v;
-      setColorSwatch(v);
-    } else if (v.startsWith('var(')) {
-      setColorSwatch(v);
-    }
-  });
-
-  btnClearColor.addEventListener('click', function () {
-    connColor.value = '';
-    connColorPicker.value = '#1e1e1e';
-    setColorSwatch('');
-  });
-
-  btnRandomColor.addEventListener('click', function () {
-    const h = Math.floor(Math.random() * 360);
-    const s = 60 + Math.floor(Math.random() * 30);
-    const l = 45 + Math.floor(Math.random() * 20);
-    const hex = hslToHex(h, s, l);
-    connColor.value = hex;
-    connColorPicker.value = hex;
-    setColorSwatch(hex);
-  });
-
-  function hslToHex(h, s, l) {
-    s /= 100; l /= 100;
-    const a = s * Math.min(l, 1 - l);
-    function f(n) {
-      const k = (n + h / 30) % 12;
-      const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-      return Math.round(255 * c).toString(16).padStart(2, '0');
-    }
-    return '#' + f(0) + f(8) + f(4);
-  }
-
-  // Color palette
-  const palette = $('colorPalette');
-  const themeColors = [
-    { label: 'Red', css: 'var(--vscode-terminal-ansiRed)' },
-    { label: 'Green', css: 'var(--vscode-terminal-ansiGreen)' },
-    { label: 'Yellow', css: 'var(--vscode-terminal-ansiYellow)' },
-    { label: 'Blue', css: 'var(--vscode-terminal-ansiBlue)' },
-    { label: 'Magenta', css: 'var(--vscode-terminal-ansiMagenta)' },
-    { label: 'Cyan', css: 'var(--vscode-terminal-ansiCyan)' },
-    { label: 'Bright Red', css: 'var(--vscode-terminal-ansiBrightRed)' },
-    { label: 'Bright Green', css: 'var(--vscode-terminal-ansiBrightGreen)' },
-    { label: 'Bright Yellow', css: 'var(--vscode-terminal-ansiBrightYellow)' },
-    { label: 'Bright Blue', css: 'var(--vscode-terminal-ansiBrightBlue)' },
-    { label: 'Bright Magenta', css: 'var(--vscode-terminal-ansiBrightMagenta)' },
-    { label: 'Bright Cyan', css: 'var(--vscode-terminal-ansiBrightCyan)' },
-  ];
-  themeColors.forEach(function (tc) {
-    const swatch = document.createElement('button');
-    swatch.type = 'button';
-    swatch.className = 'color-swatch';
-    swatch.title = tc.label;
-    swatch.style.background = tc.css;
-    swatch.addEventListener('click', function () {
-      connColor.value = tc.css;
-      setColorSwatch(tc.css);
-    });
-    palette.appendChild(swatch);
-  });
-
-  setColorSwatch(connColor.value || connColorPicker.value);
   updateFieldVisibility();
 
   // Databases chips
@@ -329,7 +257,7 @@
       database: isRedis ? valueOf(redisDb) : isSqlite ? valueOf(sqliteFile).trim() : database.value.trim(),
       databases: (isRedis || isSqlite) ? '' : databases.value.trim(),
       ssl: ssl.checked ? 'true' : 'false',
-      color: valueOf(connColor).trim(),
+      color: colorPicker.getValue(),
       readonly: readonlyMode.checked ? 'true' : 'false',
       folderId: folderId.value || '',
       scope: scopeEl.value,
@@ -416,9 +344,7 @@
           if (c.type === 'sqlite') sqliteFile.value = c.database || '';
           initChips();
           ssl.checked = !!c.ssl;
-          connColor.value = c.color || '';
-          connColorPicker.value = c.color && /^#[0-9a-fA-F]{6}$/.test(c.color) ? c.color : '#1e1e1e';
-          setColorSwatch(c.color || '');
+          colorPicker.setValue(c.color || '');
           readonlyMode.checked = !!c.readonly;
           folderId.value = c.folderId || '';
           scopeEl.value = c.scope || 'user';
