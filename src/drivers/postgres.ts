@@ -829,18 +829,24 @@ export class PostgresDriver implements DatabaseDriver {
     };
 
     // pg_database_size() applies to the currently connected database.
+    // `$1::text[]` carries the user's hidden schemas so the overview counts
+    // stay consistent with the top-tables query below.
     const overviewRes = await this.client!.query(
       `SELECT
          current_database() AS db_name,
          pg_database_size(current_database())::bigint AS db_size,
          (SELECT COUNT(*)::bigint FROM information_schema.tables
            WHERE table_schema NOT IN ('pg_catalog','information_schema','pg_toast')
+             AND table_schema != ALL($1::text[])
              AND table_type = 'BASE TABLE') AS table_count,
          (SELECT COUNT(*)::bigint FROM information_schema.tables
            WHERE table_schema NOT IN ('pg_catalog','information_schema','pg_toast')
+             AND table_schema != ALL($1::text[])
              AND table_type = 'VIEW') AS view_count,
          (SELECT COUNT(*)::bigint FROM pg_indexes
-           WHERE schemaname NOT IN ('pg_catalog','information_schema','pg_toast')) AS index_count`,
+           WHERE schemaname NOT IN ('pg_catalog','information_schema','pg_toast')
+             AND schemaname != ALL($1::text[])) AS index_count`,
+      [hiddenSchemas],
     );
     const ov = overviewRes.rows[0] || {};
 
