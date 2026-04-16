@@ -8,6 +8,7 @@ import { registerHistoryCommands } from './historyCommands';
 import { registerSchemaCommands } from './schemaCommands';
 import { registerExportCommands } from './exportCommands';
 import { registerDiffCommands } from './diffCommands';
+import { registerStatsCommands } from './statsCommands';
 
 // Re-export CommandContext so extension.ts import path stays the same
 export type { CommandContext } from './shared';
@@ -61,4 +62,5 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
   registerSchemaCommands(context, ctx);
   registerExportCommands(context, ctx);
   registerDiffCommands(context, ctx);
+  registerStatsCommands(context, ctx);
 }

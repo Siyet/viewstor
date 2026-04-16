@@ -127,6 +127,19 @@ Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana pus
 
 Settings: `viewstor.diffRowLimit` (default 10000, max 100000).
 
+### Database Statistics
+`src/stats/databaseStatsFormat.ts` — pure helpers: `sortTopTables()` (by size/rows/indexes/dead/name, nulls last), `maxNumericValue()` for bar normalization, `clampTopTablesLimit()` / `clampAutoRefreshSeconds()` for setting validation, `isValidDatabaseStatistics()` type guard. No vscode dependency, fully unit-tested.
+
+`src/stats/databaseStatsPanel.ts` — `DatabaseStatsPanelManager`, webview panel keyed by `connectionId:database`. Handles `refresh` messages from the webview via a caller-supplied `onRefresh` callback (so the caller controls settings/hiddenSchemas), posts `setStats` on success and `error` on failure. Optional auto-refresh timer scheduled per-panel via `autoRefreshSeconds`. HTML scaffolded with overview tiles, sortable top-tables table, and connection-level metrics list; loads `dist/styles/database-stats-panel.css` + `dist/scripts/database-stats-panel.js`.
+
+`src/webview/scripts/database-stats-panel.js` — receives `setStats`/`error` messages, renders tiles + sortable top-tables with inline bars, and wires the refresh button to `postMessage({type:'refresh'})`. Sorting helpers (`sortTopTables` / `maxNumeric`) are duplicated here since the webview bundle is separate from the node runtime.
+
+`src/commands/statsCommands.ts` — `viewstor.showDatabaseStatistics`. From the tree, uses the clicked item's connection + (optional) database; from the palette, shows a quickpick of connected databases. Resolves `getDriverForDatabase()` when a database name is given, calls `driver.getDatabaseStatistics({ topTablesLimit, hiddenSchemas })`, opens the panel, and keeps the `onRefresh` callback closed over the same resolution so auto-refresh keeps working across multi-DB connections.
+
+Driver contract: `getDatabaseStatistics?(options?: { topTablesLimit?: number; hiddenSchemas?: string[] }): Promise<DatabaseStatistics>`. PostgreSQL aggregates `pg_database_size` + `pg_class`/`pg_stat_user_tables` + `pg_stat_database` (+ `pg_stat_activity` for active backends). ClickHouse reads `system.tables` for overview/top and `system.parts`/`system.processes` for connection-level metrics. SQLite uses `sqlite_master` for counts, PRAGMAs (`page_count`, `page_size`, `freelist_count`, `journal_mode`) for size/config, optional `dbstat` virtual table for per-table sizes when compiled in.
+
+Settings: `viewstor.databaseStats.topTablesLimit` (default 50, range 1–500), `viewstor.databaseStats.autoRefreshSeconds` (default 0 = disabled, cap 3600).
+
 ### SQL Autocomplete
 `src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).
 

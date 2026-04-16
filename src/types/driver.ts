@@ -1,6 +1,6 @@
 import { ConnectionConfig } from './connection';
 import { QueryResult, SortColumn } from './query';
-import { SchemaObject, TableInfo, TableObjects, TableStatistic } from './schema';
+import { SchemaObject, TableInfo, TableObjects, TableStatistic, DatabaseStatistics } from './schema';
 
 /**
  * Unified interface that all database drivers must implement.
@@ -25,6 +25,15 @@ export interface DatabaseDriver {
   getTableObjects?(name: string, schema?: string): Promise<TableObjects>;
   /** Returns table-level statistics (row count, sizes, vacuum info, etc.) for stats diff */
   getTableStatistics?(name: string, schema?: string): Promise<TableStatistic[]>;
+  /**
+   * Returns database-level statistics: overview tiles, top-N tables by size,
+   * connection-level metrics. Used by the Database Statistics view (#73).
+   * `topTablesLimit` caps the top-tables list; `hiddenSchemas` filters out
+   * schemas the user has hidden on the current connection.
+   */
+  getDatabaseStatistics?(
+    options?: { topTablesLimit?: number; hiddenSchemas?: string[] },
+  ): Promise<DatabaseStatistics>;
 }
 
 export interface CompletionItem {

@@ -117,3 +117,25 @@ export interface TableStatistic {
    */
   badWhen?: 'higher' | 'lower';
 }
+
+/** Summary entry for the top-N tables list in the database statistics view. */
+export interface TopTableEntry {
+  name: string;
+  schema?: string;
+  rowCount: number | null;
+  sizeBytes: number | null;
+  indexesSizeBytes: number | null;
+  deadTuplesPct: number | null;
+  lastVacuum: string | null;
+}
+
+/**
+ * Database-level statistics: overview tiles, sortable top-N tables, and
+ * connection-level metrics. Mirrors the per-table `TableStatistic` shape so
+ * the same formatter / diff engine apply.
+ */
+export interface DatabaseStatistics {
+  overview: TableStatistic[];
+  topTables: TopTableEntry[];
+  connectionLevel: TableStatistic[];
+}

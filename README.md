@@ -157,6 +157,16 @@ Compare data between tables — even across different connections (dev vs stagin
 
 Also available via Command Palette: `Viewstor: Compare Data`.
 
+### Database Statistics
+
+Right-click a connection or database node → **Show Database Statistics** (or Command Palette → `Viewstor: Show Database Statistics`) to open a live dashboard:
+
+- **Overview tiles** — database size, total tables / views / indexes
+- **Top tables** — sortable list with inline bars for row count, table size, index size, dead-tuple %; click a column header to re-sort
+- **Connection-level metrics** — active backends, commits / rollbacks, cache hit ratio, etc. (PostgreSQL); parts / processes (ClickHouse); PRAGMAs like `page_count`, `page_size`, `freelist_count`, `journal_mode` (SQLite)
+- Respects hidden schemas from the connection settings
+- Configurable via `viewstor.databaseStats.topTablesLimit` (default 50, max 500) and `viewstor.databaseStats.autoRefreshSeconds` (default 0 = off, max 3600)
+
 ### Copilot Chat (`@viewstor`)
 
 Ask questions about your database in natural language:

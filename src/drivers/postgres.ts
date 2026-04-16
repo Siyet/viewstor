@@ -3,7 +3,7 @@ import { DatabaseDriver } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { CompletionItem } from '../types/driver';
-import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo, DatabaseStatistics, TopTableEntry } from '../types/schema';
 import { createSSHTunnel, createSocks5Connection, TunnelInfo } from '../connections/tunnel';
 import { quoteIdentifier } from '../utils/queryHelpers';
 
@@ -807,6 +807,131 @@ export class PostgresDriver implements DatabaseDriver {
       { key: 'tup_updated', label: 'Tuples updated', value: toNumber(stat.n_tup_upd), unit: 'count' },
       { key: 'tup_deleted', label: 'Tuples deleted', value: toNumber(stat.n_tup_del), unit: 'count' },
     ];
+  }
+
+  async getDatabaseStatistics(
+    options: { topTablesLimit?: number; hiddenSchemas?: string[] } = {},
+  ): Promise<DatabaseStatistics> {
+    const limit = Math.max(1, Math.min(options.topTablesLimit ?? 50, 500));
+    const hiddenSchemas = options.hiddenSchemas ?? [];
+
+    // Overview: DB size, table/view/index counts.
+    const toNumber = (value: unknown): number | null => {
+      if (value === null || value === undefined) return null;
+      const parsed = typeof value === 'number' ? value : parseFloat(String(value));
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const toDate = (value: unknown): string | null => {
+      if (!value) return null;
+      if (value instanceof Date) return value.toISOString();
+      return String(value);
+    };
+
+    // pg_database_size() applies to the currently connected database.
+    const overviewRes = await this.client!.query(
+      `SELECT
+         current_database() AS db_name,
+         pg_database_size(current_database())::bigint AS db_size,
+         (SELECT COUNT(*)::bigint FROM information_schema.tables
+           WHERE table_schema NOT IN ('pg_catalog','information_schema','pg_toast')
+             AND table_type = 'BASE TABLE') AS table_count,
+         (SELECT COUNT(*)::bigint FROM information_schema.tables
+           WHERE table_schema NOT IN ('pg_catalog','information_schema','pg_toast')
+             AND table_type = 'VIEW') AS view_count,
+         (SELECT COUNT(*)::bigint FROM pg_indexes
+           WHERE schemaname NOT IN ('pg_catalog','information_schema','pg_toast')) AS index_count`,
+    );
+    const ov = overviewRes.rows[0] || {};
+
+    // Top tables by total size (table + indexes). Filter out hidden schemas.
+    const hiddenClause = hiddenSchemas.length > 0
+      ? `AND n.nspname NOT IN (${hiddenSchemas.map((_, i) => `$${i + 1}`).join(',')})`
+      : '';
+    const topRes = await this.client!.query(
+      `SELECT n.nspname AS schema,
+              c.relname AS name,
+              c.reltuples::bigint AS est_rows,
+              pg_table_size(c.oid)::bigint AS size_bytes,
+              pg_indexes_size(c.oid)::bigint AS indexes_size,
+              s.n_dead_tup::bigint AS dead_tup,
+              s.n_live_tup::bigint AS live_tup,
+              GREATEST(s.last_vacuum, s.last_autovacuum) AS last_vacuum
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       LEFT JOIN pg_stat_user_tables s
+         ON s.schemaname = n.nspname AND s.relname = c.relname
+       WHERE c.relkind = 'r'
+         AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+         ${hiddenClause}
+       ORDER BY pg_total_relation_size(c.oid) DESC NULLS LAST
+       LIMIT ${limit}`,
+      hiddenSchemas,
+    );
+
+    const topTables: TopTableEntry[] = topRes.rows.map(row => {
+      const live = toNumber(row.live_tup);
+      const dead = toNumber(row.dead_tup);
+      const deadPct = live !== null && dead !== null && live + dead > 0
+        ? Number(((dead / (live + dead)) * 100).toFixed(2))
+        : null;
+      return {
+        name: row.name,
+        schema: row.schema,
+        rowCount: toNumber(row.est_rows),
+        sizeBytes: toNumber(row.size_bytes),
+        indexesSizeBytes: toNumber(row.indexes_size),
+        deadTuplesPct: deadPct,
+        lastVacuum: toDate(row.last_vacuum),
+      };
+    });
+
+    // Connection-level metrics: cache hit ratio, active connections, deadlocks,
+    // transactions, database age. pg_stat_database is readable by the connected user.
+    let activeConns: number | null = null;
+    let cacheHit: number | null = null;
+    let deadlocks: number | null = null;
+    let txnCommit: number | null = null;
+    let txnRollback: number | null = null;
+    try {
+      const statRes = await this.client!.query(
+        `SELECT
+           (SELECT COUNT(*)::bigint FROM pg_stat_activity
+             WHERE datname = current_database() AND state IS NOT NULL) AS active_conns,
+           (SELECT CASE WHEN SUM(blks_hit + blks_read) > 0
+                        THEN ROUND(SUM(blks_hit)::numeric / SUM(blks_hit + blks_read) * 100, 2)
+                        ELSE NULL END
+            FROM pg_stat_database
+            WHERE datname = current_database()) AS cache_hit,
+           (SELECT deadlocks::bigint FROM pg_stat_database WHERE datname = current_database()) AS deadlocks,
+           (SELECT xact_commit::bigint FROM pg_stat_database WHERE datname = current_database()) AS txn_commit,
+           (SELECT xact_rollback::bigint FROM pg_stat_database WHERE datname = current_database()) AS txn_rollback`,
+      );
+      const st = statRes.rows[0] || {};
+      activeConns = toNumber(st.active_conns);
+      cacheHit = toNumber(st.cache_hit);
+      deadlocks = toNumber(st.deadlocks);
+      txnCommit = toNumber(st.txn_commit);
+      txnRollback = toNumber(st.txn_rollback);
+    } catch { /* pg_stat_database may be restricted — fall through */ }
+
+    return {
+      overview: [
+        { key: 'db_name', label: 'Database', value: ov.db_name ?? null, unit: 'text' },
+        { key: 'db_size', label: 'Database size', value: toNumber(ov.db_size), unit: 'bytes' },
+        { key: 'table_count', label: 'Tables', value: toNumber(ov.table_count), unit: 'count' },
+        { key: 'view_count', label: 'Views', value: toNumber(ov.view_count), unit: 'count' },
+        { key: 'index_count', label: 'Indexes', value: toNumber(ov.index_count), unit: 'count' },
+      ],
+      topTables,
+      connectionLevel: [
+        { key: 'active_connections', label: 'Active connections', value: activeConns, unit: 'count' },
+        { key: 'cache_hit_ratio', label: 'Cache hit ratio', value: cacheHit, unit: 'percent', badWhen: 'lower' },
+        { key: 'deadlocks', label: 'Deadlocks', value: deadlocks, unit: 'count', badWhen: 'higher' },
+        { key: 'txn_commit', label: 'Transactions committed', value: txnCommit, unit: 'count' },
+        { key: 'txn_rollback', label: 'Transactions rolled back', value: txnRollback, unit: 'count', badWhen: 'higher' },
+      ],
+    };
   }
 
   async getCompletions(): Promise<CompletionItem[]> {
