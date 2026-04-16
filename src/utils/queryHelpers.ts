@@ -15,6 +15,21 @@ export function levenshtein(a: string, b: string): number {
   return dp[n];
 }
 
+/**
+ * Strip a trailing `LIMIT N [OFFSET M]` from a SQL statement and return both
+ * the base query (without the tail) and the user's explicit LIMIT (if any).
+ * The query must already be trimmed and `;` stripped. Only the last LIMIT
+ * clause is touched — a LIMIT inside a subquery stays intact.
+ */
+export function splitCustomQueryLimit(sql: string): { baseQuery: string; userLimit: number | undefined } {
+  const match = sql.match(/\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+\d+)?\s*$/i);
+  if (!match) return { baseQuery: sql, userLimit: undefined };
+  return {
+    baseQuery: sql.slice(0, match.index),
+    userLimit: parseInt(match[1], 10),
+  };
+}
+
 /** Parse table names from a SQL query (FROM / JOIN clauses) */
 export function parseTablesFromQuery(sql: string): Array<{ table: string; schema?: string }> {
   const tables: Array<{ table: string; schema?: string }> = [];

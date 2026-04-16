@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { CommandContext, logQueryToOutput, logAndShowError } from './shared';
 import { SortColumn } from '../types/query';
-import { enhanceColumnError, buildUpdateSql, buildDeleteSql, buildInsertDefaultSql, buildInsertRowSql } from '../utils/queryHelpers';
+import { enhanceColumnError, buildUpdateSql, buildDeleteSql, buildInsertDefaultSql, buildInsertRowSql, splitCustomQueryLimit } from '../utils/queryHelpers';
 import { dbg } from '../utils/debug';
 
 export function registerTableCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
@@ -282,46 +282,91 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
       });
     }),
 
-    vscode.commands.registerCommand('viewstor._runCustomTableQuery', async (connectionId: string, tableName: string, _schema: string | undefined, query: string, pageSize: number, databaseName?: string, explicitPanelKey?: string) => {
+    vscode.commands.registerCommand('viewstor._runCustomTableQuery', async (connectionId: string, tableName: string, _schema: string | undefined, query: string, pageSize: number, databaseName?: string, explicitPanelKey?: string, page: number = 0) => {
       const driver = databaseName
         ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
         : connectionManager.getDriver(connectionId);
       if (!driver) return;
+      const state = connectionManager.get(connectionId);
+      const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
       try {
-        let displayQuery = query.trim().replace(/;+\s*$/, '');
-        const limitMatch = displayQuery.match(/LIMIT\s+(\d+)/i);
-        const userLimit = limitMatch ? parseInt(limitMatch[1], 10) : 0;
-        if (!limitMatch) {
-          displayQuery += ` LIMIT ${pageSize}`;
-        } else if (userLimit > pageSize) {
-          displayQuery = displayQuery.replace(/LIMIT\s+\d+/i, `LIMIT ${pageSize}`);
+        const cleaned = query.trim().replace(/;+\s*$/, '');
+
+        // Block anything that mutates data — the table view SQL is for exploration, not DDL/DML
+        if (!/^\s*(SELECT|WITH|EXPLAIN|SHOW|VALUES|TABLE)\b/i.test(cleaned)) {
+          logAndShowError(vscode.l10n.t('Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.'));
+          resultPanelManager.postMessage(panelKey, { type: 'hideLoading' });
+          return;
+        }
+
+        const { baseQuery, userLimit } = splitCustomQueryLimit(cleaned);
+
+        let paginatedQuery: string;
+        let totalCount: number | undefined;
+        let isEstimatedCount = false;
+
+        if (userLimit !== undefined && userLimit <= pageSize) {
+          paginatedQuery = cleaned;
+        } else {
+          const offset = page * pageSize;
+          // Cap pageLimit to what user asked for, so LIMIT 250 / pageSize 100 yields 100+100+50
+          let pageLimit = pageSize;
+          if (userLimit !== undefined) {
+            pageLimit = Math.max(0, Math.min(pageSize, userLimit - offset));
+          }
+          paginatedQuery = `${baseQuery} LIMIT ${pageLimit} OFFSET ${offset}`;
+          try {
+            const countResult = await driver.execute(`SELECT COUNT(*) AS cnt FROM (${baseQuery}) _viewstor_cnt`);
+            if (!countResult.error && countResult.rows.length > 0) {
+              const row = countResult.rows[0] as Record<string, unknown>;
+              const raw = row.cnt ?? Object.values(row)[0];
+              const parsed = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+              if (Number.isFinite(parsed)) totalCount = parsed;
+            }
+          } catch {
+            // count failed — fall through to heuristic below
+          }
+          if (userLimit !== undefined && totalCount !== undefined) {
+            totalCount = Math.min(totalCount, userLimit);
+          }
         }
 
         const result = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running query...') },
-          () => driver.execute(displayQuery),
+          () => driver.execute(paginatedQuery),
         );
         if (result.error) {
-          const shortQ = displayQuery.length > 255 ? displayQuery.substring(0, 255) + '...' : displayQuery;
-          const enhanced = await enhanceColumnError(result.error, displayQuery, driver);
+          const shortQ = paginatedQuery.length > 255 ? paginatedQuery.substring(0, 255) + '...' : paginatedQuery;
+          const enhanced = await enhanceColumnError(result.error, paginatedQuery, driver);
           logAndShowError(`${enhanced}\n\n---\n${shortQ}`);
-          logQueryToOutput(displayQuery, `Error: ${result.error.split('\n')[0]}`, true);
+          logQueryToOutput(paginatedQuery, `Error: ${result.error.split('\n')[0]}`, true);
+          resultPanelManager.postMessage(panelKey, { type: 'hideLoading' });
           return;
         }
-        logQueryToOutput(displayQuery, `${result.rowCount} rows, ${result.executionTimeMs} ms`, false);
-        const state = connectionManager.get(connectionId);
-        const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
+        logQueryToOutput(paginatedQuery, `${result.rowCount} rows, ${result.executionTimeMs} ms`, false);
+
+        if (totalCount === undefined) {
+          // Count unknown — base total on what we see: assume at least one more page if page was full
+          const seen = page * pageSize + result.rowCount;
+          totalCount = result.rowCount === pageSize ? seen + 1 : seen;
+          isEstimatedCount = result.rowCount === pageSize;
+        }
+
         resultPanelManager.postMessage(panelKey, {
           type: 'updateData',
           columns: result.columns,
           rows: result.rows,
-          rowCount: result.rowCount,
+          rowCount: totalCount,
           executionTimeMs: result.executionTimeMs,
+          currentPage: page,
+          totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
+          isEstimatedCount,
         });
       } catch (err) {
         const shortQ = query.length > 255 ? query.substring(0, 255) + '...' : query;
         const errorMsg = err instanceof Error ? err.message : String(err);
         logAndShowError(`${errorMsg}\n\n---\n${shortQ}`);
+        resultPanelManager.postMessage(panelKey, { type: 'hideLoading' });
       }
     }),
 
