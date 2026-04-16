@@ -3,6 +3,7 @@ import * as path from 'path';
 import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffResult, StatsDiffResult } from './diffTypes';
 import { buildDefaultDiffQuery, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, exportDiffAsCsv, exportDiffAsJson, isReadOnlyStatement } from './diffEngine';
 import { ColumnInfo, TableObjects, TableStatistic } from '../types/schema';
+import { SQL_HIGHLIGHT_SCRIPT } from '../webview/sqlHighlight';
 import type { ConnectionManager } from '../connections/connectionManager';
 
 interface DiffState {
@@ -377,6 +378,7 @@ export class DiffPanelManager {
 <link rel="stylesheet" href="${cssUri}">
 <script src="${shellUri}"></script>
 <script type="module" src="${elementsUri}"></script>
+<script>${SQL_HIGHLIGHT_SCRIPT}</script>
 </head>
 <body>
   <vscode-tabs id="diffTabs" panel>
