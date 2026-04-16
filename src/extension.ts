@@ -165,7 +165,7 @@ export function activate(context: vscode.ExtensionContext) {
     outputChannel.info(`Viewstor activated (v${vscode.extensions.getExtension('Siyet.viewstor')?.packageJSON.version ?? '?'})`);
 
     // Test API — used by VS Code e2e tests only
-    return { queryHistoryProvider, queryFileManager };
+    return { queryHistoryProvider, queryFileManager, diffPanelManager };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;

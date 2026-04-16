@@ -446,10 +446,11 @@ suite('Copy as One-row', () => {
     assert.strictEqual(result, '42, \'Alice\'');
   });
 
-  test('NULL and empty values become NULL', async () => {
+  test('empty values become NULL (literal string "NULL" stays quoted)', async () => {
+    // String "NULL" is a legitimate value; only actual null / empty cells render as unquoted NULL.
     const { formatOneRow } = await import('../../utils/resultFormatters');
     const result = formatOneRow([['NULL', '', 'test']], ['varchar', 'varchar', 'varchar'], '\'');
-    assert.strictEqual(result, 'NULL, NULL, \'test\'');
+    assert.strictEqual(result, '\'NULL\', NULL, \'test\'');
   });
 
   test('quotes are escaped (O\'Brien)', async () => {
@@ -464,10 +465,10 @@ suite('Copy as One-row', () => {
     assert.strictEqual(result, '1, "Alice"');
   });
 
-  test('JSON mode (double quotes) uses lowercase null', async () => {
+  test('JSON mode (double quotes) uses lowercase null for empty cells', async () => {
     const { formatOneRow } = await import('../../utils/resultFormatters');
     const result = formatOneRow([['NULL', '', 'test']], ['varchar', 'varchar', 'varchar'], '"');
-    assert.strictEqual(result, 'null, null, "test"');
+    assert.strictEqual(result, '"NULL", null, "test"');
   });
 
   test('boolean types are unquoted', async () => {
@@ -2215,9 +2216,10 @@ suite('Diff Panel (vscode-elements)', () => {
         left: Record<string, unknown>,
         right: Record<string, unknown>,
         options: { keyColumns: string[]; rowLimit: number },
+        leftTableInfo?: { columns: Record<string, unknown>[] },
+        rightTableInfo?: { columns: Record<string, unknown>[] },
       ) => void;
-      // Private field accessed for test inspection — DiffPanelManager stores
-      // created panels in a Map keyed by panel title.
+      // DiffPanelManager stores created panels in a public Map keyed by panel title.
       diffs: Map<string, DiffStateLike>;
     };
     assert.ok(mgr, 'diffPanelManager not exposed via extension API');
@@ -2232,7 +2234,13 @@ suite('Diff Panel (vscode-elements)', () => {
       columns: [{ name: 'id' }, { name: 'value' }],
       rows: [{ id: 1, value: 'a' }, { id: 2, value: 'X' }],
     };
-    mgr.show(left, right, { keyColumns: ['id'], rowLimit: 100 });
+    const tableInfo = {
+      columns: [
+        { name: 'id', dataType: 'integer', nullable: false, isPrimaryKey: true },
+        { name: 'value', dataType: 'text', nullable: true, isPrimaryKey: false },
+      ],
+    };
+    mgr.show(left, right, { keyColumns: ['id'], rowLimit: 100 }, tableInfo, tableInfo);
 
     const states = Array.from(mgr.diffs.values());
     assert.strictEqual(states.length, 1, 'exactly one diff panel should be created');

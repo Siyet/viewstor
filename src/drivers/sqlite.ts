@@ -63,7 +63,10 @@ export class SqliteDriver implements DatabaseDriver {
         const firstRow = rows.length > 0 ? rows[0] : undefined;
         const columns: QueryColumn[] = stmt.columns().map(col => ({
           name: col.name,
-          dataType: col.type || inferTypeFromValue(firstRow?.[col.name]),
+          // For computed columns `col.type` is null. Prefer SQL-expression-based inference
+          // (AVG/SUM/TOTAL return REAL even when the sampled value happens to be integer-valued)
+          // before falling back to the JS-value heuristic.
+          dataType: col.type || inferTypeFromExpression(trimmed, col.name) || inferTypeFromValue(firstRow?.[col.name]),
         }));
 
         const truncated = rows.length > MAX_RESULT_ROWS;
@@ -448,6 +451,21 @@ function inferTypeFromValue(value: unknown): string {
   if (typeof value === 'number') return Number.isInteger(value) ? 'INTEGER' : 'REAL';
   if (typeof value === 'bigint') return 'INTEGER';
   return 'TEXT';
+}
+
+/**
+ * Infer type from a SQLite SELECT expression for a named output column.
+ * AVG / TOTAL / SUM always widen to REAL (per SQLite docs AVG and TOTAL are always REAL;
+ * SUM widens whenever any non-NULL operand is REAL — treating it as REAL is the safer default
+ * because a whole-number REAL result like 7.0 is indistinguishable from INTEGER 7 in JS).
+ */
+function inferTypeFromExpression(sql: string, columnName: string): string | undefined {
+  const escaped = columnName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(
+    `(AVG|TOTAL|SUM)\\s*\\([^()]*\\)\\s+AS\\s+(?:"|\`|\\[)?${escaped}(?:"|\`|\\])?`,
+    'i',
+  );
+  return re.test(sql) ? 'REAL' : undefined;
 }
 
 function formatRowCount(count: number): string {
