@@ -19,8 +19,7 @@
  * (e.g. when hydrating a form from a stored connection/folder) without
  * re-implementing the swatch-update logic.
  *
- * Kept in sync with the TypeScript re-exports in src/webview/colorPicker.ts
- * and its unit tests.
+ * Unit tests: src/test/colorPicker.test.ts (loaded via node:vm).
  */
 (function (root) {
   'use strict';
