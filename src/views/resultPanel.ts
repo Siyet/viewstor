@@ -226,6 +226,15 @@ export class ResultPanelManager {
             resultPanelKey: panelKey,
           });
           break;
+        case 'showOnMap':
+          vscode.commands.executeCommand('viewstor.showOnMap', {
+            columns: msg.columns,
+            rows: msg.rows,
+            color: ctx.color,
+            tableName: ctx.tableName,
+            schema: ctx.schema,
+          });
+          break;
       }
     });
     this.messageDisposables.set(panelKey, disposable);
@@ -406,6 +415,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     <span style="flex:1"></span>
     <button id="exportBtn">Export</button>
     <button id="visualizeBtn" title="Visualize as chart">📊</button>
+    <button id="mapBtn" title="Show on map">🗺</button>
     <button id="addRowBtn" class="hidden">+ Row</button>
     <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
     <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
@@ -1513,6 +1523,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   document.getElementById('exportBtn').addEventListener('click', showExportPopup);
   document.getElementById('visualizeBtn').addEventListener('click', () => {
     vscode.postMessage({ type: 'visualize', columns, rows: pageRows });
+  });
+  document.getElementById('mapBtn').addEventListener('click', () => {
+    vscode.postMessage({ type: 'showOnMap', columns, rows: pageRows });
   });
   document.getElementById('exportClose').addEventListener('click', closeExportPopup);
   document.getElementById('exportConfirm').addEventListener('click', () => {
