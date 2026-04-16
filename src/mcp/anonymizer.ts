@@ -76,8 +76,13 @@ const STRICT_MODE_SENSITIVE_TYPES = new Set([
 
 const EMAIL_REGEX = /[^\s@]+@[^\s@]+\.[^\s@]+/;
 const PHONE_REGEX = /(\+?\d[\d\s\-()]{6,})/;
-/** Digit run of 13-19 — widest plausible card range before Luhn. */
-const CARD_DIGIT_REGEX = /\d{13,19}/;
+/**
+ * Digit run of 13-19 — widest plausible card range before Luhn. Global flag
+ * is load-bearing: `String.replace(regex, fn)` without `/g` replaces only the
+ * first match, so a non-Luhn digit run earlier in the message would shadow a
+ * later real card number and leak it unchanged.
+ */
+const CARD_DIGIT_REGEX = /\d{13,19}/g;
 
 /**
  * Resolve the effective anonymization policy for a connection, applying folder

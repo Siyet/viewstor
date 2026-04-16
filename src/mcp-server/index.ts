@@ -352,7 +352,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return errorResponse(`Unknown tool: ${name}`);
     }
   } catch (err) {
-    return errorResponse(err instanceof Error ? err.message : String(err));
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    // Scrub PII from thrown driver errors (e.g. `duplicate key (alice@example.com)`).
+    // The per-case handlers already scrub `result.error`, but exceptions bubble here
+    // — without scrubbing, a raw card number or email in an error message would leak
+    // via the outer catch for tools like execute_query / get_table_data / build_chart.
+    const connectionId = (args as { connectionId?: string } | undefined)?.connectionId;
+    const policy = connectionId
+      ? store.getAnonymizationPolicy(connectionId)
+      : { mode: 'off' as const, strategy: 'hash' as const };
+    return errorResponse(scrubErrorMessage(rawMsg, policy));
   }
 });
 

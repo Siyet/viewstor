@@ -377,4 +377,16 @@ describe('scrubErrorMessage', () => {
   it('handles empty/blank messages', () => {
     expect(scrubErrorMessage('', policy)).toBe('');
   });
+
+  it('redacts multiple emails in the same message', () => {
+    expect(scrubErrorMessage('conflict between alice@example.com and bob@corp.io', policy))
+      .toBe('conflict between [redacted-email] and [redacted-email]');
+  });
+
+  it('redacts a Luhn-valid card even when a non-Luhn digit run comes first', () => {
+    // Regression: CARD_DIGIT_REGEX needs the /g flag so the Luhn check runs on
+    // every 13-19 digit run, not just the first one.
+    expect(scrubErrorMessage('row 1234567890123456 and card 4532015112830366 rejected', policy))
+      .toBe('row 1234567890123456 and card [redacted-card] rejected');
+  });
 });
