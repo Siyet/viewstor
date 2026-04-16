@@ -419,8 +419,14 @@ export class SqliteDriver implements DatabaseDriver {
     const sizeMap = new Map<string, number>();
     for (const row of dbstatRows) sizeMap.set(row.name, row.sz ?? 0);
 
+    // Per-table row counts run one `COUNT(*)` per table. Bound at 200 tables
+    // (per #73) to avoid hammering the file on very large schemas; above that
+    // rowCount is left null rather than blocking the whole panel.
+    const ROW_COUNT_TABLE_LIMIT = 200;
+    const countRows = tables.length <= ROW_COUNT_TABLE_LIMIT;
+
     const topTables: TopTableEntry[] = tables.map(table => {
-      const rowCount = this.getRowCountSync(table.name);
+      const rowCount = countRows ? this.getRowCountSync(table.name) : null;
       const sizeBytes = sizeMap.has(table.name) ? sizeMap.get(table.name)! : null;
       return {
         name: table.name,
