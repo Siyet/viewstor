@@ -160,7 +160,7 @@ Also available via Command Palette: `Viewstor: Compare Data`.
 
 ### Map View
 
-Plot geographic data on an interactive map — powered by [Leaflet](https://leafletjs.com/) with OpenStreetMap tiles:
+Plot geographic data on an interactive map — powered by [Leaflet](https://leafletjs.com/) with CARTO basemap tiles (© OpenStreetMap contributors, © CARTO), light/dark variant picked to match your VS Code theme:
 
 - Click the **🗺 map button** in the Result Panel toolbar to open the map for the current result set
 - **Auto-detects** coordinate columns:
@@ -169,8 +169,9 @@ Plot geographic data on an interactive map — powered by [Leaflet](https://leaf
   - `{lat, lng}` / `{latitude, longitude}` objects
   - `[lng, lat]` arrays or PG array strings (`{lng,lat}`)
   - Separate `lat` / `lng` columns
-- **Tooltips** — marker hover shows the value of a chosen label column
-- **Popups** — click a marker to see the full row
+- **Manual column picker** — toolbar has a **Mode** toggle (Single column / Lat + Lng) and selects for picking the coordinate and label columns by hand when auto-detection doesn't match; hover a field label for a tooltip with format hints
+- **Circle markers** tinted with the VS Code accent color, with a popup (click) that shows the full row
+- **Labels** — when the result contains ≤50 points the chosen label column is rendered permanently on each marker; otherwise it shows on hover
 - Auto-zoom to fit all points; up to 10,000 points rendered per view
 
 ### Copilot Chat (`@viewstor`)
