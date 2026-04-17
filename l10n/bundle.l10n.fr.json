@@ -100,5 +100,6 @@
   "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "Récupérer toutes les lignes (sans LIMIT) en utilisant uniquement les colonnes nécessaires au graphique.",
   "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data activé automatiquement — l'agrégation nécessite toutes les lignes, pas seulement la page courante.",
   "Chart query failed: {0}": "Échec de la requête du graphique : {0}",
-  "Running chart query...": "Exécution de la requête du graphique..."
+  "Running chart query...": "Exécution de la requête du graphique...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "Seules les requêtes en lecture seule (SELECT / WITH / EXPLAIN / SHOW / VALUES) sont autorisées dans la barre SQL de la table."
 }

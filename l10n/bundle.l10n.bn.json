@@ -100,5 +100,6 @@
   "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "চার্টের জন্য প্রয়োজনীয় কলামগুলি ব্যবহার করে সমস্ত সারি আনুন (LIMIT ছাড়া)।",
   "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data স্বয়ংক্রিয়ভাবে সক্রিয় — অ্যাগ্রিগেশনের জন্য শুধু বর্তমান পেজ নয়, সমস্ত সারি প্রয়োজন।",
   "Chart query failed: {0}": "চার্ট কোয়েরি ব্যর্থ: {0}",
-  "Running chart query...": "চার্ট কোয়েরি চলছে..."
+  "Running chart query...": "চার্ট কোয়েরি চলছে...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "টেবিল SQL বারে শুধুমাত্র রিড-অনলি কোয়েরি (SELECT / WITH / EXPLAIN / SHOW / VALUES) অনুমোদিত।"
 }

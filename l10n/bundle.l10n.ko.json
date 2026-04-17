@@ -100,5 +100,6 @@
   "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "차트에 필요한 열만 사용하여 모든 행을 가져옵니다(LIMIT 없음).",
   "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data가 자동으로 활성화됨 — 집계에는 현재 페이지만이 아닌 모든 행이 필요합니다.",
   "Chart query failed: {0}": "차트 쿼리 실패: {0}",
-  "Running chart query...": "차트 쿼리 실행 중..."
+  "Running chart query...": "차트 쿼리 실행 중...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "테이블 SQL 막대에서는 읽기 전용 쿼리(SELECT / WITH / EXPLAIN / SHOW / VALUES)만 허용됩니다."
 }

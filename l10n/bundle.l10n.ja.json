@@ -100,5 +100,6 @@
   "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "チャートに必要な列のみを使用してすべての行を取得（LIMITなし）。",
   "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Dataが自動的に有効化 — 集計には現在のページだけでなくすべての行が必要です。",
   "Chart query failed: {0}": "チャートクエリに失敗しました: {0}",
-  "Running chart query...": "チャートクエリを実行中..."
+  "Running chart query...": "チャートクエリを実行中...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "テーブルの SQL バーでは読み取り専用クエリ（SELECT / WITH / EXPLAIN / SHOW / VALUES）のみ許可されています。"
 }

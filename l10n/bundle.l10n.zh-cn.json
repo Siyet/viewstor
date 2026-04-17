@@ -100,5 +100,6 @@
   "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "仅使用图表所需的列获取所有行（无 LIMIT）。",
   "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data 已自动启用 — 聚合需要所有行，而不仅是当前页面。",
   "Chart query failed: {0}": "图表查询失败: {0}",
-  "Running chart query...": "正在执行图表查询..."
+  "Running chart query...": "正在执行图表查询...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "表 SQL 栏仅允许只读查询（SELECT / WITH / EXPLAIN / SHOW / VALUES）。"
 }

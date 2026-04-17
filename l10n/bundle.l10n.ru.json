@@ -101,5 +101,6 @@
   "Looking under every stone...": "Ищем под половицей...",
   "Rummaging through the shelves...": "Перетряхиваем закрома...",
   "Checking every nook and cranny...": "Заглядываем в каждый уголок...",
-  "Shaking the data tree...": "Шерстим по полочкам..."
+  "Shaking the data tree...": "Шерстим по полочкам...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "В SQL-поле таблицы разрешены только read-only запросы (SELECT / WITH / EXPLAIN / SHOW / VALUES)."
 }

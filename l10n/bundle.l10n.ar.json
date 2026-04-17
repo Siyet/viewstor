@@ -100,5 +100,6 @@
   "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "جلب جميع الصفوف (بدون LIMIT) باستخدام الأعمدة المطلوبة للمخطط فقط.",
   "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "تم تفعيل Full Data تلقائيًا — التجميع يحتاج جميع الصفوف، وليس الصفحة الحالية فقط.",
   "Chart query failed: {0}": "فشل استعلام المخطط: {0}",
-  "Running chart query...": "جارٍ تنفيذ استعلام المخطط..."
+  "Running chart query...": "جارٍ تنفيذ استعلام المخطط...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "يُسمح فقط بالاستعلامات للقراءة فقط (SELECT / WITH / EXPLAIN / SHOW / VALUES) في شريط SQL للجدول."
 }

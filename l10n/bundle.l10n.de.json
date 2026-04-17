@@ -100,5 +100,6 @@
   "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "Alle Zeilen abrufen (ohne LIMIT), nur mit den für das Diagramm benötigten Spalten.",
   "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data automatisch aktiviert — Aggregation benötigt alle Zeilen, nicht nur die aktuelle Seite.",
   "Chart query failed: {0}": "Diagrammabfrage fehlgeschlagen: {0}",
-  "Running chart query...": "Diagrammabfrage wird ausgeführt..."
+  "Running chart query...": "Diagrammabfrage wird ausgeführt...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "In der SQL-Leiste der Tabelle sind nur schreibgeschützte Abfragen (SELECT / WITH / EXPLAIN / SHOW / VALUES) erlaubt."
 }

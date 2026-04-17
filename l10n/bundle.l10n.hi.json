@@ -100,5 +100,6 @@
   "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "चार्ट के लिए आवश्यक कॉलमों का उपयोग करके सभी पंक्तियाँ प्राप्त करें (LIMIT के बिना)।",
   "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data स्वचालित रूप से सक्रिय — एकत्रीकरण के लिए केवल वर्तमान पेज नहीं, सभी पंक्तियाँ आवश्यक हैं।",
   "Chart query failed: {0}": "चार्ट क्वेरी विफल: {0}",
-  "Running chart query...": "चार्ट क्वेरी चल रही है..."
+  "Running chart query...": "चार्ट क्वेरी चल रही है...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "टेबल SQL बार में केवल रीड-ओनली क्वेरीज़ (SELECT / WITH / EXPLAIN / SHOW / VALUES) की अनुमति है।"
 }
