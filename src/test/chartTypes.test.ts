@@ -183,6 +183,18 @@ describe('buildFullDataQuery', () => {
     const sql = buildFullDataQuery('data', undefined, ['x', 'y']);
     expect(sql).toBe('SELECT "x", "y" FROM "data"');
   });
+
+  it('empty columns array → SELECT * (guards against narrowing the sidebar after Full Data is on)', () => {
+    // Regression guard: previously the chart panel pre-filtered to axis columns and the sidebar
+    // lost every other column once Full Data was enabled, trapping the user on their initial pick.
+    const sql = buildFullDataQuery('quotes', 'public', []);
+    expect(sql).toBe('SELECT * FROM "public"."quotes"');
+  });
+
+  it('SELECT * works without schema too', () => {
+    const sql = buildFullDataQuery('data', undefined, []);
+    expect(sql).toBe('SELECT * FROM "data"');
+  });
 });
 
 describe('Time bucket constants', () => {

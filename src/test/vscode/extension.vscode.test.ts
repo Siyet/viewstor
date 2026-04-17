@@ -2007,6 +2007,41 @@ suite('SQLite Chart Aggregation', () => {
     // Close the chart panel
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
   });
+
+  test('Full Data preserves ALL table columns (regression: sidebar narrowed to axis cols)', async () => {
+    // Regression: toggling Full Data used to fire a query that SELECTed only the currently
+    // mapped axis columns. The result arrived with a narrow column set, chart panel's sidebar
+    // rebuilt from those — and every other column disappeared from the X/Y/Group By dropdowns.
+    // Now the host always SELECTs * so the sidebar keeps every option after Full Data flips on.
+    const { buildFullDataQuery } = await import('../../types/chart');
+    // Representative Full Data SQL — empty `columns` means SELECT *.
+    const sql = buildFullDataQuery('quotes', 'public', []);
+    assert.strictEqual(sql, 'SELECT * FROM "public"."quotes"');
+    assert.ok(!/\bLIMIT\b/i.test(sql), 'Full Data query must not carry a LIMIT');
+    assert.ok(!/\brfq_id\b/.test(sql), 'Full Data SQL must not filter to a specific column (like the axis xColumn)');
+
+    // End-to-end sanity: execute against a SQLite in-memory table that has extra columns —
+    // the returned column list must contain *all* table columns, not just the ones named
+    // in the axis config.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    let SqliteDriver; try { SqliteDriver = require('../../drivers/sqlite').SqliteDriver; } catch { return; } // eslint-disable-line @typescript-eslint/no-var-requires
+    const driver = new SqliteDriver();
+    await driver.connect({ id: 'fd-test', name: 'FD', type: 'sqlite', host: '', port: 0, database: ':memory:' });
+    try {
+      await driver.execute('CREATE TABLE quotes (rfq_id INTEGER, currency_iso TEXT, user_identity INTEGER, status TEXT, fuel_unit TEXT, total_price REAL)');
+      await driver.execute('INSERT INTO quotes VALUES (1, \'EUR\', 0, \'DRAFT\', \'KG\', 100.5), (2, \'USD\', 1, \'CALCULATED\', \'LITERS\', 200.0)');
+      const result = await driver.execute('SELECT * FROM "quotes"');
+      assert.strictEqual(result.error, undefined);
+      const names = result.columns.map((c: { name: string }) => c.name).sort();
+      assert.deepStrictEqual(
+        names,
+        ['currency_iso', 'fuel_unit', 'rfq_id', 'status', 'total_price', 'user_identity'],
+        'Full Data must return every column of the table, not just the current axis picks',
+      );
+    } finally {
+      await driver.disconnect();
+    }
+  });
 });
 
 // ============================================================

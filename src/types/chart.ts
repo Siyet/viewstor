@@ -239,7 +239,9 @@ export function buildAggregationQuery(
 }
 
 /**
- * Build a "full data" query — only selected columns, no LIMIT.
+ * Build a "full data" query for the chart panel — no LIMIT.
+ * Empty `columns` array maps to `SELECT *`, so the user can still switch
+ * X / Y columns in the sidebar after enabling Full Data.
  */
 export function buildFullDataQuery(
   tableName: string,
@@ -247,7 +249,7 @@ export function buildFullDataQuery(
   columns: string[],
 ): string {
   const table = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`;
-  const cols = columns.map(c => `"${c}"`).join(', ');
+  const cols = columns.length > 0 ? columns.map(c => `"${c}"`).join(', ') : '*';
   return `SELECT ${cols} FROM ${table}`;
 }
 
