@@ -57,7 +57,6 @@
   var dsConfigOverlay = document.getElementById("dsConfigOverlay");
   var syncToggle = document.getElementById("syncToggle");
   var refreshBtn = document.getElementById("refreshBtn");
-  var fullDataToggle = document.getElementById("fullDataToggle");
   var chartStatus = document.getElementById("chartStatus");
 
   // ---- Message handler ----
@@ -146,17 +145,6 @@
 
   if (refreshBtn) refreshBtn.addEventListener("click", function () {
     vscode.postMessage({ type: "refreshChart" });
-  });
-
-  // ---- Full data toggle ----
-  if (fullDataToggle) fullDataToggle.addEventListener("change", function () {
-    if (fullDataToggle.checked) {
-      var config = buildConfig();
-      vscode.postMessage({ type: "executeChartQuery", queryType: "fullData", config: config });
-      showStatus("Loading full data...");
-    } else {
-      vscode.postMessage({ type: "refreshChart" });
-    }
   });
 
   function updateSyncUI() {
@@ -305,9 +293,10 @@
     html += '<vscode-textfield id="customBucket" placeholder="1h" style="width:100%"></vscode-textfield></div>';
     html += "</div>";
 
-    // Server-side execute button
+    // Server-side execute button — also used to pull the full table (SELECT *) when no aggregation is set.
+    // Clicking again while a query is running cancels the previous one on the host side.
     if (tableName) {
-      html += '<div class="field" style="margin-top:8px"><vscode-button id="runAggBtn" class="sidebar-btn" title="' + escapeHtml(TT.runOnServer || "") + '">Run on Server</vscode-button></div>';
+      html += '<div class="field" style="margin-top:8px"><vscode-button id="showFullDbDataBtn" class="sidebar-btn" title="' + escapeHtml(TT.showFullDbData || "") + '">Show full DB data</vscode-button></div>';
     }
 
     // Data sources
@@ -326,8 +315,7 @@
       }
     });
 
-    // "Run on Server" — only explicit click, not on every change
-    // Full data toggle fires its own handler (toolbar), not sidebar
+    // "Show full DB data" — only explicit click, not on every change
 
     // Bind remove buttons for data sources
     configSidebar.querySelectorAll(".ds-remove-btn").forEach(function (btn) {
@@ -341,8 +329,8 @@
     });
 
     // Bind server-side execution button
-    var runAggBtn = document.getElementById("runAggBtn");
-    if (runAggBtn) runAggBtn.addEventListener("click", function () { executeServerSideQuery(); });
+    var showFullDbDataBtn = document.getElementById("showFullDbDataBtn");
+    if (showFullDbDataBtn) showFullDbDataBtn.addEventListener("click", function () { executeShowFullDbData(); });
 
     // Check time bucket visibility after building
     updateTimeBucketVisibility();
@@ -363,25 +351,20 @@
     var preset = getSelectValue("timeBucketPreset");
     var customField = document.getElementById("customBucketField");
     if (customField) customField.style.display = preset === "custom" ? "block" : "none";
-
-    // Auto-enable Full Data when a time bucket or aggregation is selected
-    if (!suppressChangeEvents && fullDataToggle && !fullDataToggle.checked) {
-      var aggFn = getSelectValue("aggFunction");
-      if ((preset && preset !== "(none)") || (aggFn && aggFn !== "none")) {
-        fullDataToggle.checked = true;
-        showStatus(TT.fullDataAuto || "Full Data enabled — aggregation needs all rows, not just the current page.");
-      }
-    }
   }
 
-  function executeServerSideQuery() {
+  /**
+   * Run the chart query against the database. Aggregation is used whenever the user picked an
+   * aggregation function or a time bucket; otherwise we pull every row (SELECT *). Re-clicking
+   * during an in-flight query tells the host to cancel the previous driver query before
+   * dispatching the new one.
+   */
+  function executeShowFullDbData() {
     var config = buildConfig();
-    if (config.aggregation.function === "none" && !config.aggregation.timeBucketPreset) {
-      showStatus("Select an aggregation function or time bucket first");
-      return;
-    }
-    vscode.postMessage({ type: "executeChartQuery", queryType: "aggregation", config: config });
-    showStatus("Running aggregation query...");
+    var hasAgg = config.aggregation.function !== "none" || !!config.aggregation.timeBucketPreset;
+    var queryType = hasAgg ? "aggregation" : "fullData";
+    vscode.postMessage({ type: "executeChartQuery", queryType: queryType, config: config });
+    showStatus(hasAgg ? "Running aggregation query..." : "Loading full DB data...");
   }
 
   // ---- Build config sections ----
@@ -453,7 +436,6 @@
       title: titleInput ? titleInput.value : "",
       dataSources: dataSources.length > 0 ? dataSources : undefined,
       syncEnabled: syncEnabled,
-      fullData: fullDataToggle ? fullDataToggle.checked : false,
       tableName: tableName,
       schemaName: schemaName,
     };

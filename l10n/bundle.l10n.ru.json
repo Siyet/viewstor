@@ -81,8 +81,6 @@
   "Column for horizontal axis. For timeseries charts, use a timestamp column.": "Колонка для горизонтальной оси. Для таймсерий используйте колонку с временной меткой.",
   "Numeric columns for vertical axis — the values to plot.": "Числовые колонки для вертикальной оси — значения для графика.",
   "Split data into separate series by this column (e.g. by region or status).": "Разделить данные на серии по этой колонке (напр. по региону или статусу).",
-  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Requires \"Run on Server\".": "Как агрегировать Y-значения: подсчёт строк, сумма/среднее/мин/макс. Требует «Run on Server».",
-  "Group timestamps into intervals. Requires a time-type X axis. Auto-enables Full Data.": "Группировка временных меток по интервалам. Требует X с типом даты. Автоматически включает Full Data.",
   "Custom interval: 2h = 2 hours, 15m = 15 minutes, 3d = 3 days.": "Произвольный интервал: 2h = 2 часа, 15m = 15 минут, 3d = 3 дня.",
   "Column with labels for chart segments (pie slices, funnel stages).": "Колонка с метками для сегментов графика (доли пирога, ступени воронки).",
   "Numeric column with values for each segment.": "Числовая колонка со значениями для каждого сегмента.",
@@ -91,10 +89,7 @@
   "Single numeric metric to display on the gauge.": "Числовая метрика для отображения на шкале.",
   "Minimum value on the gauge scale.": "Минимальное значение шкалы.",
   "Maximum value on the gauge scale.": "Максимальное значение шкалы.",
-  "Execute aggregation query on the database — processes all data server-side.": "Выполнить агрегирующий запрос в БД — обработка всех данных на сервере.",
   "Auto-update chart when the linked table changes page, sort, or query.": "Автообновление графика при смене страницы, сортировки или запроса в таблице.",
-  "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "Загрузить все строки (без LIMIT), используя только нужные для графика колонки.",
-  "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data включён автоматически — агрегация требует все строки, а не только текущую страницу.",
   "Chart query failed: {0}": "Ошибка запроса графика: {0}",
   "Running chart query...": "Выполнение запроса для графика...",
   "Searching high and low...": "Скребём по сусекам...",
@@ -102,5 +97,8 @@
   "Rummaging through the shelves...": "Перетряхиваем закрома...",
   "Checking every nook and cranny...": "Заглядываем в каждый уголок...",
   "Shaking the data tree...": "Шерстим по полочкам...",
-  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "В SQL-поле таблицы разрешены только read-only запросы (SELECT / WITH / EXPLAIN / SHOW / VALUES)."
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "В SQL-поле таблицы разрешены только read-only запросы (SELECT / WITH / EXPLAIN / SHOW / VALUES).",
+  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Use with \"Show full DB data\" to execute server-side.": "Как агрегировать Y-значения: подсчёт строк, сумма/среднее/мин/макс. Требует «Run on Server».",
+  "Group timestamps into intervals. Requires a time-type X axis.": "Группировка временных меток по интервалам. Требует X с типом даты. Автоматически включает Full Data.",
+  "Run the chart query directly against the database — uses aggregation when a function or time bucket is set, otherwise pulls all rows (no LIMIT). Clicking again while a query is running cancels the previous one.": "Выполнить запрос графика напрямую к БД — агрегация, если выбрана функция или временной бакет, иначе все строки (без LIMIT). Повторный клик во время выполнения отменяет предыдущий запрос."
 }

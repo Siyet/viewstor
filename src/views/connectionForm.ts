@@ -3,6 +3,7 @@ import * as path from 'path';
 import { ConnectionConfig, DatabaseType, DEFAULT_PORTS } from '../types/connection';
 import { ConnectionManager } from '../connections/connectionManager';
 import { createDriver } from '../drivers';
+import { wrapError } from '../utils/errors';
 
 export interface ConnectionFormDefaults {
   folderId?: string;
@@ -113,7 +114,7 @@ export class ConnectionFormPanel {
       this.panel?.webview.postMessage({
         type: 'testResult',
         status: 'failure',
-        message: err instanceof Error ? err.message : String(err),
+        message: wrapError(err),
       });
     }
   }

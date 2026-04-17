@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CommandContext, logAndShowError } from './shared';
+import { CommandContext, logAndShowError, getRequiredDriver, wrapError } from './shared';
 import { QueryResult, QueryColumn, SortColumn } from '../types/query';
 import { ExportService } from '../services/exportService';
 
@@ -68,9 +68,7 @@ export function registerExportCommands(context: vscode.ExtensionContext, ctx: Co
     }),
 
     vscode.commands.registerCommand('viewstor._exportAllData', async (connectionId: string, tableName: string, schema: string | undefined, format: string, orderBy?: SortColumn[], customQuery?: string, databaseName?: string) => {
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;
 
       try {
@@ -125,7 +123,7 @@ export function registerExportCommands(context: vscode.ExtensionContext, ctx: Co
             break;
         }
       } catch (err) {
-        logAndShowError(vscode.l10n.t('Export failed: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Export failed: {0}', wrapError(err)));
       }
     }),
 

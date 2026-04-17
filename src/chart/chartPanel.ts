@@ -9,6 +9,7 @@ import { buildEChartsOption, buildMultiSourceEChartsOption, ResolvedDataSource }
 import { buildGrafanaDashboard, pushToGrafana } from './grafanaExport';
 import { ConnectionManager } from '../connections/connectionManager';
 import { dbg } from '../utils/debug';
+import { wrapError } from '../utils/errors';
 
 let _outputChannel: { info(msg: string): void; error(msg: string): void } | undefined;
 
@@ -48,12 +49,17 @@ interface ChartState {
   disposed: boolean;
   /** Pending init-data timer so we can cancel it on disposal */
   initTimer?: NodeJS.Timeout;
+  /** Monotonic token — bumped on every new executeChartQuery; stale results are discarded. */
+  queryRunId: number;
+  /** True between the moment a chart query is dispatched and the moment its result arrives. */
+  queryActive: boolean;
   /** Disposable for message handler */
   disposable: vscode.Disposable;
 }
 
 export class ChartPanelManager {
-  private charts = new Map<string, ChartState>();
+  /** Public for e2e tests — keyed by `chart:<title>`. Do not mutate from production code. */
+  readonly charts = new Map<string, ChartState>();
   private grafanaJson = new Map<string, string>();
   private pinnedQueryProvider: PinnedQueryProvider | null = null;
   private connectionManager: ConnectionManager | null = null;
@@ -107,6 +113,8 @@ export class ChartPanelManager {
         rows: result.rows,
         syncEnabled: true,
         disposed: false,
+        queryRunId: 0,
+        queryActive: false,
         disposable: new vscode.Disposable(() => {}),
       };
       this.charts.set(panelKey, state);
@@ -300,7 +308,7 @@ export class ChartPanelManager {
             vscode.window.showInformationMessage(vscode.l10n.t('Dashboard pushed to Grafana: {0}', url));
           } catch (err) {
             vscode.window.showErrorMessage(
-              vscode.l10n.t('Grafana push failed: {0}', err instanceof Error ? err.message : String(err)),
+              vscode.l10n.t('Grafana push failed: {0}', wrapError(err)),
             );
           }
           break;
@@ -312,8 +320,14 @@ export class ChartPanelManager {
   /**
    * Execute a server-side query for the chart (aggregation or full data).
    * Sends the result back to the webview only (does not update result panel).
+   *
+   * Concurrency: a new executeChartQuery cancels any in-flight query on the driver
+   * (best effort — only PG/CH implement cancelQuery) and bumps `queryRunId`, so a
+   * late result from the previous run is dropped instead of overwriting the chart.
+   *
+   * Public for e2e tests — production callers route through the webview message handler.
    */
-  private async executeChartQuery(
+  async executeChartQuery(
     state: ChartState,
     _panelKey: string,
     msg: { queryType: string; config: ChartConfig },
@@ -323,15 +337,23 @@ export class ChartPanelManager {
       return;
     }
 
-    try {
-      const driver = state.opts.databaseName
-        ? await this.connectionManager.getDriverForDatabase(state.opts.connectionId, state.opts.databaseName)
-        : this.connectionManager.getDriver(state.opts.connectionId);
-      if (!driver) {
-        state.panel.webview.postMessage({ type: 'chartQueryError', error: 'Driver not available' });
-        return;
-      }
+    const driver = state.opts.databaseName
+      ? await this.connectionManager.getDriverForDatabase(state.opts.connectionId, state.opts.databaseName)
+      : this.connectionManager.getDriver(state.opts.connectionId);
+    if (!driver) {
+      state.panel.webview.postMessage({ type: 'chartQueryError', error: 'Driver not available' });
+      return;
+    }
 
+    // If a previous chart query is still in flight, cancel it first so the driver
+    // doesn't pile up long-running SELECT *s on the server.
+    if (state.queryActive && driver.cancelQuery) {
+      try { await driver.cancelQuery(); } catch { /* best effort */ }
+    }
+    const runId = ++state.queryRunId;
+    state.queryActive = true;
+
+    try {
       let sql: string;
       if (msg.queryType === 'fullData') {
         // Full data mode: SELECT * (no column filter) so the sidebar keeps all dropdown options —
@@ -343,6 +365,7 @@ export class ChartPanelManager {
         const axis = msg.config.axis;
         if (!axis) {
           state.panel.webview.postMessage({ type: 'chartQueryError', error: 'No axis mapping for aggregation' });
+          state.queryActive = false;
           return;
         }
         sql = buildAggregationQuery(
@@ -366,6 +389,9 @@ export class ChartPanelManager {
         () => driver.execute(sql),
       );
 
+      // Drop stale results: a newer click has superseded this run.
+      if (runId !== state.queryRunId || state.disposed) return;
+
       if (result.error) {
         dbg('chartQuery', 'error:', result.error);
         if (_outputChannel) _outputChannel.error(`[chart] ${result.error}`);
@@ -386,14 +412,18 @@ export class ChartPanelManager {
         sql,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = wrapError(err);
       dbg('chartQuery', 'exception:', message);
       if (_outputChannel) _outputChannel.error(`[chart] ${message}`);
-      vscode.window.showErrorMessage(vscode.l10n.t('Chart query failed: {0}', message));
-      state.panel.webview.postMessage({
-        type: 'chartQueryError',
-        error: message,
-      });
+      if (runId === state.queryRunId && !state.disposed) {
+        vscode.window.showErrorMessage(vscode.l10n.t('Chart query failed: {0}', message));
+        state.panel.webview.postMessage({
+          type: 'chartQueryError',
+          error: message,
+        });
+      }
+    } finally {
+      if (runId === state.queryRunId) state.queryActive = false;
     }
   }
 
@@ -444,8 +474,8 @@ export class ChartPanelManager {
       xAxis: vscode.l10n.t('Column for horizontal axis. For timeseries charts, use a timestamp column.'),
       yAxis: vscode.l10n.t('Numeric columns for vertical axis — the values to plot.'),
       groupBy: vscode.l10n.t('Split data into separate series by this column (e.g. by region or status).'),
-      aggFunction: vscode.l10n.t('How to aggregate Y values: count rows, sum/avg/min/max of a column. Requires "Run on Server".'),
-      timeBucket: vscode.l10n.t('Group timestamps into intervals. Requires a time-type X axis. Auto-enables Full Data.'),
+      aggFunction: vscode.l10n.t('How to aggregate Y values: count rows, sum/avg/min/max of a column. Use with "Show full DB data" to execute server-side.'),
+      timeBucket: vscode.l10n.t('Group timestamps into intervals. Requires a time-type X axis.'),
       customBucket: vscode.l10n.t('Custom interval: 2h = 2 hours, 15m = 15 minutes, 3d = 3 days.'),
       nameCol: vscode.l10n.t('Column with labels for chart segments (pie slices, funnel stages).'),
       valueCol: vscode.l10n.t('Numeric column with values for each segment.'),
@@ -454,10 +484,8 @@ export class ChartPanelManager {
       gaugeValueCol: vscode.l10n.t('Single numeric metric to display on the gauge.'),
       gaugeMin: vscode.l10n.t('Minimum value on the gauge scale.'),
       gaugeMax: vscode.l10n.t('Maximum value on the gauge scale.'),
-      runOnServer: vscode.l10n.t('Execute aggregation query on the database — processes all data server-side.'),
+      showFullDbData: vscode.l10n.t('Run the chart query directly against the database — uses aggregation when a function or time bucket is set, otherwise pulls all rows (no LIMIT). Clicking again while a query is running cancels the previous one.'),
       sync: vscode.l10n.t('Auto-update chart when the linked table changes page, sort, or query.'),
-      fullData: vscode.l10n.t('Fetch all rows (no LIMIT) using only the columns needed for the chart.'),
-      fullDataAuto: vscode.l10n.t('Full Data enabled automatically — aggregation needs all rows, not just the current page.'),
     }).replace(/<\//g, '<\\/');
 
     return `<!DOCTYPE html>
@@ -495,8 +523,6 @@ export class ChartPanelManager {
 
     <vscode-checkbox id="syncToggle" checked label="Sync"></vscode-checkbox>
     <vscode-button id="refreshBtn" class="hidden" secondary icon="refresh" title="Refresh data from table" aria-label="Refresh data from table"></vscode-button>
-
-    <vscode-checkbox id="fullDataToggle" label="Full Data"></vscode-checkbox>
 
     <div class="separator"></div>
 

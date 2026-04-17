@@ -4,6 +4,7 @@ import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffRe
 import { buildDefaultDiffQuery, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, exportDiffAsCsv, exportDiffAsJson, isReadOnlyStatement } from './diffEngine';
 import { ColumnInfo, TableObjects, TableStatistic } from '../types/schema';
 import type { ConnectionManager } from '../connections/connectionManager';
+import { wrapError } from '../utils/errors';
 
 interface DiffState {
   panel: vscode.WebviewPanel;
@@ -251,7 +252,7 @@ export class DiffPanelManager {
           if (!driver) throw new Error('left driver unavailable');
           return await driver.execute(state.leftQuery);
         } catch (err) {
-          leftError = err instanceof Error ? err.message : String(err);
+          leftError = wrapError(err);
           return undefined;
         }
       })(),
@@ -261,7 +262,7 @@ export class DiffPanelManager {
           if (!driver) throw new Error('right driver unavailable');
           return await driver.execute(state.rightQuery);
         } catch (err) {
-          rightError = err instanceof Error ? err.message : String(err);
+          rightError = wrapError(err);
           return undefined;
         }
       })(),

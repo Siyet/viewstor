@@ -13,6 +13,7 @@ import { SqlCompletionProvider } from './editors/completionProvider';
 import { IndexHintProvider } from './editors/indexHintProvider';
 import { SqlDiagnosticProvider } from './editors/sqlDiagnosticProvider';
 import { registerMcpCommands } from './mcp/server';
+import { wrapError } from './utils/errors';
 import { registerCommands } from './commands';
 import { registerChatParticipant } from './chat/participant';
 import { ChartPanelManager, setChartOutputChannel } from './chart/chartPanel';
@@ -165,9 +166,9 @@ export function activate(context: vscode.ExtensionContext) {
     outputChannel.info(`Viewstor activated (v${vscode.extensions.getExtension('Siyet.viewstor')?.packageJSON.version ?? '?'})`);
 
     // Test API — used by VS Code e2e tests only
-    return { queryHistoryProvider, queryFileManager, diffPanelManager };
+    return { queryHistoryProvider, queryFileManager, diffPanelManager, chartPanelManager };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = wrapError(err);
     const stack = err instanceof Error ? err.stack : undefined;
     outputChannel.error(`Activation failed: ${message}`);
     if (stack) outputChannel.error(stack);

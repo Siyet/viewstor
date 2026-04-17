@@ -7,6 +7,7 @@ import {
   GrafanaChartType,
   buildAggregationQuery,
   buildFullDataQuery,
+  pickChartQueryType,
   TIME_BUCKET_PG,
   TIME_BUCKET_CH,
   TIME_BUCKET_SQLITE,
@@ -194,6 +195,33 @@ describe('buildFullDataQuery', () => {
   it('SELECT * works without schema too', () => {
     const sql = buildFullDataQuery('data', undefined, []);
     expect(sql).toBe('SELECT * FROM "data"');
+  });
+});
+
+describe('pickChartQueryType', () => {
+  // Shared contract between the host and the webview's "Show full DB data" button.
+  // Webview has an inline copy — this test pins the decision so the two stay aligned.
+
+  it('returns "fullData" when no aggregation function and no time bucket', () => {
+    expect(pickChartQueryType({ aggregation: { function: 'none' } })).toBe('fullData');
+  });
+
+  it('returns "fullData" when aggregation is missing entirely', () => {
+    expect(pickChartQueryType({})).toBe('fullData');
+  });
+
+  it('returns "aggregation" when an aggregation function is picked', () => {
+    expect(pickChartQueryType({ aggregation: { function: 'count' } })).toBe('aggregation');
+    expect(pickChartQueryType({ aggregation: { function: 'sum' } })).toBe('aggregation');
+    expect(pickChartQueryType({ aggregation: { function: 'avg' } })).toBe('aggregation');
+  });
+
+  it('returns "aggregation" when a time bucket is set, even with function=none', () => {
+    expect(pickChartQueryType({ aggregation: { function: 'none', timeBucketPreset: 'month' } })).toBe('aggregation');
+  });
+
+  it('returns "aggregation" when both are set', () => {
+    expect(pickChartQueryType({ aggregation: { function: 'sum', timeBucketPreset: 'hour' } })).toBe('aggregation');
   });
 });
 

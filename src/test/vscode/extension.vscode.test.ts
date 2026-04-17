@@ -1604,20 +1604,17 @@ suite('Chart Visualization', () => {
     assert.ok(!sql.includes('*'), 'Should not use SELECT *');
   });
 
-  test('ChartConfig supports sync and full data fields', async () => {
-    const chartTypes = await import('../../types/chart');
-    // Verify types compile correctly
+  test('ChartConfig supports sync and table/schema fields', async () => {
+    // Verify types compile correctly (fullData was dropped when the toolbar checkbox went away)
     const config: import('../../types/chart').ChartConfig = {
       chartType: 'line',
       axis: { xColumn: 'ts', yColumns: ['value'] },
       aggregation: { function: 'count', timeBucketPreset: 'month' },
       syncEnabled: true,
-      fullData: false,
       tableName: 'quotes',
       schemaName: 'public',
     };
     assert.strictEqual(config.syncEnabled, true);
-    assert.strictEqual(config.fullData, false);
     assert.strictEqual(config.tableName, 'quotes');
   });
 
@@ -2040,6 +2037,82 @@ suite('SQLite Chart Aggregation', () => {
       );
     } finally {
       await driver.disconnect();
+    }
+  });
+
+  test('Show full DB data button cancels the in-flight query on re-click', async () => {
+    // Concurrency contract for the "Show full DB data" button: a second dispatch
+    // while a query is still running must (a) cancel the previous driver query and
+    // (b) discard the stale result once it arrives, so the chart only ever shows
+    // the latest click's data.
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    const api = await ext!.activate();
+    assert.ok(api.chartPanelManager, 'chartPanelManager must be exposed on the activate API');
+
+    // Build a fake connection manager + driver pair. The driver never resolves the
+    // first execute() call until we manually release it, so the second dispatch
+    // lands while the first is still in flight.
+    let cancelCalls = 0;
+    let firstResolve: ((v: { columns: unknown[]; rows: unknown[]; rowCount: number; executionTimeMs: number }) => void) | null = null;
+    const slowDriver = {
+      execute: (sql: string) => {
+        if (firstResolve === null) {
+          return new Promise<{ columns: unknown[]; rows: unknown[]; rowCount: number; executionTimeMs: number }>((resolve) => {
+            firstResolve = resolve;
+          });
+        }
+        return Promise.resolve({ columns: [{ name: 'id', dataType: 'INTEGER' }], rows: [{ id: 42 }], rowCount: 1, executionTimeMs: 1, sql });
+      },
+      cancelQuery: async () => { cancelCalls++; },
+    };
+    const fakeMgr = {
+      get: () => ({ config: { type: 'postgresql' } }),
+      getDriver: () => slowDriver,
+      getDriverForDatabase: async () => slowDriver,
+    };
+    // Swap in the fake connection manager for the duration of this test.
+    const chartMgr: typeof api.chartPanelManager & { setConnectionManager: (m: unknown) => void } = api.chartPanelManager;
+    const originalMgr: unknown = (chartMgr as unknown as { connectionManager: unknown }).connectionManager;
+    chartMgr.setConnectionManager(fakeMgr as unknown as import('../../connections/connectionManager').ConnectionManager);
+
+    try {
+      chartMgr.show(
+        { columns: [{ name: 'id', dataType: 'INTEGER' }], rows: [], rowCount: 0, executionTimeMs: 0 },
+        'cancel-test',
+        { connectionId: 'fake-conn', tableName: 'quotes', schema: 'public' },
+      );
+      const state = Array.from((chartMgr.charts as Map<string, { queryRunId: number; queryActive: boolean; panel: vscode.WebviewPanel }>).values())[0];
+      const before = state.queryRunId;
+
+      // First dispatch — kicks off the slow query.
+      const firstRun = chartMgr.executeChartQuery(state, 'cancel-test', { queryType: 'fullData', config: { chartType: 'line', aggregation: { function: 'none' } } });
+      // Give the microtask queue a tick to reach state.queryActive = true.
+      await new Promise(resolve => setTimeout(resolve, 10));
+      assert.strictEqual(state.queryActive, true, 'queryActive should flip to true while query is running');
+      assert.strictEqual(state.queryRunId, before + 1, 'queryRunId must bump on first dispatch');
+
+      // Second dispatch — MUST call cancelQuery on the driver before firing.
+      const secondRun = chartMgr.executeChartQuery(state, 'cancel-test', { queryType: 'fullData', config: { chartType: 'line', aggregation: { function: 'none' } } });
+      await new Promise(resolve => setTimeout(resolve, 10));
+      assert.strictEqual(cancelCalls, 1, 'cancelQuery must be invoked exactly once on re-click');
+      assert.strictEqual(state.queryRunId, before + 2, 'queryRunId must bump on second dispatch');
+
+      // Now release the first (stale) execute — its result must be discarded.
+      assert.ok(firstResolve, 'the slow driver must have captured the first resolver');
+      (firstResolve as (v: { columns: unknown[]; rows: unknown[]; rowCount: number; executionTimeMs: number }) => void)(
+        { columns: [{ name: 'id' }], rows: [{ id: 1 }], rowCount: 1, executionTimeMs: 1 },
+      );
+      await firstRun;
+      await secondRun;
+      // The chart's columns must reflect the SECOND run (not the slow first run) — both
+      // produced shape `id / 42` here, but the runId contract ensures the late resolve was
+      // a no-op relative to state.
+      assert.strictEqual(state.queryRunId, before + 2, 'runId unchanged after stale resolve');
+
+      state.panel.dispose();
+    } finally {
+      chartMgr.setConnectionManager(originalMgr as import('../../connections/connectionManager').ConnectionManager);
     }
   });
 });

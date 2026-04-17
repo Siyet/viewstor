@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { ChartConfig, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { wrapError } from '../utils/errors';
+import { isReadOnlyQuery } from '../utils/queryHelpers';
 
 /**
  * MCP-compatible tool definitions exposed via VS Code commands.
@@ -39,18 +41,14 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
         const schema = await driver.getSchema();
         return flattenSchema(schema);
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: wrapError(err) };
       }
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.executeQuery', async (connectionId: string, query: string, database?: string) => {
       const state = connectionManager.get(connectionId);
-      if (state?.config.readonly) {
-        // In readonly mode, only allow SELECT/EXPLAIN/SHOW
-        const trimmed = query.trim().toUpperCase();
-        if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('EXPLAIN') && !trimmed.startsWith('SHOW') && !trimmed.startsWith('WITH')) {
-          return { error: 'Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.' };
-        }
+      if (state?.config.readonly && !isReadOnlyQuery(query)) {
+        return { error: 'Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.' };
       }
 
       try {
@@ -65,7 +63,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
           error: result.error,
         };
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: wrapError(err) };
       }
     }),
 
@@ -79,7 +77,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
           rowCount: result.rowCount,
         };
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: wrapError(err) };
       }
     }),
 
@@ -99,7 +97,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
           })),
         };
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: wrapError(err) };
       }
     }),
     vscode.commands.registerCommand('viewstor.mcp.visualize', async (
@@ -124,7 +122,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
           await connectionManager.connect(connectionId);
           driver = connectionManager.getDriver(connectionId);
         } catch (err) {
-          return { error: `Connection failed: ${err instanceof Error ? err.message : err}` };
+          return { error: `Connection failed: ${wrapError(err)}` };
         }
       }
       if (!driver) return { error: 'Driver not available' };
@@ -171,7 +169,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
           columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
         };
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: wrapError(err) };
       }
     }),
 
@@ -189,7 +187,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       // Auto-connect
       if (!state.connected) {
         try { await connectionManager.connect(connectionId); }
-        catch (err) { return { error: `Connection failed: ${err instanceof Error ? err.message : err}` }; }
+        catch (err) { return { error: `Connection failed: ${wrapError(err)}` }; }
       }
 
       // Open SQL editor with query text
@@ -217,7 +215,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       // Auto-connect
       if (!state.connected) {
         try { await connectionManager.connect(connectionId); }
-        catch (err) { return { error: `Connection failed: ${err instanceof Error ? err.message : err}` }; }
+        catch (err) { return { error: `Connection failed: ${wrapError(err)}` }; }
       }
 
       // Open table data view

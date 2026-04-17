@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CommandContext } from './shared';
+import { CommandContext, getRequiredDriver, wrapError } from './shared';
 import { ConnectionTreeItem } from '../views/connectionTree';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
 import { dbg } from '../utils/debug';
@@ -24,14 +24,10 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
       dbg('compareWith', 'picked:', picked?.tableName, picked?.connectionId);
       if (!picked) return;
 
-      const leftDriver = item.databaseName
-        ? await connectionManager.getDriverForDatabase(item.connectionId, item.databaseName)
-        : connectionManager.getDriver(item.connectionId);
+      const leftDriver = await getRequiredDriver(connectionManager, item.connectionId, item.databaseName);
       if (!leftDriver) { dbg('compareWith', 'no leftDriver'); return; }
 
-      const rightDriver = picked.databaseName
-        ? await connectionManager.getDriverForDatabase(picked.connectionId, picked.databaseName)
-        : connectionManager.getDriver(picked.connectionId);
+      const rightDriver = await getRequiredDriver(connectionManager, picked.connectionId, picked.databaseName);
       if (!rightDriver) { dbg('compareWith', 'no rightDriver for', picked.connectionId); return; }
 
       const rowLimit = vscode.workspace.getConfiguration('viewstor').get<number>('diffRowLimit', 10000);
@@ -118,7 +114,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
         },
       );
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = wrapError(err);
         dbg('compareWith', 'ERROR:', message, err instanceof Error ? err.stack : '');
         vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', message));
       }
@@ -151,12 +147,8 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Comparing data...') },
         async () => {
-          const leftDriver = leftPick.databaseName
-            ? await connectionManager.getDriverForDatabase(leftPick.connectionId, leftPick.databaseName)
-            : connectionManager.getDriver(leftPick.connectionId);
-          const rightDriver = rightPick.databaseName
-            ? await connectionManager.getDriverForDatabase(rightPick.connectionId, rightPick.databaseName)
-            : connectionManager.getDriver(rightPick.connectionId);
+          const leftDriver = await getRequiredDriver(connectionManager, leftPick.connectionId, leftPick.databaseName);
+          const rightDriver = await getRequiredDriver(connectionManager, rightPick.connectionId, rightPick.databaseName);
           if (!leftDriver || !rightDriver) return;
 
           const [leftInfo, rightInfo, leftData, rightData] = await Promise.all([
@@ -231,8 +223,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
         },
       );
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', message));
+        vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', wrapError(err)));
       }
     }),
   );

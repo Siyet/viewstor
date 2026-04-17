@@ -151,8 +151,6 @@ export interface ChartConfig {
   dataSources?: ChartDataSource[];
   /** Whether chart is synced with the result panel (auto-updates on page/query change) */
   syncEnabled?: boolean;
-  /** Fetch full data (no LIMIT) but only the columns needed for the chart */
-  fullData?: boolean;
   /** Source SQL query (for Grafana export) */
   sourceQuery?: string;
   connectionId?: string;
@@ -163,6 +161,22 @@ export interface ChartConfig {
   tableName?: string;
   /** Schema name (for building server-side queries) */
   schemaName?: string;
+}
+
+/**
+ * Decide whether the "Show full DB data" button should run an aggregation SQL or
+ * a plain SELECT *. Aggregation wins whenever the user picked an aggregation function
+ * (other than `none`) or any time bucket — otherwise we pull the full table.
+ *
+ * The webview has an inline copy that must stay in sync; the shared unit test
+ * (`chartTypes.test.ts`) pins the contract.
+ */
+export function pickChartQueryType(config: Pick<ChartConfig, 'aggregation'>): 'aggregation' | 'fullData' {
+  const agg = config.aggregation;
+  if (!agg) return 'fullData';
+  const hasFunction = !!agg.function && agg.function !== 'none';
+  const hasBucket = !!agg.timeBucketPreset;
+  return (hasFunction || hasBucket) ? 'aggregation' : 'fullData';
 }
 
 /**

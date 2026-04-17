@@ -85,8 +85,6 @@
   "Column for horizontal axis. For timeseries charts, use a timestamp column.": "横軸の列。時系列チャートの場合はタイムスタンプ列を使用してください。",
   "Numeric columns for vertical axis — the values to plot.": "縦軸の数値列 — プロットする値。",
   "Split data into separate series by this column (e.g. by region or status).": "この列でデータを個別のシリーズに分割します（例：地域やステータス別）。",
-  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Requires \"Run on Server\".": "Y値の集計方法：行数カウント、列の合計/平均/最小/最大。「Run on Server」が必要です。",
-  "Group timestamps into intervals. Requires a time-type X axis. Auto-enables Full Data.": "タイムスタンプを間隔ごとにグループ化。時間型のX軸が必要です。Full Dataを自動的に有効にします。",
   "Custom interval: 2h = 2 hours, 15m = 15 minutes, 3d = 3 days.": "カスタム間隔：2h = 2時間、15m = 15分、3d = 3日。",
   "Column with labels for chart segments (pie slices, funnel stages).": "チャートセグメントのラベル列（パイのスライス、ファネルのステージ）。",
   "Numeric column with values for each segment.": "各セグメントの値を持つ数値列。",
@@ -95,11 +93,11 @@
   "Single numeric metric to display on the gauge.": "ゲージに表示する単一の数値メトリック。",
   "Minimum value on the gauge scale.": "ゲージスケールの最小値。",
   "Maximum value on the gauge scale.": "ゲージスケールの最大値。",
-  "Execute aggregation query on the database — processes all data server-side.": "データベースで集計クエリを実行 — すべてのデータをサーバー側で処理します。",
   "Auto-update chart when the linked table changes page, sort, or query.": "リンクされたテーブルのページ、ソート、クエリが変更されたときにチャートを自動更新。",
-  "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "チャートに必要な列のみを使用してすべての行を取得（LIMITなし）。",
-  "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Dataが自動的に有効化 — 集計には現在のページだけでなくすべての行が必要です。",
   "Chart query failed: {0}": "チャートクエリに失敗しました: {0}",
   "Running chart query...": "チャートクエリを実行中...",
-  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "テーブルの SQL バーでは読み取り専用クエリ（SELECT / WITH / EXPLAIN / SHOW / VALUES）のみ許可されています。"
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "テーブルの SQL バーでは読み取り専用クエリ（SELECT / WITH / EXPLAIN / SHOW / VALUES）のみ許可されています。",
+  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Use with \"Show full DB data\" to execute server-side.": "Y値の集計方法：行数カウント、列の合計/平均/最小/最大。「Run on Server」が必要です。",
+  "Group timestamps into intervals. Requires a time-type X axis.": "タイムスタンプを間隔ごとにグループ化。時間型のX軸が必要です。Full Dataを自動的に有効にします。",
+  "Run the chart query directly against the database — uses aggregation when a function or time bucket is set, otherwise pulls all rows (no LIMIT). Clicking again while a query is running cancels the previous one.": "チャートクエリをデータベースに対して直接実行します。集計関数や時間バケットが設定されている場合は集計を行い、そうでない場合はすべての行（LIMIT なし）を取得します。実行中にもう一度クリックすると、前のクエリをキャンセルします。"
 }

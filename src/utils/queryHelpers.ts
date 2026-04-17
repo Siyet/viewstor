@@ -1,5 +1,12 @@
 import { DatabaseDriver } from '../types/driver';
 
+const READ_ONLY_RE = /^\s*(SELECT|WITH|EXPLAIN|SHOW|VALUES|TABLE|DESCRIBE|DESC)\b/i;
+
+/** True when the SQL starts with a read-only verb (SELECT / WITH / EXPLAIN / SHOW / VALUES / TABLE). */
+export function isReadOnlyQuery(sql: string): boolean {
+  return READ_ONLY_RE.test(sql);
+}
+
 export function levenshtein(a: string, b: string): number {
   const m = a.length, n = b.length;
   const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i);
