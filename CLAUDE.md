@@ -108,7 +108,7 @@ Chart types and Grafana mapping:
 - category charts: pie → piechart, funnel/treemap/sunburst → no Grafana equivalent
 - gauge → gauge, boxplot/candlestick/radar → no Grafana equivalent
 
-Webview: `src/webview/scripts/chart-panel.js` (config sidebar + ECharts init), `src/webview/styles/chart-panel.css` (VS Code theme vars).
+Webview: `src/webview/scripts/chart-panel.js` (config sidebar + ECharts init), `src/webview/styles/chart-panel.css` (design tokens from `tokens.css`). Built on `@vscode-elements/elements` (`vscode-single-select` / `vscode-checkbox` / `vscode-textfield` / `vscode-button` / `vscode-icon`) + codicons + shared `tokens.css`, matching the connection form and diff panel patterns.
 
 Messages: buildOption (webview → host, triggers `buildEChartsOption` or `buildMultiSourceEChartsOption`), setOption (host → webview), exportGrafana, copyGrafanaJson, saveGrafanaJson, pushToGrafana, showGrafanaJson, requestPinnedQueries, pinnedQueries, requestDataSourceColumns, dataSourceColumns.
 
