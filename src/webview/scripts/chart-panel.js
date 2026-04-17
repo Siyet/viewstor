@@ -14,6 +14,14 @@
   var databaseType = "";
   var connectionId = "";
 
+  // Server-mode state: while a "Show full DB data" run is active, the sidebar is locked
+  // and a snapshot of the previous client-side state is held so a "Reset" click can
+  // restore it. We can't simply re-derive the state from currentColumns because the
+  // server result drops every column the user wasn't aggregating on (review feedback:
+  // tapping the X Axis dropdown after Show full DB data showed only `created_at, count`).
+  var serverModeActive = false;
+  var serverModeSnapshot = null;
+
   // ---- Multi data source state ----
   var dataSources = [];
   var availablePinned = [];
@@ -78,7 +86,9 @@
         updateChart();
         break;
       case "syncData":
-        if (!syncEnabled) break;
+        // Drop result-panel sync while we're showing server-side data — it would clobber
+        // the locked snapshot, and the user already opted into that view explicitly.
+        if (!syncEnabled || serverModeActive) break;
         currentColumns = msg.columns || [];
         currentRows = msg.rows || [];
         rebuildSidebarPreservingConfig();
@@ -89,12 +99,16 @@
         if (chart) { chart.clear(); chart.setOption(msg.option); }
         break;
       case "chartQueryResult":
+        if (!serverModeActive) {
+          // Result arrived after the user clicked Reset — drop it; the snapshot has already
+          // restored client-side state and we don't want to overwrite it.
+          break;
+        }
         currentColumns = msg.columns || [];
         currentRows = msg.rows || [];
         showStatus(msg.rowCount + " rows \u00b7 " + msg.executionTimeMs + "ms" + (msg.sql ? " \u00b7 " + truncate(msg.sql, 60) : ""));
-        // Rebuild sidebar with new columns but preserve user-selected config
-        // (chart type, aggregation function, time bucket, axes)
-        rebuildSidebarPreservingConfig();
+        // Sidebar is locked behind disabled controls — don't rebuild it from server-side
+        // columns or the user's pre-click config (chart type, axes, aggregation) is gone.
         updateChart();
         break;
       case "chartQueryError":
@@ -245,6 +259,10 @@
     }
     if (matched) {
       try { el.value = value; } catch (e) { /* upgrade may be pending — attribute already set */ }
+    } else {
+      // Config carries a value the dropdown doesn't expose — UI will fall back to the first
+      // option, silently ignoring the user's saved choice. Surface it so this is debuggable.
+      console.warn('chart-panel: no <vscode-option> with value=' + JSON.stringify(value) + ' under #' + id);
     }
   }
 
@@ -295,8 +313,12 @@
 
     // Server-side execute button — also used to pull the full table (SELECT *) when no aggregation is set.
     // Clicking again while a query is running cancels the previous one on the host side.
+    // Reset button is rendered next to it and only made visible while server mode is active.
     if (tableName) {
-      html += '<div class="field" style="margin-top:8px"><vscode-button id="showFullDbDataBtn" class="sidebar-btn" title="' + escapeHtml(TT.showFullDbData || "") + '">Show full DB data</vscode-button></div>';
+      html += '<div class="field" style="margin-top:8px">';
+      html += '<vscode-button id="showFullDbDataBtn" class="sidebar-btn" title="' + escapeHtml(TT.showFullDbData || "") + '">Show full DB data</vscode-button>';
+      html += '<vscode-button id="resetServerModeBtn" class="sidebar-btn" secondary style="display:none;margin-top:6px" title="Restore client-side rendering and unlock controls">Reset</vscode-button>';
+      html += '</div>';
     }
 
     // Data sources
@@ -330,10 +352,106 @@
 
     // Bind server-side execution button
     var showFullDbDataBtn = document.getElementById("showFullDbDataBtn");
-    if (showFullDbDataBtn) showFullDbDataBtn.addEventListener("click", function () { executeShowFullDbData(); });
+    if (showFullDbDataBtn) showFullDbDataBtn.addEventListener("click", function () {
+      enterServerMode();
+      executeShowFullDbData();
+    });
+    var resetServerModeBtn = document.getElementById("resetServerModeBtn");
+    if (resetServerModeBtn) resetServerModeBtn.addEventListener("click", function () { exitServerMode(); });
+
+    // Re-apply server-mode UI lock if it was active before this rebuild.
+    if (serverModeActive) applyServerModeUI(true);
 
     // Check time bucket visibility after building
     updateTimeBucketVisibility();
+  }
+
+  /**
+   * Capture the current client-side state (data + every dropdown / toggle the user can
+   * manipulate) so a Reset click can fully restore it. Then mark server mode active and
+   * lock the sidebar behind disabled controls.
+   */
+  function enterServerMode() {
+    if (serverModeActive) return;
+    serverModeSnapshot = {
+      columns: currentColumns.slice(),
+      rows: currentRows.slice(),
+      config: buildConfig(),
+      title: titleInput ? titleInput.value : "",
+      areaFill: areaFillCheck ? areaFillCheck.checked : false,
+      showLegend: legendCheck ? legendCheck.checked : true,
+      syncEnabled: syncEnabled,
+      chartType: getChartType(),
+    };
+    serverModeActive = true;
+    applyServerModeUI(true);
+  }
+
+  /**
+   * Exit server mode and restore the snapshot taken in enterServerMode(). Any
+   * chartQueryResult that arrives after this point is dropped (see message handler).
+   */
+  function exitServerMode() {
+    if (!serverModeActive || !serverModeSnapshot) {
+      // Nothing to restore — just unlock controls defensively and clear state.
+      serverModeActive = false;
+      serverModeSnapshot = null;
+      applyServerModeUI(false);
+      return;
+    }
+    var snap = serverModeSnapshot;
+    currentColumns = snap.columns;
+    currentRows = snap.rows;
+    if (chartTypeSelect) chartTypeSelect.value = snap.chartType;
+    if (titleInput) titleInput.value = snap.title;
+    if (areaFillCheck) areaFillCheck.checked = snap.areaFill;
+    if (legendCheck) legendCheck.checked = snap.showLegend;
+    syncEnabled = snap.syncEnabled;
+    if (syncToggle) syncToggle.checked = syncEnabled;
+    updateSyncUI();
+
+    serverModeActive = false;
+    serverModeSnapshot = null;
+
+    // Rebuild the sidebar from the restored columns and re-apply saved dropdown values.
+    rebuildSidebarPreservingConfig();
+    applyServerModeUI(false);
+    showStatus("Reset to client-side data: " + currentRows.length + " rows");
+    updateChart();
+  }
+
+  /**
+   * Lock or unlock all interactive controls (sidebar selects, top-bar checkboxes, title
+   * input, chart-type picker) and toggle the visibility of the Show full DB data / Reset
+   * button pair.
+   */
+  function applyServerModeUI(locked) {
+    var topBarIds = ["chartType", "syncToggle", "areaFill", "showLegend", "chartTitle"];
+    topBarIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (locked) el.setAttribute("disabled", "");
+      else el.removeAttribute("disabled");
+    });
+    if (configSidebar) {
+      configSidebar.querySelectorAll("vscode-single-select, vscode-checkbox, vscode-textfield").forEach(function (el) {
+        // Data-source items belong to the cross-source merge feature, not the locked
+        // chart config — leave them clickable so the user can still inspect / remove them.
+        if (el.closest(".ds-item")) return;
+        if (locked) el.setAttribute("disabled", "");
+        else el.removeAttribute("disabled");
+      });
+      // The "+ Source" button lives outside the sidebar but is still part of the configurable
+      // surface; lock it too so users can't add a new source against frozen schema.
+    }
+    if (addDataSourceBtn) {
+      if (locked) addDataSourceBtn.setAttribute("disabled", "");
+      else addDataSourceBtn.removeAttribute("disabled");
+    }
+    var showBtn = document.getElementById("showFullDbDataBtn");
+    var resetBtn = document.getElementById("resetServerModeBtn");
+    if (showBtn) showBtn.style.display = locked ? "none" : "";
+    if (resetBtn) resetBtn.style.display = locked ? "" : "none";
   }
 
   function updateTimeBucketVisibility() {

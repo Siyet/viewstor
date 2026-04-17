@@ -56,6 +56,14 @@ export function incrementQueryResultCounter(): number {
 
 export const historyDocMap = new Map<string, string>(); // entry.id -> doc URI
 
+/**
+ * Cache for `_runCustomTableQuery` totalCount results, keyed by panelKey.
+ * COUNT(*) over the user's base query is expensive (full scan, sort if ORDER BY),
+ * and pagination clicks shouldn't re-pay it as long as the base query is unchanged.
+ * Cleared when baseQuery changes or panel closes.
+ */
+export const customQueryCountCache = new Map<string, { baseQuery: string; count: number }>();
+
 let _outputChannel: vscode.LogOutputChannel;
 export function setOutputChannel(channel: vscode.LogOutputChannel) {
   _outputChannel = channel;
@@ -220,11 +228,6 @@ export function logQueryToOutput(sql: string, resultText: string, isError: boole
 export function logAndShowError(message: string) {
   _outputChannel.error(message);
   vscode.window.showErrorMessage(message);
-}
-
-/** Convenience: wrap a thrown error into a localized message and surface it. */
-export function showErr(template: string, err: unknown) {
-  logAndShowError(vscode.l10n.t(template, wrapError(err)));
 }
 
 export function generateId(): string {

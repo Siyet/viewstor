@@ -29,14 +29,35 @@ interface DiffState {
   disposable: vscode.Disposable;
 }
 
+export type { DiffState };
+
 export class DiffPanelManager {
-  /** Readable from outside for e2e tests — keyed by panel title. Do not mutate directly. */
-  readonly diffs = new Map<string, DiffState>();
+  private readonly diffs = new Map<string, DiffState>();
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly connectionManager?: ConnectionManager,
   ) {}
+
+  // --- Read-only query API (production + tests) ---
+
+  /** Number of currently-open diff panels. */
+  getDiffCount(): number {
+    return this.diffs.size;
+  }
+
+  /** Whether a diff panel exists for the given key (`diff:<title>`). */
+  hasDiff(panelKey: string): boolean {
+    return this.diffs.has(panelKey);
+  }
+
+  /**
+   * Read-only snapshot of all open diff states.
+   * @internal — exposed for e2e tests only. Mutating returned objects is undefined behaviour.
+   */
+  getDiffStatesForTesting(): readonly DiffState[] {
+    return [...this.diffs.values()];
+  }
 
   show(
     left: DiffSource,

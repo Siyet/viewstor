@@ -1124,12 +1124,6 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     return result;
   }
 
-  function syncSortFromCustomQuery() {
-    var q = queryInput ? queryInput.value.trim() : '';
-    if (!q) return;
-    sortColumns = parseOrderByFromQuery(q);
-  }
-
   function applySortToQuery(query, sorts) {
     var q = query.replace(/;+\\s*$/, '');
     // Remove outermost ORDER BY (skip subqueries)

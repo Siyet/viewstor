@@ -5,7 +5,7 @@ import {
   ChartConfig, ChartDataSource, isGrafanaCompatible,
   buildAggregationQuery, buildFullDataQuery,
 } from '../types/chart';
-import { buildEChartsOption, buildMultiSourceEChartsOption, ResolvedDataSource } from './chartDataTransform';
+import { buildEChartsOption, buildMultiSourceEChartsOption, ResolvedDataSource, adaptConfigToColumns } from './chartDataTransform';
 import { buildGrafanaDashboard, pushToGrafana } from './grafanaExport';
 import { ConnectionManager } from '../connections/connectionManager';
 import { dbg } from '../utils/debug';
@@ -35,8 +35,8 @@ export interface PinnedQueryProvider {
   getEntries(): QueryHistoryEntry[];
 }
 
-/** Per-chart state tracked by the manager */
-interface ChartState {
+/** Per-chart state tracked by the manager. Exported for the testing API only. */
+export interface ChartState {
   panel: vscode.WebviewPanel;
   opts: ChartShowOptions;
   /** Current columns (from last data update) */
@@ -53,18 +53,43 @@ interface ChartState {
   queryRunId: number;
   /** True between the moment a chart query is dispatched and the moment its result arrives. */
   queryActive: boolean;
+  /**
+   * True only while the awaited driver.execute() boundary is open — narrower than
+   * `queryActive`, which also covers time spent in the driver's own queue. Used to
+   * decide whether `driver.cancelQuery()` will land on our statement vs. a sibling.
+   */
+  driverActive: boolean;
   /** Disposable for message handler */
   disposable: vscode.Disposable;
 }
 
 export class ChartPanelManager {
-  /** Public for e2e tests — keyed by `chart:<title>`. Do not mutate from production code. */
-  readonly charts = new Map<string, ChartState>();
+  private readonly charts = new Map<string, ChartState>();
   private grafanaJson = new Map<string, string>();
   private pinnedQueryProvider: PinnedQueryProvider | null = null;
   private connectionManager: ConnectionManager | null = null;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
+
+  // --- Read-only query API (production + tests) ---
+
+  /** Number of currently-open chart panels. */
+  getChartCount(): number {
+    return this.charts.size;
+  }
+
+  /** Whether a chart panel exists for the given key (`chart:<title>`). */
+  hasChart(panelKey: string): boolean {
+    return this.charts.has(panelKey);
+  }
+
+  /**
+   * Read-only snapshot of all open chart states.
+   * @internal — exposed for e2e tests only. Mutating returned objects is undefined behaviour.
+   */
+  getChartStatesForTesting(): readonly ChartState[] {
+    return [...this.charts.values()];
+  }
 
   setPinnedQueryProvider(provider: PinnedQueryProvider) {
     this.pinnedQueryProvider = provider;
@@ -115,6 +140,7 @@ export class ChartPanelManager {
         disposed: false,
         queryRunId: 0,
         queryActive: false,
+        driverActive: false,
         disposable: new vscode.Disposable(() => {}),
       };
       this.charts.set(panelKey, state);
@@ -173,7 +199,7 @@ export class ChartPanelManager {
     return state.panel.webview.onDidReceiveMessage(async (msg) => {
       switch (msg.type) {
         case 'buildOption': {
-          const config: ChartConfig = {
+          const rawConfig: ChartConfig = {
             ...msg.config,
             sourceQuery: state.opts.query,
             connectionId: state.opts.connectionId,
@@ -186,6 +212,10 @@ export class ChartPanelManager {
             rowCount: msg.rows.length,
             executionTimeMs: 0,
           };
+          // Rewrite stale column refs (e.g. Y=`id` after a count-by-month aggregation
+          // returned `count` instead). Without this the chart paints empty axes whenever
+          // the user fires "Show full DB data" with an aggregation function selected.
+          const config = adaptConfigToColumns(rawConfig, primaryResult.columns);
           const additionalSources = this.resolveDataSources(config.dataSources || []);
           const option = additionalSources.length > 0
             ? buildMultiSourceEChartsOption(primaryResult, additionalSources, config)
@@ -321,9 +351,23 @@ export class ChartPanelManager {
    * Execute a server-side query for the chart (aggregation or full data).
    * Sends the result back to the webview only (does not update result panel).
    *
-   * Concurrency: a new executeChartQuery cancels any in-flight query on the driver
-   * (best effort — only PG/CH implement cancelQuery) and bumps `queryRunId`, so a
-   * late result from the previous run is dropped instead of overwriting the chart.
+   * Concurrency:
+   * - `queryRunId` is bumped on every dispatch; a stale result is dropped before
+   *   it touches the chart.
+   * - When the previous chart query was actively executing on the driver (not
+   *   merely sitting in the node-postgres queue), we ask the driver to cancel
+   *   it before launching the new one — otherwise a "Show full DB data" re-click
+   *   would leak a long SELECT * on the server.
+   *
+   * Known limitation (review item #3): the chart shares its driver with result
+   * panels and query history. PG's `cancelQuery` maps to `pg_cancel_backend(pid)`,
+   * which interrupts whichever statement is currently running on that connection
+   * — and node-postgres serializes queries, so a chart re-click that fires while
+   * an unrelated long SELECT is in flight on the same driver will cancel that
+   * unrelated query. We gate on `state.driverActive` (set only between the
+   * actual await driver.execute() boundaries) so we don't fire cancel just
+   * because we have a queued chart query of our own. A full fix requires a
+   * dedicated per-chart driver instance and is tracked separately.
    *
    * Public for e2e tests — production callers route through the webview message handler.
    */
@@ -345,9 +389,10 @@ export class ChartPanelManager {
       return;
     }
 
-    // If a previous chart query is still in flight, cancel it first so the driver
-    // doesn't pile up long-running SELECT *s on the server.
-    if (state.queryActive && driver.cancelQuery) {
+    // Cancel only when our previous chart query is *actually executing* on the driver.
+    // queryActive=true alone covers the in-queue case too, where cancelling would hit
+    // an unrelated statement on the same shared driver.
+    if (state.driverActive && driver.cancelQuery) {
       try { await driver.cancelQuery(); } catch { /* best effort */ }
     }
     const runId = ++state.queryRunId;
@@ -365,7 +410,7 @@ export class ChartPanelManager {
         const axis = msg.config.axis;
         if (!axis) {
           state.panel.webview.postMessage({ type: 'chartQueryError', error: 'No axis mapping for aggregation' });
-          state.queryActive = false;
+          // queryActive reset is handled by the finally block.
           return;
         }
         sql = buildAggregationQuery(
@@ -386,7 +431,14 @@ export class ChartPanelManager {
 
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running chart query...') },
-        () => driver.execute(sql),
+        async () => {
+          state.driverActive = true;
+          try {
+            return await driver.execute(sql);
+          } finally {
+            state.driverActive = false;
+          }
+        },
       );
 
       // Drop stale results: a newer click has superseded this run.

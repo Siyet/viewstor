@@ -2082,7 +2082,7 @@ suite('SQLite Chart Aggregation', () => {
         'cancel-test',
         { connectionId: 'fake-conn', tableName: 'quotes', schema: 'public' },
       );
-      const state = Array.from((chartMgr.charts as Map<string, { queryRunId: number; queryActive: boolean; panel: vscode.WebviewPanel }>).values())[0];
+      const state = chartMgr.getChartStatesForTesting()[0];
       const before = state.queryRunId;
 
       // First dispatch — kicks off the slow query.
@@ -2109,6 +2109,97 @@ suite('SQLite Chart Aggregation', () => {
       // produced shape `id / 42` here, but the runId contract ensures the late resolve was
       // a no-op relative to state.
       assert.strictEqual(state.queryRunId, before + 2, 'runId unchanged after stale resolve');
+
+      state.panel.dispose();
+    } finally {
+      chartMgr.setConnectionManager(originalMgr as import('../../connections/connectionManager').ConnectionManager);
+    }
+  });
+
+  test('Show full DB data with COUNT-by-month aggregation paints non-empty Y series', async () => {
+    // Regression: user opens chart over `emails`, picks X=created_at, Y=id, Function=count,
+    // TimeBucket=month, then clicks "Show full DB data". The host runs the aggregation SQL
+    // (`SELECT date_trunc('month', created_at) AS created_at, COUNT(*) AS count ...`), so
+    // the result column set is `created_at, count` — `id` is gone. Before the fix the chart
+    // panel kept passing the snapshot's `yColumns: ['id']` to buildEChartsOption and rendered
+    // a flat 0..1 Y axis. After the fix adaptConfigToColumns rewrites yColumns to `count`.
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    const api = await ext!.activate();
+    assert.ok(api.chartPanelManager, 'chartPanelManager must be exposed');
+
+    const aggColumns = [
+      { name: 'created_at', dataType: 'timestamptz' },
+      { name: 'count', dataType: 'bigint' },
+    ];
+    const aggRows = [
+      { created_at: '2024-01-01T00:00:00Z', count: 10 },
+      { created_at: '2024-02-01T00:00:00Z', count: 22 },
+      { created_at: '2024-03-01T00:00:00Z', count: 17 },
+    ];
+
+    const fakeDriver = {
+      execute: () => Promise.resolve({ columns: aggColumns, rows: aggRows, rowCount: aggRows.length, executionTimeMs: 1 }),
+      cancelQuery: async () => { /* no-op */ },
+    };
+    const fakeMgr = {
+      get: () => ({ config: { type: 'postgresql' } }),
+      getDriver: () => fakeDriver,
+      getDriverForDatabase: async () => fakeDriver,
+    };
+    const chartMgr: typeof api.chartPanelManager & { setConnectionManager: (m: unknown) => void } = api.chartPanelManager;
+    const originalMgr: unknown = (chartMgr as unknown as { connectionManager: unknown }).connectionManager;
+    chartMgr.setConnectionManager(fakeMgr as unknown as import('../../connections/connectionManager').ConnectionManager);
+
+    try {
+      // Initial state mirrors what the result panel would feed in: a tabular preview of `emails`
+      // with `id` and `created_at`. The user picks Y=`id` from this column set.
+      chartMgr.show(
+        {
+          columns: [{ name: 'id', dataType: 'integer' }, { name: 'created_at', dataType: 'timestamptz' }],
+          rows: [],
+          rowCount: 0,
+          executionTimeMs: 0,
+        },
+        'aggregation-rename-test',
+        { connectionId: 'fake-conn', tableName: 'emails', schema: 'public' },
+      );
+      const state = chartMgr.getChartStatesForTesting().find(
+        (s: { panel: { title?: string } }) => s.panel.title?.includes('aggregation-rename-test'),
+      );
+      assert.ok(state, 'chart state for aggregation-rename-test must exist');
+
+      // Snapshot config the user built before clicking Show full DB data.
+      const preAggConfig = {
+        chartType: 'bar' as const,
+        axis: { xColumn: 'created_at', yColumns: ['id'] },
+        aggregation: { function: 'count' as const, timeBucketPreset: 'month' as const },
+      };
+
+      // Run the server-side query. After it resolves, state.columns reflects the aggregation
+      // result (created_at, count) — `id` is no longer there.
+      await chartMgr.executeChartQuery(state, 'aggregation-rename-test', { queryType: 'aggregation', config: preAggConfig });
+      assert.deepStrictEqual(
+        state.columns.map((c: { name: string }) => c.name),
+        ['created_at', 'count'],
+        'aggregation result must be the new (created_at, count) column set',
+      );
+
+      // Now mimic the webview's buildOption pipeline: the snapshot config still says Y=`id`,
+      // but the data only carries `count`. Without the adapter buildEChartsOption produces a
+      // single series of NaN values; with the adapter the series carries the actual counts.
+      const { buildEChartsOption, adaptConfigToColumns } = await import('../../chart/chartDataTransform');
+      const adapted = adaptConfigToColumns(preAggConfig, state.columns);
+      assert.deepStrictEqual(adapted.axis?.yColumns, ['count'], 'Y axis must be rewritten to the aggregation column');
+
+      const option = buildEChartsOption(
+        { columns: state.columns, rows: state.rows, rowCount: state.rows.length, executionTimeMs: 0 },
+        adapted,
+      );
+      const series = option.series as Array<{ data: Array<[number, number]> }>;
+      assert.strictEqual(series.length, 1, 'expected a single series');
+      const ys = series[0].data.map(d => d[1]);
+      assert.deepStrictEqual(ys, [10, 22, 17], 'Y values must be the aggregation counts, not NaN/0');
 
       state.panel.dispose();
     } finally {
@@ -2327,8 +2418,7 @@ suite('Diff Panel (vscode-elements)', () => {
         leftTableInfo?: { columns: Record<string, unknown>[] },
         rightTableInfo?: { columns: Record<string, unknown>[] },
       ) => void;
-      // DiffPanelManager stores created panels in a public Map keyed by panel title.
-      diffs: Map<string, DiffStateLike>;
+      getDiffStatesForTesting: () => readonly DiffStateLike[];
     };
     assert.ok(mgr, 'diffPanelManager not exposed via extension API');
 
@@ -2350,7 +2440,7 @@ suite('Diff Panel (vscode-elements)', () => {
     };
     mgr.show(left, right, { keyColumns: ['id'], rowLimit: 100 }, tableInfo, tableInfo);
 
-    const states = Array.from(mgr.diffs.values());
+    const states = mgr.getDiffStatesForTesting();
     assert.strictEqual(states.length, 1, 'exactly one diff panel should be created');
     const state = states[0];
     const html = state.panel.webview.html;

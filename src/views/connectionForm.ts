@@ -50,10 +50,11 @@ export class ConnectionFormPanel {
     const styleUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'styles', 'connection-form.css'));
     const shellUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'webview-shell.js'));
     const elementsUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'vscode-elements.js'));
+    const colorPickerUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'color-picker.js'));
     const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'connection-form.js'));
 
     this.panel.webview.html = this.buildHtml(
-      { tokensUri, codiconUri, styleUri, shellUri, elementsUri, scriptUri },
+      { tokensUri, codiconUri, styleUri, shellUri, elementsUri, colorPickerUri, scriptUri },
       config,
       folderDefaults,
     );
@@ -188,6 +189,7 @@ export class ConnectionFormPanel {
       styleUri: vscode.Uri;
       shellUri: vscode.Uri;
       elementsUri: vscode.Uri;
+      colorPickerUri: vscode.Uri;
       scriptUri: vscode.Uri;
     },
     config?: ConnectionConfig,
@@ -400,6 +402,7 @@ export class ConnectionFormPanel {
     </div>
   </div>
 
+  <script src="${uris.colorPickerUri}"></script>
   <script src="${uris.scriptUri}"></script>
 </body>
 </html>`;

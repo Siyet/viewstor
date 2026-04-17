@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CommandContext, logQueryToOutput, logAndShowError, getRequiredDriver, wrapError } from './shared';
+import { CommandContext, logQueryToOutput, logAndShowError, getRequiredDriver, wrapError, customQueryCountCache } from './shared';
 import { SortColumn } from '../types/query';
 import { enhanceColumnError, buildUpdateSql, buildDeleteSql, buildInsertDefaultSql, buildInsertRowSql, splitCustomQueryLimit, isReadOnlyQuery } from '../utils/queryHelpers';
 import { dbg } from '../utils/debug';
@@ -283,13 +283,19 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
           return;
         }
 
-        const { baseQuery, userLimit } = splitCustomQueryLimit(cleaned);
+        const { baseQuery, userLimit, userOffset } = splitCustomQueryLimit(cleaned);
 
         let paginatedQuery: string;
         let totalCount: number | undefined;
         let isEstimatedCount = false;
 
-        if (userLimit !== undefined && userLimit <= pageSize) {
+        // Disable auto-pagination when the user pinned an explicit OFFSET — combining their
+        // starting point with our page offset would silently shift the window.
+        const userControlsWindow =
+          userOffset !== undefined ||
+          (userLimit !== undefined && userLimit <= pageSize);
+
+        if (userControlsWindow) {
           paginatedQuery = cleaned;
         } else {
           const offset = page * pageSize;
@@ -299,16 +305,27 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
             pageLimit = Math.max(0, Math.min(pageSize, userLimit - offset));
           }
           paginatedQuery = `${baseQuery} LIMIT ${pageLimit} OFFSET ${offset}`;
-          try {
-            const countResult = await driver.execute(`SELECT COUNT(*) AS cnt FROM (${baseQuery}) _viewstor_cnt`);
-            if (!countResult.error && countResult.rows.length > 0) {
-              const row = countResult.rows[0] as Record<string, unknown>;
-              const raw = row.cnt ?? Object.values(row)[0];
-              const parsed = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
-              if (Number.isFinite(parsed)) totalCount = parsed;
+
+          // Reuse the previously-computed COUNT for the same base query — page flips on a
+          // 50M-row scan should not re-execute the full COUNT(*).
+          const cached = customQueryCountCache.get(panelKey);
+          if (cached && cached.baseQuery === baseQuery) {
+            totalCount = cached.count;
+          } else {
+            try {
+              const countResult = await driver.execute(`SELECT COUNT(*) AS cnt FROM (${baseQuery}) _viewstor_cnt`);
+              if (!countResult.error && countResult.rows.length > 0) {
+                const row = countResult.rows[0] as Record<string, unknown>;
+                const raw = row.cnt ?? Object.values(row)[0];
+                const parsed = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+                if (Number.isFinite(parsed)) {
+                  totalCount = parsed;
+                  customQueryCountCache.set(panelKey, { baseQuery, count: parsed });
+                }
+              }
+            } catch {
+              // count failed — fall through to heuristic below
             }
-          } catch {
-            // count failed — fall through to heuristic below
           }
           if (userLimit !== undefined && totalCount !== undefined) {
             totalCount = Math.min(totalCount, userLimit);
