@@ -1,102 +1,145 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" font-family="&#39;SF Mono&#39;,&#39;JetBrains Mono&#39;,Menlo,Consolas,monospace">
   <defs>
-    <mask id="vmask">
-      <rect width="1200" height="300" fill="white"/>
-      <path d="M558 72 L600 190 L643 72 L625 72 L600 163 L575 72 Z" fill="black" stroke="black" stroke-width="10" stroke-linejoin="miter"/>
+    <mask id="vmask-l">
+      <rect width="1200" height="300" fill="white"></rect>
+      <path d="M558 73 L600 191 L643 73 L625 73 L600 164 L575 73 Z" fill="black" stroke="black" stroke-width="14" stroke-linejoin="miter"></path>
     </mask>
+    <linearGradient id="fade-l-l" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="1"></stop>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"></stop>
+    </linearGradient>
+    <linearGradient id="fade-r-l" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"></stop>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="1"></stop>
+    </linearGradient>
   </defs>
 
-  <!-- transparent background -->
+  
+  <g font-size="13" opacity="0.95">
+    <g fill="#b6bcc4" text-anchor="end">
+      <text x="52" y="62">1</text><text x="52" y="82">2</text><text x="52" y="102">3</text>
+      <text x="52" y="122">4</text><text x="52" y="142">5</text><text x="52" y="162">6</text>
+      <text x="52" y="182">7</text><text x="52" y="202">8</text><text x="52" y="222">9</text>
+      <text x="52" y="242">10</text>
+    </g>
+    <line x1="64" y1="44" x2="64" y2="254" stroke="#e4e7eb" stroke-width="1"></line>
 
-  <!-- Matrix rain: ~40 columns of falling drops, random 0/1 digits, fading tail to bright head -->
-  <g font-family="'Courier New',monospace" font-size="14">
-    <!-- Col 1 (x=15) head_y=69 len=13 -->
-    <text x="15" y="13" fill="#5b5b5b">1</text><text x="15" y="27" fill="#484848">1</text><text x="15" y="41" fill="#363636">0</text><text x="15" y="55" fill="#232323">0</text><text x="15" y="69" fill="#111111">0</text>
-    <!-- Col 2 (x=45) head_y=54 len=8 -->
-    <text x="45" y="12" fill="#707070">0</text><text x="45" y="26" fill="#505050">1</text><text x="45" y="40" fill="#313131">1</text><text x="45" y="54" fill="#111111">1</text>
-    <!-- Col 3 (x=75) head_y=59 len=7 -->
-    <text x="75" y="17" fill="#7f7f7f">0</text><text x="75" y="31" fill="#5b5b5b">0</text><text x="75" y="45" fill="#363636">1</text><text x="75" y="59" fill="#111111">1</text>
-    <!-- Col 4 (x=105) head_y=166 len=14 -->
-    <text x="105" y="12" fill="#cccccc">0</text><text x="105" y="26" fill="#bbbbbb">1</text><text x="105" y="40" fill="#aaaaaa">1</text><text x="105" y="54" fill="#999999">1</text><text x="105" y="68" fill="#888888">1</text><text x="105" y="82" fill="#777777">0</text><text x="105" y="96" fill="#666666">1</text><text x="105" y="110" fill="#555555">1</text><text x="105" y="124" fill="#444444">0</text><text x="105" y="138" fill="#333333">1</text><text x="105" y="152" fill="#222222">1</text><text x="105" y="166" fill="#111111">1</text>
-    <!-- Col 5 (x=135) head_y=98 len=14 -->
-    <text x="135" y="14" fill="#777777">1</text><text x="135" y="28" fill="#666666">0</text><text x="135" y="42" fill="#555555">1</text><text x="135" y="56" fill="#444444">0</text><text x="135" y="70" fill="#333333">0</text><text x="135" y="84" fill="#222222">0</text><text x="135" y="98" fill="#111111">1</text>
-    <!-- Col 6 (x=165) head_y=146 len=6 -->
-    <text x="165" y="76" fill="#eeeeee">1</text><text x="165" y="90" fill="#c2c2c2">1</text><text x="165" y="104" fill="#969696">0</text><text x="165" y="118" fill="#696969">1</text><text x="165" y="132" fill="#3d3d3d">0</text><text x="165" y="146" fill="#111111">1</text>
-    <!-- Col 7 (x=195) head_y=178 len=8 -->
-    <text x="195" y="80" fill="#eeeeee">0</text><text x="195" y="94" fill="#cecece">1</text><text x="195" y="108" fill="#afafaf">1</text><text x="195" y="122" fill="#8f8f8f">0</text><text x="195" y="136" fill="#707070">0</text><text x="195" y="150" fill="#505050">0</text><text x="195" y="164" fill="#313131">1</text><text x="195" y="178" fill="#111111">1</text>
-    <!-- Col 8 (x=225) head_y=252 len=5 -->
-    <text x="225" y="196" fill="#eeeeee">0</text><text x="225" y="210" fill="#b7b7b7">0</text><text x="225" y="224" fill="#7f7f7f">1</text><text x="225" y="238" fill="#484848">1</text><text x="225" y="252" fill="#111111">1</text>
-    <!-- Col 9 (x=255) head_y=262 len=15 -->
-    <text x="255" y="66" fill="#eeeeee">0</text><text x="255" y="80" fill="#dedede">1</text><text x="255" y="94" fill="#cecece">0</text><text x="255" y="108" fill="#bfbfbf">0</text><text x="255" y="122" fill="#afafaf">1</text><text x="255" y="136" fill="#9f9f9f">1</text><text x="255" y="150" fill="#8f8f8f">0</text><text x="255" y="164" fill="#7f7f7f">1</text><text x="255" y="178" fill="#707070">0</text><text x="255" y="192" fill="#606060">1</text><text x="255" y="206" fill="#505050">1</text><text x="255" y="220" fill="#404040">1</text><text x="255" y="234" fill="#313131">1</text><text x="255" y="248" fill="#212121">1</text><text x="255" y="262" fill="#111111">1</text>
-    <!-- Col 10 (x=285) head_y=229 len=6 -->
-    <text x="285" y="159" fill="#eeeeee">1</text><text x="285" y="173" fill="#c2c2c2">0</text><text x="285" y="187" fill="#969696">1</text><text x="285" y="201" fill="#696969">1</text><text x="285" y="215" fill="#3d3d3d">0</text><text x="285" y="229" fill="#111111">1</text>
-    <!-- Col 11 (x=315) head_y=191 len=12 -->
-    <text x="315" y="37" fill="#eeeeee">1</text><text x="315" y="51" fill="#dadada">0</text><text x="315" y="65" fill="#c6c6c6">1</text><text x="315" y="79" fill="#b2b2b2">0</text><text x="315" y="93" fill="#9e9e9e">1</text><text x="315" y="107" fill="#8a8a8a">1</text><text x="315" y="121" fill="#757575">1</text><text x="315" y="135" fill="#616161">0</text><text x="315" y="149" fill="#4d4d4d">0</text><text x="315" y="163" fill="#393939">1</text><text x="315" y="177" fill="#252525">1</text><text x="315" y="191" fill="#111111">0</text>
-    <!-- Col 12 (x=345) head_y=208 len=12 -->
-    <text x="345" y="54" fill="#eeeeee">0</text><text x="345" y="68" fill="#dadada">1</text><text x="345" y="82" fill="#c6c6c6">1</text><text x="345" y="96" fill="#b2b2b2">0</text><text x="345" y="110" fill="#9e9e9e">1</text><text x="345" y="124" fill="#8a8a8a">1</text><text x="345" y="138" fill="#757575">1</text><text x="345" y="152" fill="#616161">0</text><text x="345" y="166" fill="#4d4d4d">1</text><text x="345" y="180" fill="#393939">1</text><text x="345" y="194" fill="#252525">0</text><text x="345" y="208" fill="#111111">0</text>
-    <!-- Col 13 (x=375) head_y=73 len=7 -->
-    <text x="375" y="17" fill="#a4a4a4">1</text><text x="375" y="31" fill="#7f7f7f">1</text><text x="375" y="45" fill="#5b5b5b">1</text><text x="375" y="59" fill="#363636">1</text><text x="375" y="73" fill="#111111">1</text>
-    <!-- Col 14 (x=405) head_y=151 len=5 -->
-    <text x="405" y="95" fill="#eeeeee">1</text><text x="405" y="109" fill="#b7b7b7">1</text><text x="405" y="123" fill="#7f7f7f">1</text><text x="405" y="137" fill="#484848">1</text><text x="405" y="151" fill="#111111">1</text>
-    <!-- Col 15 (x=435) head_y=188 len=11 -->
-    <text x="435" y="48" fill="#eeeeee">0</text><text x="435" y="62" fill="#d8d8d8">0</text><text x="435" y="76" fill="#c2c2c2">1</text><text x="435" y="90" fill="#acacac">1</text><text x="435" y="104" fill="#969696">1</text><text x="435" y="118" fill="#7f7f7f">1</text><text x="435" y="132" fill="#696969">1</text><text x="435" y="146" fill="#535353">1</text><text x="435" y="160" fill="#3d3d3d">0</text><text x="435" y="174" fill="#272727">1</text><text x="435" y="188" fill="#111111">0</text>
-    <!-- Col 16 (x=465) head_y=89 len=9 -->
-    <text x="465" y="5" fill="#b7b7b7">0</text><text x="465" y="19" fill="#9b9b9b">1</text><text x="465" y="33" fill="#7f7f7f">1</text><text x="465" y="47" fill="#646464">1</text><text x="465" y="61" fill="#484848">0</text><text x="465" y="75" fill="#2d2d2d">0</text><text x="465" y="89" fill="#111111">0</text>
-    <!-- Col 17 (x=495) head_y=277 len=12 -->
-    <text x="495" y="123" fill="#eeeeee">1</text><text x="495" y="137" fill="#dadada">1</text><text x="495" y="151" fill="#c6c6c6">0</text><text x="495" y="165" fill="#b2b2b2">1</text><text x="495" y="179" fill="#9e9e9e">1</text><text x="495" y="193" fill="#8a8a8a">1</text><text x="495" y="207" fill="#757575">0</text><text x="495" y="221" fill="#616161">1</text><text x="495" y="235" fill="#4d4d4d">1</text><text x="495" y="249" fill="#393939">0</text><text x="495" y="263" fill="#252525">1</text><text x="495" y="277" fill="#111111">1</text>
-    <!-- Col 18 (x=525) head_y=62 len=10 -->
-    <text x="525" y="6" fill="#737373">0</text><text x="525" y="20" fill="#5b5b5b">1</text><text x="525" y="34" fill="#424242">0</text><text x="525" y="48" fill="#2a2a2a">1</text><text x="525" y="62" fill="#111111">0</text>
-    <!-- Col 19 (x=585) head_y=76 len=10 -->
-    <text x="585" y="6" fill="#8c8c8c">0</text><text x="585" y="20" fill="#737373">0</text><text x="585" y="34" fill="#5b5b5b">1</text><text x="585" y="48" fill="#424242">1</text><text x="585" y="62" fill="#2a2a2a">1</text><text x="585" y="76" fill="#111111">1</text>
-    <!-- Col 20 (x=645) head_y=126 len=6 -->
-    <text x="645" y="56" fill="#eeeeee">1</text><text x="645" y="70" fill="#c2c2c2">0</text><text x="645" y="84" fill="#969696">1</text><text x="645" y="98" fill="#696969">1</text><text x="645" y="112" fill="#3d3d3d">0</text><text x="645" y="126" fill="#111111">1</text>
-    <!-- Col 21 (x=705) head_y=140 len=8 -->
-    <text x="705" y="42" fill="#eeeeee">1</text><text x="705" y="56" fill="#cecece">1</text><text x="705" y="70" fill="#afafaf">0</text><text x="705" y="84" fill="#8f8f8f">1</text><text x="705" y="98" fill="#707070">1</text><text x="705" y="112" fill="#505050">0</text><text x="705" y="126" fill="#313131">1</text><text x="705" y="140" fill="#111111">1</text>
-    <!-- Col 22 (x=735) head_y=97 len=10 -->
-    <text x="735" y="13" fill="#a4a4a4">0</text><text x="735" y="27" fill="#8c8c8c">1</text><text x="735" y="41" fill="#737373">1</text><text x="735" y="55" fill="#5b5b5b">0</text><text x="735" y="69" fill="#424242">0</text><text x="735" y="83" fill="#2a2a2a">1</text><text x="735" y="97" fill="#111111">1</text>
-    <!-- Col 23 (x=765) head_y=172 len=6 -->
-    <text x="765" y="102" fill="#eeeeee">1</text><text x="765" y="116" fill="#c2c2c2">1</text><text x="765" y="130" fill="#969696">0</text><text x="765" y="144" fill="#696969">1</text><text x="765" y="158" fill="#3d3d3d">0</text><text x="765" y="172" fill="#111111">1</text>
-    <!-- Col 24 (x=795) head_y=111 len=6 -->
-    <text x="795" y="41" fill="#eeeeee">1</text><text x="795" y="55" fill="#c2c2c2">1</text><text x="795" y="69" fill="#969696">1</text><text x="795" y="83" fill="#696969">1</text><text x="795" y="97" fill="#3d3d3d">1</text><text x="795" y="111" fill="#111111">0</text>
-    <!-- Col 25 (x=825) head_y=166 len=15 -->
-    <text x="825" y="12" fill="#bfbfbf">1</text><text x="825" y="26" fill="#afafaf">1</text><text x="825" y="40" fill="#9f9f9f">1</text><text x="825" y="54" fill="#8f8f8f">1</text><text x="825" y="68" fill="#7f7f7f">0</text><text x="825" y="82" fill="#707070">1</text><text x="825" y="96" fill="#606060">0</text><text x="825" y="110" fill="#505050">1</text><text x="825" y="124" fill="#404040">1</text><text x="825" y="138" fill="#313131">0</text><text x="825" y="152" fill="#212121">1</text><text x="825" y="166" fill="#111111">1</text>
-    <!-- Col 26 (x=855) head_y=249 len=12 -->
-    <text x="855" y="95" fill="#eeeeee">1</text><text x="855" y="109" fill="#dadada">0</text><text x="855" y="123" fill="#c6c6c6">1</text><text x="855" y="137" fill="#b2b2b2">1</text><text x="855" y="151" fill="#9e9e9e">0</text><text x="855" y="165" fill="#8a8a8a">0</text><text x="855" y="179" fill="#757575">1</text><text x="855" y="193" fill="#616161">1</text><text x="855" y="207" fill="#4d4d4d">1</text><text x="855" y="221" fill="#393939">1</text><text x="855" y="235" fill="#252525">1</text><text x="855" y="249" fill="#111111">1</text>
-    <!-- Col 27 (x=885) head_y=132 len=15 -->
-    <text x="885" y="6" fill="#9f9f9f">1</text><text x="885" y="20" fill="#8f8f8f">1</text><text x="885" y="34" fill="#7f7f7f">0</text><text x="885" y="48" fill="#707070">1</text><text x="885" y="62" fill="#606060">1</text><text x="885" y="76" fill="#505050">1</text><text x="885" y="90" fill="#404040">1</text><text x="885" y="104" fill="#313131">1</text><text x="885" y="118" fill="#212121">0</text><text x="885" y="132" fill="#111111">0</text>
-    <!-- Col 28 (x=915) head_y=277 len=11 -->
-    <text x="915" y="137" fill="#eeeeee">1</text><text x="915" y="151" fill="#d8d8d8">1</text><text x="915" y="165" fill="#c2c2c2">1</text><text x="915" y="179" fill="#acacac">1</text><text x="915" y="193" fill="#969696">1</text><text x="915" y="207" fill="#7f7f7f">0</text><text x="915" y="221" fill="#696969">1</text><text x="915" y="235" fill="#535353">0</text><text x="915" y="249" fill="#3d3d3d">0</text><text x="915" y="263" fill="#272727">0</text><text x="915" y="277" fill="#111111">1</text>
-    <!-- Col 29 (x=945) head_y=52 len=9 -->
-    <text x="945" y="10" fill="#646464">0</text><text x="945" y="24" fill="#484848">0</text><text x="945" y="38" fill="#2d2d2d">0</text><text x="945" y="52" fill="#111111">1</text>
-    <!-- Col 30 (x=975) head_y=113 len=14 -->
-    <text x="975" y="15" fill="#888888">1</text><text x="975" y="29" fill="#777777">1</text><text x="975" y="43" fill="#666666">1</text><text x="975" y="57" fill="#555555">0</text><text x="975" y="71" fill="#444444">0</text><text x="975" y="85" fill="#333333">0</text><text x="975" y="99" fill="#222222">0</text><text x="975" y="113" fill="#111111">1</text>
-    <!-- Col 31 (x=1005) head_y=143 len=9 -->
-    <text x="1005" y="31" fill="#eeeeee">0</text><text x="1005" y="45" fill="#d2d2d2">1</text><text x="1005" y="59" fill="#b7b7b7">1</text><text x="1005" y="73" fill="#9b9b9b">1</text><text x="1005" y="87" fill="#7f7f7f">1</text><text x="1005" y="101" fill="#646464">1</text><text x="1005" y="115" fill="#484848">0</text><text x="1005" y="129" fill="#2d2d2d">1</text><text x="1005" y="143" fill="#111111">1</text>
-    <!-- Col 32 (x=1035) head_y=203 len=8 -->
-    <text x="1035" y="105" fill="#eeeeee">1</text><text x="1035" y="119" fill="#cecece">1</text><text x="1035" y="133" fill="#afafaf">1</text><text x="1035" y="147" fill="#8f8f8f">1</text><text x="1035" y="161" fill="#707070">0</text><text x="1035" y="175" fill="#505050">1</text><text x="1035" y="189" fill="#313131">1</text><text x="1035" y="203" fill="#111111">1</text>
-    <!-- Col 33 (x=1065) head_y=85 len=6 -->
-    <text x="1065" y="15" fill="#eeeeee">1</text><text x="1065" y="29" fill="#c2c2c2">0</text><text x="1065" y="43" fill="#969696">1</text><text x="1065" y="57" fill="#696969">1</text><text x="1065" y="71" fill="#3d3d3d">1</text><text x="1065" y="85" fill="#111111">1</text>
-    <!-- Col 34 (x=1095) head_y=75 len=5 -->
-    <text x="1095" y="19" fill="#eeeeee">1</text><text x="1095" y="33" fill="#b7b7b7">1</text><text x="1095" y="47" fill="#7f7f7f">1</text><text x="1095" y="61" fill="#484848">1</text><text x="1095" y="75" fill="#111111">0</text>
-    <!-- Col 35 (x=1125) head_y=197 len=8 -->
-    <text x="1125" y="99" fill="#eeeeee">0</text><text x="1125" y="113" fill="#cecece">1</text><text x="1125" y="127" fill="#afafaf">1</text><text x="1125" y="141" fill="#8f8f8f">1</text><text x="1125" y="155" fill="#707070">1</text><text x="1125" y="169" fill="#505050">0</text><text x="1125" y="183" fill="#313131">1</text><text x="1125" y="197" fill="#111111">1</text>
-    <!-- Col 36 (x=1155) head_y=208 len=6 -->
-    <text x="1155" y="138" fill="#eeeeee">1</text><text x="1155" y="152" fill="#c2c2c2">1</text><text x="1155" y="166" fill="#969696">0</text><text x="1155" y="180" fill="#696969">1</text><text x="1155" y="194" fill="#3d3d3d">0</text><text x="1155" y="208" fill="#111111">1</text>
-    <!-- Col 37 (x=1185) head_y=214 len=9 -->
-    <text x="1185" y="102" fill="#eeeeee">1</text><text x="1185" y="116" fill="#d2d2d2">1</text><text x="1185" y="130" fill="#b7b7b7">0</text><text x="1185" y="144" fill="#9b9b9b">0</text><text x="1185" y="158" fill="#7f7f7f">1</text><text x="1185" y="172" fill="#646464">0</text><text x="1185" y="186" fill="#484848">1</text><text x="1185" y="200" fill="#2d2d2d">1</text><text x="1185" y="214" fill="#111111">0</text>
+    <text x="76" y="62"><tspan fill="#a626a4">SELECT</tspan><tspan fill="#383a42"> c.id, c.name, c.tier,</tspan></text>
+    <text x="76" y="82"><tspan fill="#383a42">       </tspan><tspan fill="#c18401">COUNT</tspan><tspan fill="#383a42">(o.id) </tspan><tspan fill="#a626a4">AS</tspan><tspan fill="#383a42"> orders,</tspan></text>
+    <text x="76" y="102"><tspan fill="#383a42">       </tspan><tspan fill="#c18401">SUM</tspan><tspan fill="#383a42">(o.total) </tspan><tspan fill="#a626a4">AS</tspan><tspan fill="#383a42"> revenue</tspan></text>
+    <text x="76" y="122"><tspan fill="#a626a4">FROM</tspan><tspan fill="#383a42"> customers c</tspan></text>
+    <text x="76" y="142"><tspan fill="#a626a4">LEFT JOIN</tspan><tspan fill="#383a42"> orders o </tspan><tspan fill="#a626a4">ON</tspan><tspan fill="#383a42"> o.customer_id = c.id</tspan></text>
+    <text x="76" y="162"><tspan fill="#a626a4">WHERE</tspan><tspan fill="#383a42"> c.created_at &gt;= </tspan><tspan fill="#50a14f">&#39;2026-01-01&#39;</tspan></text>
+    <text x="76" y="182"><tspan fill="#383a42">  </tspan><tspan fill="#a626a4">AND</tspan><tspan fill="#383a42"> c.tier </tspan><tspan fill="#a626a4">IN</tspan><tspan fill="#383a42"> (</tspan><tspan fill="#50a14f">&#39;pro&#39;</tspan><tspan fill="#383a42">, </tspan><tspan fill="#50a14f">&#39;biz&#39;</tspan><tspan fill="#383a42">)</tspan></text>
+    <text x="76" y="202"><tspan fill="#a626a4">GROUP BY</tspan><tspan fill="#383a42"> c.id, c.name, c.tier</tspan></text>
+    <text x="76" y="222"><tspan fill="#a626a4">ORDER BY</tspan><tspan fill="#383a42"> revenue </tspan><tspan fill="#a626a4">DESC</tspan></text>
+    <text x="76" y="242"><tspan fill="#a626a4">LIMIT</tspan><tspan fill="#383a42"> </tspan><tspan fill="#986801">100</tspan><tspan fill="#383a42">;</tspan></text>
   </g>
 
-  <!-- DB cylinder masked by V -->
-  <!-- DB cylinder: width 110, height ~110 to match icon.svg proportions -->
-  <g fill="none" stroke="#1f2328" stroke-width="3" mask="url(#vmask)">
-    <ellipse cx="600" cy="95" rx="55" ry="18"/>
-    <path d="M545 95v95c0 9.9 24.6 18 55 18s55-8.1 55-18V95"/>
-    <path d="M545 143c0 9.9 24.6 18 55 18s55-8.1 55-18"/>
+  <rect x="0" y="0" width="60" height="300" fill="url(#fade-l-l)"></rect>
+
+  
+  <g transform="translate(770,40)">
+    <rect x="0" y="0" width="380" height="220" fill="#fbfbfc" stroke="#e4e7eb" stroke-width="1" rx="3"></rect>
+
+    <rect x="0" y="0" width="380" height="26" fill="#f3f4f6"></rect>
+    <line x1="0" y1="26" x2="380" y2="26" stroke="#d7dadf" stroke-width="1"></line>
+    <g font-size="10" fill="#6b7280" letter-spacing="0.4">
+      <text x="14" y="17">ID</text>
+      <text x="64" y="17">NAME</text>
+      <text x="198" y="17">TIER</text>
+      <text x="262" y="17">ORDERS</text>
+      <text x="338" y="17">REVENUE</text>
+    </g>
+    <circle cx="8" cy="13" r="2" fill="#c18401"></circle>
+
+    <g stroke="#eef0f3" stroke-width="1">
+      <line x1="50" y1="0" x2="50" y2="220"></line>
+      <line x1="190" y1="0" x2="190" y2="220"></line>
+      <line x1="250" y1="0" x2="250" y2="220"></line>
+      <line x1="320" y1="0" x2="320" y2="220"></line>
+    </g>
+
+    <g font-size="12">
+      <rect x="0" y="26" width="380" height="24" fill="#ffffff"></rect>
+      <text x="14" y="43" fill="#986801">1042</text>
+      <text x="64" y="43" fill="#383a42">Nordic Freight Co.</text>
+      <text x="198" y="43" fill="#3a7dd9">biz</text>
+      <text x="262" y="43" fill="#383a42">847</text>
+      <text x="372" y="43" fill="#50a14f" text-anchor="end">$412,908</text>
+
+      <rect x="0" y="50" width="380" height="24" fill="#f8f9fb"></rect>
+      <text x="14" y="67" fill="#986801">0918</text>
+      <text x="64" y="67" fill="#383a42">Aperture Analytics</text>
+      <text x="198" y="67" fill="#3a7dd9">biz</text>
+      <text x="262" y="67" fill="#383a42">612</text>
+      <text x="372" y="67" fill="#50a14f" text-anchor="end">$298,140</text>
+
+      <rect x="0" y="74" width="380" height="24" fill="#dde8fb"></rect>
+      <rect x="0" y="74" width="2" height="24" fill="#3a7dd9"></rect>
+      <text x="14" y="91" fill="#986801">2301</text>
+      <text x="64" y="91" fill="#1f2328">Lumen &amp; Co.</text>
+      <text x="198" y="91" fill="#3a7dd9">biz</text>
+      <text x="262" y="91" fill="#1f2328">489</text>
+      <text x="372" y="91" fill="#50a14f" text-anchor="end">$221,756</text>
+
+      <rect x="0" y="98" width="380" height="24" fill="#f8f9fb"></rect>
+      <text x="14" y="115" fill="#986801">1155</text>
+      <text x="64" y="115" fill="#383a42">Halcyon Robotics</text>
+      <text x="198" y="115" fill="#50a14f">pro</text>
+      <text x="262" y="115" fill="#383a42">374</text>
+      <text x="372" y="115" fill="#50a14f" text-anchor="end">$184,220</text>
+
+      <rect x="0" y="122" width="380" height="24" fill="#ffffff"></rect>
+      <text x="14" y="139" fill="#986801">0774</text>
+      <text x="64" y="139" fill="#383a42">Meridian Labs</text>
+      <text x="198" y="139" fill="#50a14f">pro</text>
+      <text x="262" y="139" fill="#383a42">298</text>
+      <text x="372" y="139" fill="#50a14f" text-anchor="end">$152,017</text>
+
+      <rect x="0" y="146" width="380" height="24" fill="#f8f9fb"></rect>
+      <text x="14" y="163" fill="#986801">1889</text>
+      <text x="64" y="163" fill="#383a42">Osprey Systems</text>
+      <text x="198" y="163" fill="#50a14f">pro</text>
+      <text x="262" y="163" fill="#383a42">241</text>
+      <text x="372" y="163" fill="#50a14f" text-anchor="end">$128,493</text>
+
+      <rect x="0" y="170" width="380" height="24" fill="#ffffff"></rect>
+      <text x="14" y="187" fill="#986801">0502</text>
+      <text x="64" y="187" fill="#383a42">Kestrel Holdings</text>
+      <text x="198" y="187" fill="#50a14f">pro</text>
+      <text x="262" y="187" fill="#383a42">198</text>
+      <text x="372" y="187" fill="#50a14f" text-anchor="end">$101,882</text>
+
+      <rect x="0" y="194" width="380" height="24" fill="#f8f9fb"></rect>
+      <rect x="14" y="205" width="22" height="6" fill="#e4e7eb" rx="1"></rect>
+      <rect x="64" y="205" width="110" height="6" fill="#e4e7eb" rx="1"></rect>
+      <rect x="198" y="205" width="42" height="6" fill="#e4e7eb" rx="1"></rect>
+      <rect x="262" y="205" width="28" height="6" fill="#e4e7eb" rx="1"></rect>
+      <rect x="336" y="205" width="36" height="6" fill="#e4e7eb" rx="1"></rect>
+    </g>
+
+    <line x1="0" y1="220" x2="380" y2="220" stroke="#e4e7eb"></line>
+    <rect x="0" y="220" width="380" height="20" fill="#f3f4f6"></rect>
+    <circle cx="12" cy="230" r="3" fill="#50a14f"></circle>
+    <text x="20" y="234" font-size="10" fill="#57606a">100 rows · 42ms</text>
+    <text x="370" y="234" font-size="10" fill="#8b93a0" text-anchor="end">postgres · analytics</text>
   </g>
 
-  <!-- Hollow V — exact proportional copy from icon.svg -->
-  <path d="M558 72 L600 190 L643 72 L625 72 L600 163 L575 72 Z" fill="none" stroke="#1f2328" stroke-width="3" stroke-linejoin="miter"/>
+  <rect x="1140" y="0" width="60" height="300" fill="url(#fade-r-l)"></rect>
 
-  <!-- Title -->
-  <text x="600" y="282" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="20" font-weight="300" fill="#57606a" letter-spacing="12">VIEWSTOR</text>
+  
+  <circle cx="600" cy="150" r="72" fill="#3a7dd9" opacity="0.07"></circle>
+  <circle cx="600" cy="150" r="58" fill="#ffffff" stroke="#e4e7eb" stroke-width="1"></circle>
+
+  <g fill="none" stroke="#1f2328" stroke-width="3" mask="url(#vmask-l)">
+    <ellipse cx="600" cy="115" rx="38" ry="12"></ellipse>
+    <path d="M562 115v65c0 6.8 17 12 38 12s38-5.2 38-12V115"></path>
+    <path d="M562 148c0 6.8 17 12 38 12s38-5.2 38-12"></path>
+  </g>
+
+  <path d="M570 100 L600 185 L630 100 L618 100 L600 159 L582 100 Z" fill="none" stroke="#3a7dd9" stroke-width="3" stroke-linejoin="miter"></path>
+
+  <text x="600" y="262" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,&#39;Segoe UI&#39;,system-ui,sans-serif" font-size="15" font-weight="500" fill="#1f2328" letter-spacing="10">VIEWSTOR</text>
+  <text x="600" y="282" text-anchor="middle" font-family="&#39;SF Mono&#39;,Menlo,Consolas,monospace" font-size="9" fill="#8b93a0" letter-spacing="3">PostgreSQL · Redis · ClickHouse · SQLite</text>
 </svg>
