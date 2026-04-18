@@ -29,6 +29,7 @@ interface ColorPalette {
 interface ColorPickerApi {
   hslToHex(h: number, s: number, l: number): string;
   randomHex(): string;
+  normalizeHex(v: string): string | null;
   COLOR_PALETTE: readonly ColorPalette[];
   attach(options: AttachOptions): { setValue(v: string): void; getValue(): string };
 }
@@ -157,6 +158,31 @@ describe('hslToHex', () => {
 
   it('is deterministic for the same inputs', () => {
     expect(api.hslToHex(42, 73, 51)).toBe(api.hslToHex(42, 73, 51));
+  });
+});
+
+describe('normalizeHex', () => {
+  let api: ColorPickerApi;
+  beforeEach(() => { api = loadColorPicker(); });
+
+  it('passes through valid 6-char hex', () => {
+    expect(api.normalizeHex('#abcdef')).toBe('#abcdef');
+    expect(api.normalizeHex('#123456')).toBe('#123456');
+  });
+
+  it('expands 3-char shorthand to 6-char', () => {
+    expect(api.normalizeHex('#abc')).toBe('#aabbcc');
+    expect(api.normalizeHex('#fff')).toBe('#ffffff');
+    expect(api.normalizeHex('#000')).toBe('#000000');
+  });
+
+  it('returns null for invalid input', () => {
+    expect(api.normalizeHex('')).toBeNull();
+    expect(api.normalizeHex('#12')).toBeNull();
+    expect(api.normalizeHex('#abcde')).toBeNull();
+    expect(api.normalizeHex('abc')).toBeNull();
+    expect(api.normalizeHex('var(--vscode-terminal-ansiRed)')).toBeNull();
+    expect(api.normalizeHex('#abcdefab')).toBeNull();
   });
 });
 
@@ -320,6 +346,49 @@ describe('attach() DOM wiring', () => {
     const handle = api.attach(rig);
     handle.setValue('');
     expect(rig.pickerEl.value).toBe('#444444');
+  });
+
+  it('expands 3-char hex from text input into the native picker', () => {
+    const { rig } = buildRig('');
+    rig.textEl.setUserInput('#abc');
+    expect(rig.pickerEl.value).toBe('#aabbcc');
+    // Swatch keeps the user's literal input — browsers happily resolve "#abc".
+    expect(rig.swatchEl.style.background).toBe('#abc');
+  });
+
+  it('handle.setValue accepts 3-char hex and expands it for the native picker', () => {
+    const { rig, handle } = buildRig('');
+    handle.setValue('#0f0');
+    expect(rig.textEl.value).toBe('#0f0');
+    expect(rig.pickerEl.value).toBe('#00ff00');
+    expect(rig.swatchEl.style.background).toBe('#0f0');
+  });
+
+  it('attach() refuses to wire the same textEl twice (would duplicate listeners + palette)', () => {
+    const api = loadColorPicker();
+    const rig = {
+      textEl: new FakeInput(''),
+      pickerEl: new FakeInput('#1e1e1e'),
+      swatchEl: new FakeElement(),
+      paletteEl: new FakeElement(),
+    };
+    api.attach(rig);
+    expect(() => api.attach(rig)).toThrow(/already attached/);
+    // Palette stayed at 12 entries — second attach didn't add another batch.
+    expect(rig.paletteEl.children).toHaveLength(api.COLOR_PALETTE.length);
+  });
+
+  it('treats empty-string defaultPickerColor as "use the default" (#1e1e1e)', () => {
+    const api = loadColorPicker();
+    const rig = {
+      textEl: new FakeInput(''),
+      pickerEl: new FakeInput('#111111'),
+      swatchEl: new FakeElement(),
+      defaultPickerColor: '',
+    };
+    const handle = api.attach(rig);
+    handle.setValue('');
+    expect(rig.pickerEl.value).toBe('#1e1e1e');
   });
 
   it('throws when required elements are missing', () => {
