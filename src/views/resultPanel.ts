@@ -398,11 +398,25 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   th small { color:var(--vscode-descriptionForeground); font-weight:normal; }
   th .sort-icon { margin-left:4px; font-size:10px; opacity:0.7; }
   tr:hover { background:var(--vscode-list-hoverBackground); }
-  td.selected { background:color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important; }
-  td.sel-top { border-top:2px solid var(--vscode-focusBorder) !important; }
-  td.sel-bottom { border-bottom:2px solid var(--vscode-focusBorder) !important; }
-  td.sel-left { border-left:2px solid var(--vscode-focusBorder) !important; }
-  td.sel-right { border-right:2px solid var(--vscode-focusBorder) !important; }
+  /* Selection borders via inset box-shadow so the cell's layout size
+     doesn't change when classes toggle (borders would add ~2px each side
+     and shift the row). Same pattern as diff-panel.css. */
+  td.selected {
+    background:color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important;
+    --sh-top: 0 0 0 0 transparent;
+    --sh-bottom: 0 0 0 0 transparent;
+    --sh-left: 0 0 0 0 transparent;
+    --sh-right: 0 0 0 0 transparent;
+    box-shadow:
+      inset var(--sh-top),
+      inset var(--sh-bottom),
+      inset var(--sh-left),
+      inset var(--sh-right);
+  }
+  td.sel-top { --sh-top: 0 2px 0 0 var(--vscode-focusBorder); }
+  td.sel-bottom { --sh-bottom: 0 -2px 0 0 var(--vscode-focusBorder); }
+  td.sel-left { --sh-left: 2px 0 0 0 var(--vscode-focusBorder); }
+  td.sel-right { --sh-right: -2px 0 0 0 var(--vscode-focusBorder); }
   /* Context-menu styles come from the shared module (#94). */
   ${getCtxMenuCss()}
   td.has-handle { overflow:visible !important; }
@@ -955,7 +969,7 @@ ${getCtxMenuScript()}
       { label: 'Copy as One-row (SQL)', onClick: () => copySelection('onerow-sq') },
       { label: 'Copy as One-row (JSON)', onClick: () => copySelection('onerow-dq') },
       { label: 'Copy as CSV', onClick: () => copySelection('csv') },
-      { label: 'Copy as TSV', onClick: () => copySelection('tsv-explicit') },
+      { label: 'Copy as TSV (Slack)', onClick: () => copySelection('tsv-explicit') },
       { label: 'Copy as Markdown', onClick: () => copySelection('md') },
       { label: 'Copy as JSON', onClick: () => copySelection('json') },
     ];

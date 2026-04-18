@@ -1161,10 +1161,10 @@
     if (!window.ViewstorContextMenu) return;
     const formats = [
       { label: 'Copy', fmt: 'tsv' },
-      { label: 'Copy with Headers', fmt: 'tsv-header' },
       { label: 'Copy as One-row (SQL)', fmt: 'onerow-sq' },
       { label: 'Copy as One-row (JSON)', fmt: 'onerow-dq' },
       { label: 'Copy as CSV', fmt: 'csv' },
+      { label: 'Copy as TSV (Slack)', fmt: 'tsv-header' },
       { label: 'Copy as Markdown', fmt: 'md' },
       { label: 'Copy as JSON', fmt: 'json' },
     ];
