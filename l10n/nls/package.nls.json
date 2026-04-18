@@ -51,5 +51,6 @@
   "chat.command.chart": "Generate a chart visualization from a query",
   "command.compareWith": "Compare With...",
   "command.compareData": "Compare Data",
-  "config.diffRowLimit.description": "Maximum number of rows to compare per table. Larger values use more memory."
+  "config.diffRowLimit.description": "Maximum number of rows to compare per table. Larger values use more memory.",
+  "command.showOnMap": "Show on Map"
 }

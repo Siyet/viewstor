@@ -1,0 +1,113 @@
+* { box-sizing: border-box; }
+body {
+  font-family: var(--vscode-font-family);
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+}
+.toolbar {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  flex-shrink: 0;
+}
+.toolbar label:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.toolbar label[hidden] {
+  display: none;
+}
+.toolbar select {
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border);
+  padding: 2px 6px;
+  font-size: 12px;
+  border-radius: 2px;
+  max-width: 200px;
+}
+.status-info {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+#map {
+  flex: 1;
+  width: 100%;
+  background: var(--vscode-editor-background);
+}
+.empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 12px 18px;
+  background: var(--vscode-editor-inactiveSelectionBackground);
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--vscode-descriptionForeground);
+  pointer-events: none;
+}
+.hidden { display: none; }
+
+/* Popup contents — inherit VS Code theme */
+.leaflet-popup-content-wrapper {
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-panel-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.leaflet-popup-tip {
+  background: var(--vscode-editor-background);
+}
+.leaflet-popup-content {
+  margin: 8px 12px;
+  font-size: 12px;
+  max-height: 280px;
+  overflow: auto;
+}
+table.map-popup {
+  border-collapse: collapse;
+  width: 100%;
+}
+table.map-popup th,
+table.map-popup td {
+  padding: 2px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  vertical-align: top;
+  word-break: break-word;
+}
+table.map-popup th {
+  color: var(--vscode-descriptionForeground);
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 120px;
+}
+table.map-popup tr:last-child th,
+table.map-popup tr:last-child td {
+  border-bottom: none;
+}
+
+/* Tooltip under markers */
+.leaflet-tooltip {
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-panel-border);
+  font-family: var(--vscode-font-family);
+}
+.leaflet-tooltip.map-label-permanent {
+  background: var(--vscode-editorHoverWidget-background);
+  padding: 1px 6px;
+  font-size: 11px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}

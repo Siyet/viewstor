@@ -10,7 +10,26 @@ import { FolderFormPanel } from '../views/folderForm';
 import { TempFileManager } from '../services/tempFileManager';
 import { QueryFileManager } from '../services/queryFileManager';
 import { DiffPanelManager } from '../diff/diffPanel';
+import { MapPanelManager } from '../map/mapPanel';
+import { DatabaseDriver } from '../types/driver';
 import { splitStatements, firstSqlTokenOffset } from '../utils/queryHelpers';
+import { wrapError } from '../utils/errors';
+
+export { wrapError };
+
+/**
+ * Resolve a driver for a connection, optionally pinned to a specific database.
+ * Returns undefined when the connection is not connected (caller decides how to react).
+ */
+export function getRequiredDriver(
+  cm: ConnectionManager,
+  connectionId: string,
+  databaseName?: string,
+): Promise<DatabaseDriver | undefined> | DatabaseDriver | undefined {
+  return databaseName
+    ? cm.getDriverForDatabase(connectionId, databaseName)
+    : cm.getDriver(connectionId);
+}
 
 export interface CommandContext {
   connectionManager: ConnectionManager;
@@ -25,6 +44,7 @@ export interface CommandContext {
   tempFileManager: TempFileManager;
   queryFileManager: QueryFileManager;
   diffPanelManager: DiffPanelManager;
+  mapPanelManager: MapPanelManager;
 }
 
 // --- Shared mutable state ---
@@ -35,6 +55,14 @@ export function incrementQueryResultCounter(): number {
 }
 
 export const historyDocMap = new Map<string, string>(); // entry.id -> doc URI
+
+/**
+ * Cache for `_runCustomTableQuery` totalCount results, keyed by panelKey.
+ * COUNT(*) over the user's base query is expensive (full scan, sort if ORDER BY),
+ * and pagination clicks shouldn't re-pay it as long as the base query is unchanged.
+ * Cleared when baseQuery changes or panel closes.
+ */
+export const customQueryCountCache = new Map<string, { baseQuery: string; count: number }>();
 
 let _outputChannel: vscode.LogOutputChannel;
 export function setOutputChannel(channel: vscode.LogOutputChannel) {

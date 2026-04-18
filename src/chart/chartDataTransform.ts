@@ -29,6 +29,79 @@ export function buildEChartsOption(result: QueryResult, config: ChartConfig): Re
 }
 
 /**
+ * Return a copy of `config` where every column reference (axis xColumn / yColumns /
+ * groupBy, category nameColumn / valueColumn, stat valueColumn / groupBy, gauge
+ * valueColumn, radar indicators / groupBy) that points at a column missing from
+ * `columns` is replaced with a sensible default from `columns`.
+ *
+ * Motivation: a chart config built from a "raw table" view becomes stale the moment a
+ * server-side aggregation rewrites the column set. e.g. picking Y=`id` then running
+ * COUNT-by-month yields a result with `count` instead of `id`; without rewriting the
+ * config the Y series ends up reading `undefined` for every row and the chart paints
+ * empty axes (regression #...). Drives the empty-chart fix that surfaces from
+ * "Show full DB data" with an aggregation function selected.
+ *
+ * Pure (does not mutate `config`).
+ */
+export function adaptConfigToColumns(config: ChartConfig, columns: QueryColumn[]): ChartConfig {
+  const colNames = new Set(columns.map(c => c.name));
+  const numericNames = columns.filter(isNumericColumn).map(c => c.name);
+  const timeNames = columns.filter(isTimeColumn).map(c => c.name);
+  const nonNumericNames = columns.filter(c => !isNumericColumn(c)).map(c => c.name);
+  const firstName = columns[0]?.name || '';
+  const fallbackX = timeNames[0] || nonNumericNames[0] || firstName;
+  const fallbackNumeric = numericNames[0] || firstName;
+  const fallbackName = nonNumericNames[0] || firstName;
+
+  const out: ChartConfig = { ...config };
+
+  if (config.axis) {
+    const xColumn = colNames.has(config.axis.xColumn) ? config.axis.xColumn : fallbackX;
+    const validY = config.axis.yColumns.filter(n => colNames.has(n));
+    const yColumns = validY.length > 0 ? validY : numericNames;
+    const groupByColumn = config.axis.groupByColumn && colNames.has(config.axis.groupByColumn)
+      ? config.axis.groupByColumn
+      : undefined;
+    out.axis = { xColumn, yColumns, groupByColumn };
+  }
+
+  if (config.category) {
+    out.category = {
+      nameColumn: colNames.has(config.category.nameColumn) ? config.category.nameColumn : fallbackName,
+      valueColumn: colNames.has(config.category.valueColumn) ? config.category.valueColumn : fallbackNumeric,
+    };
+  }
+
+  if (config.stat) {
+    out.stat = {
+      valueColumn: colNames.has(config.stat.valueColumn) ? config.stat.valueColumn : fallbackNumeric,
+      groupByColumn: config.stat.groupByColumn && colNames.has(config.stat.groupByColumn)
+        ? config.stat.groupByColumn
+        : undefined,
+    };
+  }
+
+  if (config.gauge) {
+    out.gauge = {
+      ...config.gauge,
+      valueColumn: colNames.has(config.gauge.valueColumn) ? config.gauge.valueColumn : fallbackNumeric,
+    };
+  }
+
+  if (config.radar) {
+    const validInd = config.radar.indicatorColumns.filter(n => colNames.has(n));
+    out.radar = {
+      indicatorColumns: validInd.length > 0 ? validInd : numericNames,
+      groupByColumn: config.radar.groupByColumn && colNames.has(config.radar.groupByColumn)
+        ? config.radar.groupByColumn
+        : undefined,
+    };
+  }
+
+  return out;
+}
+
+/**
  * Build ECharts option with additional data sources merged in.
  * Only works for axis-based charts (line, bar, scatter).
  * Each additional source adds extra series to the chart.

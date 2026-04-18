@@ -4,8 +4,8 @@
  * - Standalone MCP build_chart with aggregation params
  * - Chat /chart JSON config parsing
  */
-import { describe, it, expect, vi } from 'vitest';
-import { buildAggregationQuery, buildFullDataQuery, ChartConfig, EChartsChartType } from '../types/chart';
+import { describe, it, expect } from 'vitest';
+import { buildAggregationQuery, ChartConfig } from '../types/chart';
 import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
 import { QueryResult } from '../types/query';
 

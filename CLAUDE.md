@@ -63,6 +63,8 @@ All form / panel webviews share a common UI stack (issue #86):
 - **`@vscode-elements/elements`** — VS Code Web Components (`<vscode-textfield>`, `<vscode-single-select>`, `<vscode-checkbox>`, `<vscode-button>`, `<vscode-collapsible>`, `<vscode-icon>`, `<vscode-tabs>`, `<vscode-textarea>`, etc.). Bundled file copied to `dist/scripts/vscode-elements.js`; loaded as `<script type="module">`. Custom elements expose `.value` / `.checked` properties and emit `change` / `input` events just like native form controls.
 - **`@vscode/codicons`** — icon font copied to `dist/styles/codicon.css` + `codicon.ttf`. Use via `<vscode-icon name="..." />` (slot `content-before` / `content-after` for buttons) or directly with `<i class="codicon codicon-..."></i>`.
 - **`src/webview/scripts/webview-shell.js`** — loaded first in every webview HEAD; sets `window.__viewstorShellLoaded` marker. Centralizes the bundle path in case the loading strategy changes.
+- **`src/webview/scripts/context-menu.js` + `src/webview/styles/context-menu.css`** — shared right-click menu primitive (#94). IIFE installs `window.ViewstorContextMenu` with `open({x, y, items}) → { el, close }` and `close()`. Items are `{ label, onClick, destructive? }` or `{ separator: true }`. Handles viewport clamping, click-outside (mousedown capture), and Escape. Opening a second menu closes the first. Also exports via `module.exports` for Node-side tests (see `src/test/contextMenu.test.ts`, loaded in `node:vm`). Diff Panel loads it via `<link>`+`<script src>`; Result Panel inlines the same source via `fs.readFileSync` on first `buildResultHtml` call (triple-path resolution: bundled `dist/scripts/…`, source `src/webview/scripts/…`, or tsc-compiled `dist/test/views/` climbing back to source) and caches the result for the rest of the session — lazy so extension activation never touches disk.
+- **`src/webview/scripts/color-picker.js`** — shared color-picker widget used by the Connection and Folder forms (#94). Installs `window.ViewstorColorPicker` with `hslToHex(h,s,l)`, a `COLOR_PALETTE` of the 12 VS Code terminal ANSI theme colors, and `attach({ textEl, pickerEl, swatchEl, clearBtn?, randomBtn?, paletteEl? }) → { setValue, getValue }`. Keeps the hex↔picker↔swatch sync, palette population, and Random/Clear handlers in one place so the two forms don't drift.
 - **`src/webview/styles/tokens.css`** — design tokens. Typography scale, spacing grid, semantic colors (`--viewstor-row-added/removed/changed/zebra`, `--viewstor-text-dimmed`, `--viewstor-border-subtle`, `--viewstor-badge-bg-*`, `--viewstor-form-max-width`). All derived from `--vscode-*` so themes apply automatically; high-contrast theme overrides via `@media (forced-colors: active)`.
 - **CSP** — every panel sets `Content-Security-Policy` allowing only `cspSource` for img/style/font/script. Inline styles allowed (`style-src 'unsafe-inline'`) so per-element inline `style=` works.
 
@@ -108,7 +110,7 @@ Chart types and Grafana mapping:
 - category charts: pie → piechart, funnel/treemap/sunburst → no Grafana equivalent
 - gauge → gauge, boxplot/candlestick/radar → no Grafana equivalent
 
-Webview: `src/webview/scripts/chart-panel.js` (config sidebar + ECharts init), `src/webview/styles/chart-panel.css` (VS Code theme vars).
+Webview: `src/webview/scripts/chart-panel.js` (config sidebar + ECharts init), `src/webview/styles/chart-panel.css` (design tokens from `tokens.css`). Built on `@vscode-elements/elements` (`vscode-single-select` / `vscode-checkbox` / `vscode-textfield` / `vscode-button` / `vscode-icon`) + codicons + shared `tokens.css`, matching the connection form and diff panel patterns.
 
 Messages: buildOption (webview → host, triggers `buildEChartsOption` or `buildMultiSourceEChartsOption`), setOption (host → webview), exportGrafana, copyGrafanaJson, saveGrafanaJson, pushToGrafana, showGrafanaJson, requestPinnedQueries, pinnedQueries, requestDataSourceColumns, dataSourceColumns.
 
@@ -126,6 +128,17 @@ Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana pus
 `src/commands/diffCommands.ts` — `viewstor.compareWith` (context menu on tables), `viewstor.compareData` (command palette). Auto-detects PK columns; prompts user if no PK found. Fetches data + objects + statistics from both sources (stats only when both connections are the same `type`), computes diff, opens panel.
 
 Settings: `viewstor.diffRowLimit` (default 10000, max 100000).
+
+### Map View
+`src/map/mapDataTransform.ts` — pure functions: `detectCoordMode()` picks single-column (by type/name hint) or `lat`/`lng` pair; `parseGeoValue()` decodes GeoJSON Point, WKT `POINT(lng lat)`, `{lat,lng}` objects, `[lng,lat]` arrays, PG brace arrays `{lng,lat}`, JSON strings of the above; `extractPoints()` runs rows through the configured mode; `suggestLabelColumn()` picks a marker label column by priority (`name > title > label > description > code > id`). No vscode dependency, fully unit-tested.
+
+`src/map/mapPanel.ts` — `MapPanelManager`, webview panel for Leaflet map. Bundles `leaflet.js` + `leaflet.css` + marker images via webpack `CopyPlugin` into `dist/scripts/` and `dist/styles/images/`. Patches `L.Icon.Default` paths to `webview.asWebviewUri(...)` so markers render under the `vscode-webview:` scheme. CSP allows `https:` for OpenStreetMap tiles. Messages: `setPoints` (host → webview), `ready`/`changeMode`/`changeLabel` (webview → host). Limits rendering to 10,000 points (configurable via `MapShowOptions.pointLimit`).
+
+`src/commands/mapCommands.ts` — `viewstor.showOnMap`. Triggered by the 🗺 button in the result panel toolbar. Shows a warning if no coordinate format is detected.
+
+Webview: `src/webview/scripts/map-panel.js` (Leaflet init, OpenStreetMap tiles, marker tooltips + row popups), `src/webview/styles/map-panel.css` (VS Code theme vars for popups).
+
+Binary WKB (PostGIS hex) is **not** parsed — drivers should return WKT or GeoJSON when possible. Clustering and "color by value" are not implemented yet.
 
 ### SQL Autocomplete
 `src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).

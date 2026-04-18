@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { CompletionItem as DriverCompletion } from '../types/driver';
 import { QueryEditorProvider } from './queryEditor';
+import { SchemaCache } from './schemaCache';
 import { dbg } from '../utils/debug';
 
 /**
@@ -11,14 +12,15 @@ import { dbg } from '../utils/debug';
 export class SqlDiagnosticProvider {
   private diagnosticCollection: vscode.DiagnosticCollection;
   private debounceTimer: NodeJS.Timeout | undefined;
-  private schemaCache = new Map<string, DriverCompletion[]>();
-  private cacheTimers = new Map<string, NodeJS.Timeout>();
+  private readonly schemaCache: SchemaCache;
 
   constructor(
     private readonly connectionManager: ConnectionManager,
     private readonly queryEditorProvider: QueryEditorProvider,
+    schemaCache?: SchemaCache,
   ) {
     this.diagnosticCollection = vscode.languages.createDiagnosticCollection('viewstor-sql-errors');
+    this.schemaCache = schemaCache ?? new SchemaCache(connectionManager);
   }
 
   register(context: vscode.ExtensionContext) {
@@ -26,11 +28,7 @@ export class SqlDiagnosticProvider {
       this.diagnosticCollection,
       vscode.workspace.onDidChangeTextDocument(e => this.scheduleCheck(e.document)),
       vscode.window.onDidChangeActiveTextEditor(e => { if (e) this.scheduleCheck(e.document); }),
-      this.connectionManager.onDidChange(() => {
-        this.schemaCache.clear();
-        for (const t of this.cacheTimers.values()) clearTimeout(t);
-        this.cacheTimers.clear();
-      }),
+      this.connectionManager.onDidChange(() => this.schemaCache.clear()),
     );
   }
 
@@ -129,37 +127,12 @@ export class SqlDiagnosticProvider {
   }
 
   private async getSchemaItems(connectionId: string, databaseName?: string): Promise<DriverCompletion[]> {
-    const cacheKey = databaseName ? `${connectionId}:${databaseName}` : connectionId;
-    if (this.schemaCache.has(cacheKey)) return this.schemaCache.get(cacheKey)!;
-
-    let driver;
-    try {
-      driver = databaseName
-        ? await this.connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : this.connectionManager.getDriver(connectionId);
-    } catch {
-      return [];
-    }
-    if (!driver?.getCompletions) return [];
-
-    try {
-      const items = await driver.getCompletions();
-      this.schemaCache.set(cacheKey, items);
-      const oldTimer = this.cacheTimers.get(cacheKey);
-      if (oldTimer) clearTimeout(oldTimer);
-      this.cacheTimers.set(cacheKey, setTimeout(() => {
-        this.schemaCache.delete(cacheKey);
-        this.cacheTimers.delete(cacheKey);
-      }, 60000));
-      return items;
-    } catch {
-      return [];
-    }
+    return this.schemaCache.get(connectionId, databaseName);
   }
 
   dispose() {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    for (const timer of this.cacheTimers.values()) clearTimeout(timer);
+    this.schemaCache.dispose();
     this.diagnosticCollection.dispose();
   }
 }

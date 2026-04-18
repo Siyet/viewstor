@@ -44,10 +44,11 @@ export class FolderFormPanel {
     const styleUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'styles', 'connection-form.css'));
     const shellUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'webview-shell.js'));
     const elementsUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'vscode-elements.js'));
+    const colorPickerUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'color-picker.js'));
     const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'folder-form.js'));
 
     this.panel.webview.html = this.buildHtml(
-      { tokensUri, codiconUri, styleUri, shellUri, elementsUri, scriptUri },
+      { tokensUri, codiconUri, styleUri, shellUri, elementsUri, colorPickerUri, scriptUri },
       folder,
     );
 
@@ -114,6 +115,7 @@ export class FolderFormPanel {
       styleUri: vscode.Uri;
       shellUri: vscode.Uri;
       elementsUri: vscode.Uri;
+      colorPickerUri: vscode.Uri;
       scriptUri: vscode.Uri;
     },
     folder?: ConnectionFolder,
@@ -127,7 +129,7 @@ export class FolderFormPanel {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource};">
-  <link rel="stylesheet" href="${uris.codiconUri}">
+  <link id="vscode-codicon-stylesheet" rel="stylesheet" href="${uris.codiconUri}">
   <link rel="stylesheet" href="${uris.tokensUri}">
   <link rel="stylesheet" href="${uris.styleUri}">
   <script src="${uris.shellUri}"></script>
@@ -199,6 +201,7 @@ export class FolderFormPanel {
     </div>
   </div>
 
+  <script src="${uris.colorPickerUri}"></script>
   <script src="${uris.scriptUri}"></script>
 </body>
 </html>`;

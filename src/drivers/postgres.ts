@@ -6,6 +6,7 @@ import { CompletionItem } from '../types/driver';
 import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
 import { createSSHTunnel, createSocks5Connection, TunnelInfo } from '../connections/tunnel';
 import { quoteIdentifier } from '../utils/queryHelpers';
+import { wrapError } from '../utils/errors';
 
 // Return raw strings for bigint, numeric, etc. instead of JS number
 types.setTypeParser(20, (val: string) => val); // int8
@@ -136,7 +137,7 @@ export class PostgresDriver implements DatabaseDriver {
         rows: [],
         rowCount: 0,
         executionTimeMs: Date.now() - start,
-        error: err instanceof Error ? err.message : String(err),
+        error: wrapError(err),
       };
     }
   }

@@ -1,7 +1,45 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { QueryResult, QueryColumn } from '../types/query';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import path from 'path';
+
+// Shared context-menu primitive (#94). Loaded lazily on first buildResultHtml
+// call so module evaluation (and extension activation) stays side-effect-free
+// even if the asset is missing from an unusual layout — e.g. a tsc-compiled
+// test tree where `dist/test/views/` has no sibling `scripts/` or `webview/`.
+let cachedCtxMenuScript: string | null = null;
+let cachedCtxMenuCss: string | null = null;
+
+function loadWebviewAsset(relative: string): string {
+  const candidates = [
+    // Bundled runtime: extension.js sits next to dist/scripts and dist/styles.
+    path.join(__dirname, relative),
+    // Source / test mode: src/views/ → src/webview/{scripts,styles}.
+    path.join(__dirname, '..', 'webview', relative),
+    // tsc-compiled tests: dist/test/views/ → project/src/webview/{scripts,styles}.
+    path.join(__dirname, '..', '..', '..', 'src', 'webview', relative),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      // Defuse any `</script>` / `</style>` / `<!--` sequences so the asset is
+      // safe to inline inside the panel's existing <style> and <script> tags.
+      return fs.readFileSync(candidate, 'utf-8')
+        .replace(/<\/(script|style)/gi, '<\\/$1')
+        .replace(/<!--/g, '<\\!--');
+    }
+  }
+  throw new Error(`[viewstor] shared webview asset not found: ${relative}`);
+}
+
+function getCtxMenuScript(): string {
+  if (cachedCtxMenuScript === null) cachedCtxMenuScript = loadWebviewAsset('scripts/context-menu.js');
+  return cachedCtxMenuScript;
+}
+function getCtxMenuCss(): string {
+  if (cachedCtxMenuCss === null) cachedCtxMenuCss = loadWebviewAsset('styles/context-menu.css');
+  return cachedCtxMenuCss;
+}
 
 export interface ShowOptions {
   connectionId?: string;
@@ -131,14 +169,24 @@ export class ResultPanelManager {
       switch (msg.type) {
         case 'changePage':
           if (isTableMode) {
-            vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, msg.page, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            if (msg.customQuery) {
+              vscode.commands.executeCommand('viewstor._runCustomTableQuery',
+                ctx.connectionId, ctx.tableName, ctx.schema, msg.customQuery, msg.pageSize, ctx.databaseName, panelKey, msg.page);
+            } else {
+              vscode.commands.executeCommand('viewstor._fetchPage',
+                ctx.connectionId, ctx.tableName, ctx.schema, msg.page, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            }
           }
           break;
         case 'changePageSize':
           if (isTableMode) {
-            vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            if (msg.customQuery) {
+              vscode.commands.executeCommand('viewstor._runCustomTableQuery',
+                ctx.connectionId, ctx.tableName, ctx.schema, msg.customQuery, msg.pageSize, ctx.databaseName, panelKey, 0);
+            } else {
+              vscode.commands.executeCommand('viewstor._fetchPage',
+                ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            }
           }
           break;
         case 'reloadWithSort':
@@ -224,6 +272,15 @@ export class ResultPanelManager {
             tableName: ctx.tableName,
             schema: ctx.schema,
             resultPanelKey: panelKey,
+          });
+          break;
+        case 'showOnMap':
+          vscode.commands.executeCommand('viewstor.showOnMap', {
+            columns: msg.columns,
+            rows: msg.rows,
+            color: ctx.color,
+            tableName: ctx.tableName,
+            schema: ctx.schema,
           });
           break;
       }
@@ -341,14 +398,27 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   th small { color:var(--vscode-descriptionForeground); font-weight:normal; }
   th .sort-icon { margin-left:4px; font-size:10px; opacity:0.7; }
   tr:hover { background:var(--vscode-list-hoverBackground); }
-  td.selected { background:color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important; }
-  td.sel-top { border-top:2px solid var(--vscode-focusBorder) !important; }
-  td.sel-bottom { border-bottom:2px solid var(--vscode-focusBorder) !important; }
-  td.sel-left { border-left:2px solid var(--vscode-focusBorder) !important; }
-  td.sel-right { border-right:2px solid var(--vscode-focusBorder) !important; }
-  .ctx-menu { position:fixed; background:var(--vscode-menu-background, var(--vscode-dropdown-background)); border:1px solid var(--vscode-menu-border, var(--vscode-panel-border)); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,0.3); z-index:50; padding:4px 0; min-width:160px; }
-  .ctx-menu button { display:block; width:100%; text-align:left; padding:6px 12px; background:none; border:none; color:var(--vscode-menu-foreground, var(--vscode-foreground)); font-size:12px; cursor:pointer; }
-  .ctx-menu button:hover { background:var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground)); }
+  /* Selection borders via inset box-shadow so the cell's layout size
+     doesn't change when classes toggle (borders would add ~2px each side
+     and shift the row). Same pattern as diff-panel.css. */
+  td.selected {
+    background:color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important;
+    --sh-top: 0 0 0 0 transparent;
+    --sh-bottom: 0 0 0 0 transparent;
+    --sh-left: 0 0 0 0 transparent;
+    --sh-right: 0 0 0 0 transparent;
+    box-shadow:
+      inset var(--sh-top),
+      inset var(--sh-bottom),
+      inset var(--sh-left),
+      inset var(--sh-right);
+  }
+  td.sel-top { --sh-top: 0 2px 0 0 var(--vscode-focusBorder); }
+  td.sel-bottom { --sh-bottom: 0 -2px 0 0 var(--vscode-focusBorder); }
+  td.sel-left { --sh-left: 2px 0 0 0 var(--vscode-focusBorder); }
+  td.sel-right { --sh-right: -2px 0 0 0 var(--vscode-focusBorder); }
+  /* Context-menu styles come from the shared module (#94). */
+  ${getCtxMenuCss()}
   td.has-handle { overflow:visible !important; }
   .resize-handle { position:absolute; bottom:-5px; right:-5px; width:8px; height:8px; background:var(--vscode-focusBorder); cursor:crosshair; z-index:5; border:2px solid var(--vscode-editor-background); border-radius:1px; }
   .null-val { color:var(--vscode-descriptionForeground); font-style:italic; }
@@ -397,6 +467,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:99; }
   .hidden { display:none; }
 </style>
+<script>
+${getCtxMenuScript()}
+</script>
 </head>
 <body>
   <div class="toolbar">
@@ -406,6 +479,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     <span style="flex:1"></span>
     <button id="exportBtn">Export</button>
     <button id="visualizeBtn" title="Visualize as chart">📊</button>
+    <button id="mapBtn" title="Show on map">🗺</button>
     <button id="addRowBtn" class="hidden">+ Row</button>
     <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
     <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
@@ -640,23 +714,20 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
       th.addEventListener('click', (e) => { if (e.target.classList && e.target.classList.contains('col-resize-handle')) return; handleSortClick(Number(th.dataset.col), e.shiftKey); });
       th.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        closeContextMenu();
         const ci = Number(th.dataset.col);
-        ctxMenuEl = document.createElement('div');
-        ctxMenuEl.className = 'ctx-menu';
-        ctxMenuEl.style.left = e.clientX + 'px';
-        ctxMenuEl.style.top = e.clientY + 'px';
-        const selectBtn = document.createElement('button');
-        selectBtn.textContent = 'Select Column';
-        selectBtn.addEventListener('click', () => {
-          selectedCells.clear();
-          for (let r = 0; r < pageRows.length; r++) selectedCells.add(cellKey(r, ci));
-          anchorCell = { row: 0, col: ci };
-          updateSelectionUI();
-          closeContextMenu();
+        window.ViewstorContextMenu.open({
+          x: e.clientX,
+          y: e.clientY,
+          items: [{
+            label: 'Select Column',
+            onClick: () => {
+              selectedCells.clear();
+              for (let r = 0; r < pageRows.length; r++) selectedCells.add(cellKey(r, ci));
+              anchorCell = { row: 0, col: ci };
+              updateSelectionUI();
+            },
+          }],
         });
-        ctxMenuEl.appendChild(selectBtn);
-        document.body.appendChild(ctxMenuEl);
       });
       // Column resize handle
       var handle = th.querySelector('.col-resize-handle');
@@ -888,49 +959,27 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   }
 
   // --- Context menu ---
-  let ctxMenuEl = null;
+  // Click-outside / Escape are handled by the shared ViewstorContextMenu primitive.
+  function closeContextMenu() { window.ViewstorContextMenu.close(); }
   function showContextMenu(e) {
     e.preventDefault();
-    closeContextMenu();
     if (selectedCells.size === 0) return;
-    ctxMenuEl = document.createElement('div');
-    ctxMenuEl.className = 'ctx-menu';
-    ctxMenuEl.style.left = e.clientX + 'px';
-    ctxMenuEl.style.top = e.clientY + 'px';
-    const formats = [
-      { label: 'Copy', fmt: 'tsv' },
-      { label: 'Copy as One-row (SQL)', fmt: 'onerow-sq' },
-      { label: 'Copy as One-row (JSON)', fmt: 'onerow-dq' },
-      { label: 'Copy as CSV', fmt: 'csv' },
-      { label: 'Copy as TSV', fmt: 'tsv-explicit' },
-      { label: 'Copy as Markdown', fmt: 'md' },
-      { label: 'Copy as JSON', fmt: 'json' },
+    const items = [
+      { label: 'Copy', onClick: () => copySelection('tsv') },
+      { label: 'Copy as One-row (SQL)', onClick: () => copySelection('onerow-sq') },
+      { label: 'Copy as One-row (JSON)', onClick: () => copySelection('onerow-dq') },
+      { label: 'Copy as CSV', onClick: () => copySelection('csv') },
+      { label: 'Copy as TSV (Slack)', onClick: () => copySelection('tsv-explicit') },
+      { label: 'Copy as Markdown', onClick: () => copySelection('md') },
+      { label: 'Copy as JSON', onClick: () => copySelection('json') },
     ];
-    formats.forEach(f => {
-      const btn = document.createElement('button');
-      btn.textContent = f.label;
-      btn.addEventListener('click', () => { copySelection(f.fmt); closeContextMenu(); });
-      ctxMenuEl.appendChild(btn);
-    });
-    // Delete row option (only in table mode, not readonly, with PKs)
     if (!IS_READONLY && IS_TABLE_MODE && pkColumns.length > 0) {
-      var sep = document.createElement('div');
-      sep.style.cssText = 'height:1px;background:var(--vscode-menu-separatorBackground, var(--vscode-panel-border));margin:4px 0;';
-      ctxMenuEl.appendChild(sep);
-      var delBtn = document.createElement('button');
-      delBtn.textContent = 'Delete Row(s)';
-      delBtn.style.color = 'var(--vscode-errorForeground)';
-      delBtn.addEventListener('click', function() {
-        closeContextMenu();
-        sendDeleteRows();
-      });
-      ctxMenuEl.appendChild(delBtn);
+      items.push({ separator: true });
+      items.push({ label: 'Delete Row(s)', destructive: true, onClick: () => sendDeleteRows() });
     }
-    document.body.appendChild(ctxMenuEl);
+    window.ViewstorContextMenu.open({ x: e.clientX, y: e.clientY, items });
   }
-  function closeContextMenu() { if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; } }
   document.getElementById('dataBody').addEventListener('contextmenu', showContextMenu);
-  document.addEventListener('click', closeContextMenu);
 
   function getSelectionData() {
     const cells = [...selectedCells].map(k => { const [r,c] = k.split(':').map(Number); return {r,c}; });
@@ -1077,6 +1126,31 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
       idx++;
     }
     return -1;
+  }
+
+  function parseOrderByFromQuery(query) {
+    var q = query.replace(/;+\\s*$/, '');
+    var orderPos = findOuterKw(q, /^\\s*ORDER\\s+BY\\b/i);
+    if (orderPos < 0) return [];
+    var afterOrder = q.substring(orderPos);
+    var kwMatch = afterOrder.match(/^\\s*ORDER\\s+BY\\s+/i);
+    if (!kwMatch) return [];
+    var rest = afterOrder.substring(kwMatch[0].length);
+    var limitPos = findOuterKw(rest, /^\\s*(LIMIT|OFFSET)\\b/i);
+    var clause = limitPos >= 0 ? rest.substring(0, limitPos) : rest;
+    var parts = clause.split(',');
+    var result = [];
+    for (var pi = 0; pi < parts.length; pi++) {
+      var raw = parts[pi].trim();
+      if (!raw) continue;
+      // Skip expressions / positional / qualified names — only simple "col [ASC|DESC]"
+      var m = raw.match(/^(?:"([^"]+)"|\`([^\`]+)\`|([A-Za-z_][A-Za-z0-9_]*))(?:\\s+(ASC|DESC))?\\s*$/i);
+      if (!m) continue;
+      var name = m[1] || m[2] || m[3];
+      var dir = (m[4] || 'ASC').toLowerCase();
+      result.push({ column: name, direction: dir });
+    }
+    return result;
   }
 
   function applySortToQuery(query, sorts) {
@@ -1501,6 +1575,11 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   }
   document.getElementById('refreshBtn').addEventListener('click', () => {
     if (IS_TABLE_MODE) {
+      if (queryInput && !queryInput.value.trim()) {
+        // User cleared the SQL bar — restore the default table query so they can keep editing from baseline
+        queryInput.value = ${safeJsonForScript(defaultQuery)};
+        updateQueryHighlight();
+      }
       if (queryInput && queryInput.value.trim()) {
         runCustomQuery();
       } else {
@@ -1513,6 +1592,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   document.getElementById('exportBtn').addEventListener('click', showExportPopup);
   document.getElementById('visualizeBtn').addEventListener('click', () => {
     vscode.postMessage({ type: 'visualize', columns, rows: pageRows });
+  });
+  document.getElementById('mapBtn').addEventListener('click', () => {
+    vscode.postMessage({ type: 'showOnMap', columns, rows: pageRows });
   });
   document.getElementById('exportClose').addEventListener('click', closeExportPopup);
   document.getElementById('exportConfirm').addEventListener('click', () => {
@@ -1534,13 +1616,17 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   document.getElementById('overlay').addEventListener('click', closeAllPopups);
 
   // --- Pagination (server-side for table mode) ---
+  function activeCustomQuery() {
+    var q = queryInput ? queryInput.value.trim() : '';
+    return q || undefined;
+  }
   function goPage(delta) {
     const np = currentPage + delta;
     if (np < 0 || np >= totalPages) return;
     if (pendingEdits.size > 0) { if (!confirm('Unsaved changes will be lost. Continue?')) return; }
     if (IS_TABLE_MODE) {
       showLoading();
-      vscode.postMessage({ type: 'changePage', page: np, pageSize, orderBy: sortColumns });
+      vscode.postMessage({ type: 'changePage', page: np, pageSize, orderBy: sortColumns, customQuery: activeCustomQuery() });
     }
   }
   document.getElementById('prevPage').addEventListener('click', () => goPage(-1));
@@ -1553,7 +1639,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     pageSize = Number(e.target.value);
     if (IS_TABLE_MODE) {
       showLoading();
-      vscode.postMessage({ type: 'changePageSize', pageSize, orderBy: sortColumns });
+      vscode.postMessage({ type: 'changePageSize', pageSize, orderBy: sortColumns, customQuery: activeCustomQuery() });
     }
   });
 
@@ -1614,6 +1700,8 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     if (userLimit > pageSize) {
       customExportQuery = q;
     }
+    // Mirror ORDER BY from user's SQL into header sort icons
+    sortColumns = parseOrderByFromQuery(q);
     showLoading();
     vscode.postMessage({ type: 'runCustomQuery', query: q, pageSize: pageSize });
   }
@@ -1748,6 +1836,10 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     }
   }
 
+  // If initial query already has ORDER BY (e.g. via MCP customQuery), sync sort icons
+  if (queryInput && queryInput.value.trim() && sortColumns.length === 0) {
+    sortColumns = parseOrderByFromQuery(queryInput.value.trim());
+  }
   renderHeader();
   renderPage();
   if (!IS_READONLY) updateSaveButtons();
