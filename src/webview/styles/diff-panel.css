@@ -689,30 +689,4 @@ vscode-tab-panel[hidden] {
 .diff-table td.sel-right,
 .diff-schema-table td.sel-right { --sh-right: -2px 0 0 0 var(--vscode-focusBorder); }
 
-.diff-ctx-menu {
-  position: fixed;
-  background: var(--vscode-menu-background, var(--vscode-dropdown-background));
-  border: 1px solid var(--vscode-menu-border, var(--viewstor-border-subtle));
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  z-index: 50;
-  padding: 4px 0;
-  min-width: 160px;
-}
-
-.diff-ctx-menu button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 6px 12px;
-  background: none;
-  border: none;
-  color: var(--vscode-menu-foreground, var(--vscode-foreground));
-  font-size: 12px;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.diff-ctx-menu button:hover {
-  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
-}
+/* Context-menu styles live in src/webview/styles/context-menu.css (#94). */
