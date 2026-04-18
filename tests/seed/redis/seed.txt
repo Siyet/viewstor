@@ -1,0 +1,24 @@
+SELECT 0
+FLUSHDB
+SET greeting "hello world"
+SET counter 42
+SET pii:email "alice@example.com"
+SET pii:phone "+1-202-555-0101"
+LPUSH mylist a b c
+SADD myset x y z
+ZADD myzset 1 alpha 2 beta 3 gamma
+HSET myhash field1 val1 field2 val2
+HSET session:1 user_id 1 ip "10.0.0.1" started_at "2025-04-01T10:00:00Z"
+XADD mystream * event login user 1
+XADD mystream * event view path /home
+SELECT 1
+FLUSHDB
+SET env staging
+SET feature:map enabled
+LPUSH audit:events "2025-04-01: deploy"
+SELECT 2
+FLUSHDB
+SET tenant:acme:name "Acme Inc"
+SET tenant:acme:plan "enterprise"
+HSET tenant:acme:limits api_rps 1000 storage_gb 500
+SELECT 0

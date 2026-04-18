@@ -1,33 +1,45 @@
-import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import { PostgresDriver } from '../../drivers/postgres';
 import { ConnectionConfig } from '../../types/connection';
 import { isDockerAvailable, describeIf } from './helpers/dockerCheck';
 import { runDriverInterfaceTests } from './helpers/driverTestSuite';
+import { startTestStack, stopTestStack, TestStack } from '../shared/containers';
 
 describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
-  let container: StartedTestContainer;
+  let stack: TestStack;
   let driver: PostgresDriver;
   let config: ConnectionConfig;
 
   beforeAll(async () => {
-    container = await new GenericContainer('postgres:16-alpine')
-      .withExposedPorts(5432)
-      .withEnvironment({
-        POSTGRES_USER: 'test',
-        POSTGRES_PASSWORD: 'test',
-        POSTGRES_DB: 'testdb',
-      })
-      .start();
+    stack = await startTestStack({ pg: true, ch: false, redis: false });
+    const pg = stack.pg!;
+
+    // The shared stack seeds the base DB (viewstor_test) with customers/orders/events/etc.
+    // This suite needs a clean DB to own its users/orders/settings/feedback tables without
+    // colliding with the shared seed, so we create pilot_pg once per run.
+    const admin = new PostgresDriver();
+    await admin.connect({
+      id: 'test-pg-admin',
+      name: 'admin',
+      type: 'postgresql',
+      host: pg.host,
+      port: pg.port,
+      username: pg.username,
+      password: pg.password,
+      database: pg.database,
+    });
+    await admin.execute('DROP DATABASE IF EXISTS pilot_pg');
+    await admin.execute('CREATE DATABASE pilot_pg');
+    await admin.disconnect();
 
     config = {
       id: 'test-pg',
       name: 'Test PG',
       type: 'postgresql',
-      host: container.getHost(),
-      port: container.getMappedPort(5432),
-      username: 'test',
-      password: 'test',
-      database: 'testdb',
+      host: pg.host,
+      port: pg.port,
+      username: pg.username,
+      password: pg.password,
+      database: 'pilot_pg',
     };
 
     driver = new PostgresDriver();
@@ -111,7 +123,7 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
 
   afterAll(async () => {
     await driver?.disconnect();
-    await container?.stop();
+    await stopTestStack(stack);
   });
 
   // Shared interface tests
