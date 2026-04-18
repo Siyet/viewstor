@@ -4,11 +4,12 @@ import { QueryResult, QueryColumn } from '../types/query';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import path from 'path';
 
-// Shared context-menu primitive (#94). Read once at module load from either
-// the bundled `dist/scripts` (runtime) or the source tree (tests / dev mode)
-// so both surfaces keep in sync with `src/webview/scripts/context-menu.js`.
-const CTX_MENU_SCRIPT = loadWebviewAsset('scripts/context-menu.js');
-const CTX_MENU_CSS = loadWebviewAsset('styles/context-menu.css');
+// Shared context-menu primitive (#94). Loaded lazily on first buildResultHtml
+// call so module evaluation (and extension activation) stays side-effect-free
+// even if the asset is missing from an unusual layout — e.g. a tsc-compiled
+// test tree where `dist/test/views/` has no sibling `scripts/` or `webview/`.
+let cachedCtxMenuScript: string | null = null;
+let cachedCtxMenuCss: string | null = null;
 
 function loadWebviewAsset(relative: string): string {
   const candidates = [
@@ -16,11 +17,28 @@ function loadWebviewAsset(relative: string): string {
     path.join(__dirname, relative),
     // Source / test mode: src/views/ → src/webview/{scripts,styles}.
     path.join(__dirname, '..', 'webview', relative),
+    // tsc-compiled tests: dist/test/views/ → project/src/webview/{scripts,styles}.
+    path.join(__dirname, '..', '..', '..', 'src', 'webview', relative),
   ];
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return fs.readFileSync(candidate, 'utf-8');
+    if (fs.existsSync(candidate)) {
+      // Defuse any `</script>` / `</style>` / `<!--` sequences so the asset is
+      // safe to inline inside the panel's existing <style> and <script> tags.
+      return fs.readFileSync(candidate, 'utf-8')
+        .replace(/<\/(script|style)/gi, '<\\/$1')
+        .replace(/<!--/g, '<\\!--');
+    }
   }
   throw new Error(`[viewstor] shared webview asset not found: ${relative}`);
+}
+
+function getCtxMenuScript(): string {
+  if (cachedCtxMenuScript === null) cachedCtxMenuScript = loadWebviewAsset('scripts/context-menu.js');
+  return cachedCtxMenuScript;
+}
+function getCtxMenuCss(): string {
+  if (cachedCtxMenuCss === null) cachedCtxMenuCss = loadWebviewAsset('styles/context-menu.css');
+  return cachedCtxMenuCss;
 }
 
 export interface ShowOptions {
@@ -386,7 +404,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   td.sel-left { border-left:2px solid var(--vscode-focusBorder) !important; }
   td.sel-right { border-right:2px solid var(--vscode-focusBorder) !important; }
   /* Context-menu styles come from the shared module (#94). */
-  ${CTX_MENU_CSS}
+  ${getCtxMenuCss()}
   td.has-handle { overflow:visible !important; }
   .resize-handle { position:absolute; bottom:-5px; right:-5px; width:8px; height:8px; background:var(--vscode-focusBorder); cursor:crosshair; z-index:5; border:2px solid var(--vscode-editor-background); border-radius:1px; }
   .null-val { color:var(--vscode-descriptionForeground); font-style:italic; }
@@ -436,7 +454,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   .hidden { display:none; }
 </style>
 <script>
-${CTX_MENU_SCRIPT}
+${getCtxMenuScript()}
 </script>
 </head>
 <body>

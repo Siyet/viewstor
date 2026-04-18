@@ -1006,7 +1006,10 @@
 
   document.addEventListener('mousedown', function (e) {
     if (e.button !== 0) return;
-    if (window.ViewstorContextMenu) window.ViewstorContextMenu.close();
+    // ViewstorContextMenu attaches its own capture-phase mousedown that closes
+    // the menu when the click lands outside of it — no unconditional close()
+    // here, otherwise mousedown on a menu item tears down the DOM before the
+    // button's click handler can fire in some browsers.
     const td = e.target.closest ? e.target.closest(CELL_SELECT_SELECTOR) : null;
     if (!td) {
       if (!e.target.closest || !e.target.closest('.viewstor-ctx-menu')) clearAllSelections();

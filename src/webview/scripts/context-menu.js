@@ -86,7 +86,6 @@
     for (var i = 0; i < items.length; i++) appendItem(el, items[i]);
 
     document.body.appendChild(el);
-    clamp(el);
 
     function onDocMouseDown(e) {
       var t = e.target;
@@ -104,8 +103,11 @@
     // starts a drag-select on the cell underneath the menu.
     document.addEventListener('mousedown', onDocMouseDown, true);
     document.addEventListener('keydown', onKeyDown, true);
-
+    // Register activeMenu BEFORE clamp() runs: if clamp throws on some exotic
+    // layout polyfill, the next open/close still cleans up this menu.
     activeMenu = { el: el, onDocMouseDown: onDocMouseDown, onKeyDown: onKeyDown };
+
+    clamp(el);
 
     return { el: el, close: close };
   }
