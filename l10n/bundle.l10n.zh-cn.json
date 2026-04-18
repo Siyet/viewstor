@@ -85,8 +85,6 @@
   "Column for horizontal axis. For timeseries charts, use a timestamp column.": "水平轴的列。对于时间序列图表，请使用时间戳列。",
   "Numeric columns for vertical axis — the values to plot.": "垂直轴的数值列 — 要绘制的值。",
   "Split data into separate series by this column (e.g. by region or status).": "按此列将数据拆分为独立系列（例如按地区或状态）。",
-  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Requires \"Run on Server\".": "如何聚合 Y 值：计数行数、列的求和/平均/最小/最大值。需要「Run on Server」。",
-  "Group timestamps into intervals. Requires a time-type X axis. Auto-enables Full Data.": "将时间戳按间隔分组。需要时间类型的 X 轴。自动启用 Full Data。",
   "Custom interval: 2h = 2 hours, 15m = 15 minutes, 3d = 3 days.": "自定义间隔：2h = 2 小时，15m = 15 分钟，3d = 3 天。",
   "Column with labels for chart segments (pie slices, funnel stages).": "图表分段的标签列（饼图切片、漏斗阶段）。",
   "Numeric column with values for each segment.": "每个分段值的数值列。",
@@ -95,10 +93,11 @@
   "Single numeric metric to display on the gauge.": "在仪表盘上显示的单个数值指标。",
   "Minimum value on the gauge scale.": "仪表盘刻度的最小值。",
   "Maximum value on the gauge scale.": "仪表盘刻度的最大值。",
-  "Execute aggregation query on the database — processes all data server-side.": "在数据库上执行聚合查询 — 在服务器端处理所有数据。",
   "Auto-update chart when the linked table changes page, sort, or query.": "当关联表更改页面、排序或查询时自动更新图表。",
-  "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "仅使用图表所需的列获取所有行（无 LIMIT）。",
-  "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data 已自动启用 — 聚合需要所有行，而不仅是当前页面。",
   "Chart query failed: {0}": "图表查询失败: {0}",
-  "Running chart query...": "正在执行图表查询..."
+  "Running chart query...": "正在执行图表查询...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "表 SQL 栏仅允许只读查询（SELECT / WITH / EXPLAIN / SHOW / VALUES）。",
+  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Use with \"Show full DB data\" to execute server-side.": "如何聚合 Y 值：计数行数、列的求和/平均/最小/最大值。需要「Run on Server」。",
+  "Group timestamps into intervals. Requires a time-type X axis.": "将时间戳按间隔分组。需要时间类型的 X 轴。自动启用 Full Data。",
+  "Run the chart query directly against the database — uses aggregation when a function or time bucket is set, otherwise pulls all rows (no LIMIT). Clicking again while a query is running cancels the previous one.": "直接在数据库上执行图表查询 — 设置了聚合函数或时间桶时进行聚合，否则拉取所有行（无 LIMIT）。查询运行中再次点击会取消上一次查询。"
 }

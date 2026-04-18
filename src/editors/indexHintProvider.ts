@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { QueryEditorProvider } from './queryEditor';
+import { wrapError } from '../utils/errors';
 
 /**
  * Provides inline diagnostics (hints) when WHERE/ORDER BY columns lack indexes.
@@ -62,7 +63,7 @@ export class IndexHintProvider {
           });
           await vscode.window.showTextDocument(doc, { preview: true });
         } catch (err) {
-          vscode.window.showErrorMessage(vscode.l10n.t('EXPLAIN failed: {0}', err instanceof Error ? err.message : String(err)));
+          vscode.window.showErrorMessage(vscode.l10n.t('EXPLAIN failed: {0}', wrapError(err)));
         }
       }),
     );

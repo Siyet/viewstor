@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CommandContext, logAndShowError } from './shared';
+import { CommandContext, logAndShowError, getRequiredDriver, wrapError } from './shared';
 import { ConnectionTreeItem } from '../views/connectionTree';
 
 export function registerSchemaCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
@@ -18,7 +18,7 @@ export function registerSchemaCommands(context: vscode.ExtensionContext, ctx: Co
         const doc = await vscode.workspace.openTextDocument({ content: ddl, language: 'sql' });
         await vscode.window.showTextDocument(doc, { preview: true });
       } catch (err) {
-        logAndShowError(vscode.l10n.t('Failed to get DDL: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Failed to get DDL: {0}', wrapError(err)));
       }
     }),
 
@@ -26,9 +26,7 @@ export function registerSchemaCommands(context: vscode.ExtensionContext, ctx: Co
       if (!item?.connectionId || !item.schemaObject) return;
       const indexNames = item.schemaObject.indexNames || [];
       if (indexNames.length === 0) return;
-      const driver = item.databaseName
-        ? await connectionManager.getDriverForDatabase(item.connectionId, item.databaseName)
-        : connectionManager.getDriver(item.connectionId);
+      const driver = await getRequiredDriver(connectionManager, item.connectionId, item.databaseName);
       if (!driver || !driver.getDDL) {
         vscode.window.showWarningMessage(vscode.l10n.t('DDL generation is not supported for this connection type.'));
         return;
@@ -41,7 +39,7 @@ export function registerSchemaCommands(context: vscode.ExtensionContext, ctx: Co
           try {
             return { name, sql: await driver.getDDL!(name, 'index', schema) };
           } catch (err) {
-            return { name, sql: `-- Failed to get DDL for ${name}: ${err instanceof Error ? err.message : String(err)}` };
+            return { name, sql: `-- Failed to get DDL for ${name}: ${wrapError(err)}` };
           }
         }));
         const content = ddls.length === 1
@@ -50,7 +48,7 @@ export function registerSchemaCommands(context: vscode.ExtensionContext, ctx: Co
         const doc = await vscode.workspace.openTextDocument({ content, language: 'sql' });
         await vscode.window.showTextDocument(doc, { preview: true });
       } catch (err) {
-        logAndShowError(vscode.l10n.t('Failed to get index DDL: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Failed to get index DDL: {0}', wrapError(err)));
       }
     }),
 

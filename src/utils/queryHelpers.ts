@@ -1,5 +1,114 @@
 import { DatabaseDriver } from '../types/driver';
 
+const READ_VERB_RE = /^\s*(SELECT|WITH|EXPLAIN|SHOW|VALUES|TABLE|DESCRIBE|DESC)\b/i;
+// Verbs that mutate state — anywhere they appear (CTE body, EXPLAIN target, etc.) the statement is NOT read-only.
+const WRITE_VERB_RE = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|MERGE|COPY|REPLACE|VACUUM|REFRESH|REINDEX|CALL|LOCK|NOTIFY|LISTEN|UNLISTEN|RESET|COMMIT|ROLLBACK|SAVEPOINT)\b/i;
+// PG: EXPLAIN ANALYZE actually executes the inner statement. ANALYZE may sit inside a parenthesized option list.
+const EXPLAIN_ANALYZE_RE = /^\s*EXPLAIN\s+(?:\([^)]*\bANALYZE\b[^)]*\)|ANALYZE\b)/i;
+
+/**
+ * Replace string literals, identifier quotes, dollar-quoted strings, and comments with spaces
+ * (preserving offsets) so verb-keyword scans don't misfire on `SELECT 'INSERT'` or `"delete"`.
+ */
+function maskLiteralsAndComments(sql: string): string {
+  let out = '';
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i];
+    // Single-line comment
+    if (ch === '-' && sql[i + 1] === '-') {
+      const end = sql.indexOf('\n', i);
+      const stop = end === -1 ? sql.length : end;
+      out += ' '.repeat(stop - i);
+      i = stop;
+      continue;
+    }
+    // Block comment
+    if (ch === '/' && sql[i + 1] === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      const stop = end === -1 ? sql.length : end + 2;
+      out += ' '.repeat(stop - i);
+      i = stop;
+      continue;
+    }
+    // Single-quoted string literal (with '' escaping)
+    if (ch === '\'') {
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === '\'' && sql[j + 1] === '\'') { j += 2; continue; }
+        if (sql[j] === '\'') { j++; break; }
+        j++;
+      }
+      out += ' '.repeat(j - i);
+      i = j;
+      continue;
+    }
+    // Double-quoted identifier — column/table name, never a SQL verb
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === '"' && sql[j + 1] === '"') { j += 2; continue; }
+        if (sql[j] === '"') { j++; break; }
+        j++;
+      }
+      out += ' '.repeat(j - i);
+      i = j;
+      continue;
+    }
+    // Backtick-quoted identifier (MySQL-style)
+    if (ch === '`') {
+      let j = i + 1;
+      while (j < sql.length && sql[j] !== '`') j++;
+      if (j < sql.length) j++;
+      out += ' '.repeat(j - i);
+      i = j;
+      continue;
+    }
+    // Dollar-quoted string (PostgreSQL): $tag$ ... $tag$
+    if (ch === '$') {
+      const tagMatch = sql.substring(i).match(/^\$([a-zA-Z_]*)\$/);
+      if (tagMatch) {
+        const tag = tagMatch[0];
+        const endIdx = sql.indexOf(tag, i + tag.length);
+        if (endIdx !== -1) {
+          const stop = endIdx + tag.length;
+          out += ' '.repeat(stop - i);
+          i = stop;
+          continue;
+        }
+      }
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * True only when EVERY semicolon-separated statement is purely read-only.
+ *
+ * Rejects bypasses the simple "first verb is SELECT/WITH/EXPLAIN" check missed:
+ *   - `WITH x AS (SELECT 1) INSERT INTO t VALUES (1)` (CTE chain ending in DML)
+ *   - `EXPLAIN ANALYZE UPDATE t SET ...` (PG executes the inner statement)
+ *   - `SELECT 1; DROP TABLE t` (multi-statement chain)
+ *
+ * String literals, double-quoted identifiers, dollar-quoted blocks, and comments
+ * are masked first so identifiers like `"delete_log"` or `'INSERT'` don't trip the
+ * write-verb regex.
+ */
+export function isReadOnlyQuery(sql: string): boolean {
+  const masked = maskLiteralsAndComments(sql);
+  // Split on ; outside of (already masked) strings/comments
+  const parts = masked.split(';').map(p => p.trim()).filter(p => p.length > 0);
+  if (parts.length === 0) return false;
+  for (const part of parts) {
+    if (!READ_VERB_RE.test(part)) return false;
+    if (EXPLAIN_ANALYZE_RE.test(part)) return false;
+    if (WRITE_VERB_RE.test(part)) return false;
+  }
+  return true;
+}
+
 export function levenshtein(a: string, b: string): number {
   const m = a.length, n = b.length;
   const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i);
@@ -13,6 +122,30 @@ export function levenshtein(a: string, b: string): number {
     }
   }
   return dp[n];
+}
+
+/**
+ * Strip a trailing `LIMIT N [OFFSET M]` from a SQL statement.
+ * Returns the base query (without the tail), the user's explicit LIMIT, and
+ * the user's explicit OFFSET (if either is present). Only the last LIMIT
+ * clause is touched — a LIMIT inside a subquery stays intact.
+ *
+ * The query must already be trimmed and `;` stripped. When the user supplied
+ * an explicit OFFSET, callers should NOT auto-paginate (we can't safely
+ * combine their starting point with our page offset).
+ */
+export function splitCustomQueryLimit(sql: string): {
+  baseQuery: string;
+  userLimit: number | undefined;
+  userOffset: number | undefined;
+} {
+  const match = sql.match(/\s+LIMIT\s+(\d+)(?:\s+OFFSET\s+(\d+))?\s*$/i);
+  if (!match) return { baseQuery: sql, userLimit: undefined, userOffset: undefined };
+  return {
+    baseQuery: sql.slice(0, match.index),
+    userLimit: parseInt(match[1], 10),
+    userOffset: match[2] !== undefined ? parseInt(match[2], 10) : undefined,
+  };
 }
 
 /** Parse table names from a SQL query (FROM / JOIN clauses) */

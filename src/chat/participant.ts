@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { QueryEditorProvider } from '../editors/queryEditor';
 import { SchemaObject } from '../types/schema';
+import { wrapError } from '../utils/errors';
 
 const PARTICIPANT_ID = 'viewstor.chat';
 
@@ -28,7 +29,7 @@ export function registerChatParticipant(
         await connectionManager.connect(connectionId);
         driver = connectionManager.getDriver(connectionId);
       } catch (err) {
-        stream.markdown(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
+        stream.markdown(vscode.l10n.t('Connection failed: {0}', wrapError(err)));
         return;
       }
     }
@@ -59,7 +60,7 @@ export function registerChatParticipant(
         }
         stream.markdown(md);
       } catch (err) {
-        stream.markdown(vscode.l10n.t('Failed to describe table: {0}', err instanceof Error ? err.message : String(err)));
+        stream.markdown(vscode.l10n.t('Failed to describe table: {0}', wrapError(err)));
       }
       return;
     }
@@ -94,13 +95,6 @@ export function registerChatParticipant(
         const query = sqlMatch[1].trim();
         stream.markdown(`**Query:**\n\`\`\`sql\n${query}\n\`\`\`\n\n`);
 
-        // Parse optional JSON chart config from LLM response
-        const jsonMatch = fullResponse.match(/```json\n([\s\S]*?)\n```/);
-        let chartMeta: { chartType?: string; xColumn?: string; yColumns?: string[] } = {};
-        if (jsonMatch) {
-          try { chartMeta = JSON.parse(jsonMatch[1]); } catch { /* ignore parse errors */ }
-        }
-
         // Execute the query
         try {
           const result = await driver.execute(query);
@@ -121,7 +115,7 @@ export function registerChatParticipant(
           };
           vscode.commands.executeCommand('viewstor.visualizeResults', vizData);
         } catch (err) {
-          stream.markdown(vscode.l10n.t('Query failed: {0}', err instanceof Error ? err.message : String(err)));
+          stream.markdown(vscode.l10n.t('Query failed: {0}', wrapError(err)));
         }
       } catch (err) {
         if (err instanceof vscode.LanguageModelError) {

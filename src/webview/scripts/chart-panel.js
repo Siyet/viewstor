@@ -14,6 +14,14 @@
   var databaseType = "";
   var connectionId = "";
 
+  // Server-mode state: while a "Show full DB data" run is active, the sidebar is locked
+  // and a snapshot of the previous client-side state is held so a "Reset" click can
+  // restore it. We can't simply re-derive the state from currentColumns because the
+  // server result drops every column the user wasn't aggregating on (review feedback:
+  // tapping the X Axis dropdown after Show full DB data showed only `created_at, count`).
+  var serverModeActive = false;
+  var serverModeSnapshot = null;
+
   // ---- Multi data source state ----
   var dataSources = [];
   var availablePinned = [];
@@ -57,7 +65,6 @@
   var dsConfigOverlay = document.getElementById("dsConfigOverlay");
   var syncToggle = document.getElementById("syncToggle");
   var refreshBtn = document.getElementById("refreshBtn");
-  var fullDataToggle = document.getElementById("fullDataToggle");
   var chartStatus = document.getElementById("chartStatus");
 
   // ---- Message handler ----
@@ -79,7 +86,9 @@
         updateChart();
         break;
       case "syncData":
-        if (!syncEnabled) break;
+        // Drop result-panel sync while we're showing server-side data — it would clobber
+        // the locked snapshot, and the user already opted into that view explicitly.
+        if (!syncEnabled || serverModeActive) break;
         currentColumns = msg.columns || [];
         currentRows = msg.rows || [];
         rebuildSidebarPreservingConfig();
@@ -90,12 +99,16 @@
         if (chart) { chart.clear(); chart.setOption(msg.option); }
         break;
       case "chartQueryResult":
+        if (!serverModeActive) {
+          // Result arrived after the user clicked Reset — drop it; the snapshot has already
+          // restored client-side state and we don't want to overwrite it.
+          break;
+        }
         currentColumns = msg.columns || [];
         currentRows = msg.rows || [];
         showStatus(msg.rowCount + " rows \u00b7 " + msg.executionTimeMs + "ms" + (msg.sql ? " \u00b7 " + truncate(msg.sql, 60) : ""));
-        // Rebuild sidebar with new columns but preserve user-selected config
-        // (chart type, aggregation function, time bucket, axes)
-        rebuildSidebarPreservingConfig();
+        // Sidebar is locked behind disabled controls — don't rebuild it from server-side
+        // columns or the user's pre-click config (chart type, axes, aggregation) is gone.
         updateChart();
         break;
       case "chartQueryError":
@@ -146,17 +159,6 @@
 
   if (refreshBtn) refreshBtn.addEventListener("click", function () {
     vscode.postMessage({ type: "refreshChart" });
-  });
-
-  // ---- Full data toggle ----
-  if (fullDataToggle) fullDataToggle.addEventListener("change", function () {
-    if (fullDataToggle.checked) {
-      var config = buildConfig();
-      vscode.postMessage({ type: "executeChartQuery", queryType: "fullData", config: config });
-      showStatus("Loading full data...");
-    } else {
-      vscode.postMessage({ type: "refreshChart" });
-    }
   });
 
   function updateSyncUI() {
@@ -242,14 +244,37 @@
 
   function setSelectValue(id, value) {
     var el = document.getElementById(id);
-    if (el && value) el.value = value;
+    if (!el || !value) return;
+    // Mark the matching vscode-option with `selected` attribute so the component picks it up
+    // even if the custom element hasn't fully upgraded yet (property setter alone races with upgrade)
+    var opts = el.querySelectorAll('vscode-option');
+    var matched = false;
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i].getAttribute('value') === value) {
+        opts[i].setAttribute('selected', '');
+        matched = true;
+      } else {
+        opts[i].removeAttribute('selected');
+      }
+    }
+    if (matched) {
+      try { el.value = value; } catch (e) { /* upgrade may be pending — attribute already set */ }
+    } else {
+      // Config carries a value the dropdown doesn't expose — UI will fall back to the first
+      // option, silently ignoring the user's saved choice. Surface it so this is debuggable.
+      console.warn('chart-panel: no <vscode-option> with value=' + JSON.stringify(value) + ' under #' + id);
+    }
   }
 
   function setMultiSelectValues(id, values) {
     var container = document.getElementById(id);
     if (!container || !values) return;
-    container.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
-      cb.checked = values.indexOf(cb.value) >= 0;
+    // Set both `checked` attribute (survives upgrade) and property
+    container.querySelectorAll('vscode-checkbox').forEach(function(cb) {
+      var wanted = values.indexOf(cb.value) >= 0;
+      if (wanted) cb.setAttribute('checked', '');
+      else cb.removeAttribute('checked');
+      try { cb.checked = wanted; } catch (e) { /* ignore */ }
     });
   }
 
@@ -283,12 +308,17 @@
     html += '<div id="timeBucketSection" style="display:none">';
     html += buildSelect("timeBucketPreset", "Time Bucket" + tip("timeBucket"), TIME_BUCKET_PRESETS);
     html += '<div id="customBucketField" class="field" style="display:none"><label>Custom' + tip("customBucket") + '</label>';
-    html += '<input type="text" id="customBucket" placeholder="1h" style="width:100%"></div>';
+    html += '<vscode-textfield id="customBucket" placeholder="1h" style="width:100%"></vscode-textfield></div>';
     html += "</div>";
 
-    // Server-side execute button
+    // Server-side execute button — also used to pull the full table (SELECT *) when no aggregation is set.
+    // Clicking again while a query is running cancels the previous one on the host side.
+    // Reset button is rendered next to it and only made visible while server mode is active.
     if (tableName) {
-      html += '<div class="field" style="margin-top:8px"><button id="runAggBtn" class="sidebar-btn" title="' + escapeHtml(TT.runOnServer || "") + '">Run on Server</button></div>';
+      html += '<div class="field" style="margin-top:8px">';
+      html += '<vscode-button id="showFullDbDataBtn" class="sidebar-btn" title="' + escapeHtml(TT.showFullDbData || "") + '">Show full DB data</vscode-button>';
+      html += '<vscode-button id="resetServerModeBtn" class="sidebar-btn" secondary style="display:none;margin-top:6px" title="Restore client-side rendering and unlock controls">Reset</vscode-button>';
+      html += '</div>';
     }
 
     // Data sources
@@ -297,7 +327,7 @@
     configSidebar.innerHTML = html;
 
     // Bind change events
-    configSidebar.querySelectorAll("select, input").forEach(function (el) {
+    configSidebar.querySelectorAll("vscode-single-select, vscode-checkbox, vscode-textfield").forEach(function (el) {
       if (!el.closest(".ds-item")) {
         el.addEventListener("change", function () {
           if (suppressChangeEvents) return;
@@ -307,13 +337,13 @@
       }
     });
 
-    // "Run on Server" — only explicit click, not on every change
-    // Full data toggle fires its own handler (toolbar), not sidebar
+    // "Show full DB data" — only explicit click, not on every change
 
     // Bind remove buttons for data sources
     configSidebar.querySelectorAll(".ds-remove-btn").forEach(function (btn) {
       btn.addEventListener("click", function (event) {
-        var dsId = event.target.dataset.dsId;
+        var target = event.currentTarget || event.target.closest(".ds-remove-btn");
+        var dsId = target ? target.dataset.dsId : undefined;
         dataSources = dataSources.filter(function (ds) { return ds.id !== dsId; });
         buildSidebar();
         updateChart();
@@ -321,11 +351,107 @@
     });
 
     // Bind server-side execution button
-    var runAggBtn = document.getElementById("runAggBtn");
-    if (runAggBtn) runAggBtn.addEventListener("click", function () { executeServerSideQuery(); });
+    var showFullDbDataBtn = document.getElementById("showFullDbDataBtn");
+    if (showFullDbDataBtn) showFullDbDataBtn.addEventListener("click", function () {
+      enterServerMode();
+      executeShowFullDbData();
+    });
+    var resetServerModeBtn = document.getElementById("resetServerModeBtn");
+    if (resetServerModeBtn) resetServerModeBtn.addEventListener("click", function () { exitServerMode(); });
+
+    // Re-apply server-mode UI lock if it was active before this rebuild.
+    if (serverModeActive) applyServerModeUI(true);
 
     // Check time bucket visibility after building
     updateTimeBucketVisibility();
+  }
+
+  /**
+   * Capture the current client-side state (data + every dropdown / toggle the user can
+   * manipulate) so a Reset click can fully restore it. Then mark server mode active and
+   * lock the sidebar behind disabled controls.
+   */
+  function enterServerMode() {
+    if (serverModeActive) return;
+    serverModeSnapshot = {
+      columns: currentColumns.slice(),
+      rows: currentRows.slice(),
+      config: buildConfig(),
+      title: titleInput ? titleInput.value : "",
+      areaFill: areaFillCheck ? areaFillCheck.checked : false,
+      showLegend: legendCheck ? legendCheck.checked : true,
+      syncEnabled: syncEnabled,
+      chartType: getChartType(),
+    };
+    serverModeActive = true;
+    applyServerModeUI(true);
+  }
+
+  /**
+   * Exit server mode and restore the snapshot taken in enterServerMode(). Any
+   * chartQueryResult that arrives after this point is dropped (see message handler).
+   */
+  function exitServerMode() {
+    if (!serverModeActive || !serverModeSnapshot) {
+      // Nothing to restore — just unlock controls defensively and clear state.
+      serverModeActive = false;
+      serverModeSnapshot = null;
+      applyServerModeUI(false);
+      return;
+    }
+    var snap = serverModeSnapshot;
+    currentColumns = snap.columns;
+    currentRows = snap.rows;
+    if (chartTypeSelect) chartTypeSelect.value = snap.chartType;
+    if (titleInput) titleInput.value = snap.title;
+    if (areaFillCheck) areaFillCheck.checked = snap.areaFill;
+    if (legendCheck) legendCheck.checked = snap.showLegend;
+    syncEnabled = snap.syncEnabled;
+    if (syncToggle) syncToggle.checked = syncEnabled;
+    updateSyncUI();
+
+    serverModeActive = false;
+    serverModeSnapshot = null;
+
+    // Rebuild the sidebar from the restored columns and re-apply saved dropdown values.
+    rebuildSidebarPreservingConfig();
+    applyServerModeUI(false);
+    showStatus("Reset to client-side data: " + currentRows.length + " rows");
+    updateChart();
+  }
+
+  /**
+   * Lock or unlock all interactive controls (sidebar selects, top-bar checkboxes, title
+   * input, chart-type picker) and toggle the visibility of the Show full DB data / Reset
+   * button pair.
+   */
+  function applyServerModeUI(locked) {
+    var topBarIds = ["chartType", "syncToggle", "areaFill", "showLegend", "chartTitle"];
+    topBarIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (locked) el.setAttribute("disabled", "");
+      else el.removeAttribute("disabled");
+    });
+    if (configSidebar) {
+      configSidebar.querySelectorAll("vscode-single-select, vscode-checkbox, vscode-textfield").forEach(function (el) {
+        // Data-source items belong to the cross-source merge feature, not the locked
+        // chart config — leave them clickable so the user can still inspect / remove them.
+        if (el.closest(".ds-item")) return;
+        if (locked) el.setAttribute("disabled", "");
+        else el.removeAttribute("disabled");
+      });
+      // The "+ Source" button lives outside the sidebar but is still part of the configurable
+      // surface; lock it too so users can't add a new source against frozen schema.
+    }
+    if (addDataSourceBtn) {
+      if (locked) addDataSourceBtn.setAttribute("disabled", "");
+      else addDataSourceBtn.removeAttribute("disabled");
+    }
+    var showBtn = document.getElementById("showFullDbDataBtn");
+    var resetBtn = document.getElementById("resetServerModeBtn");
+    if (showBtn) showBtn.style.display = locked ? "none" : "";
+    if (resetBtn) resetBtn.style.display = locked ? "" : "none";
   }
 
   function updateTimeBucketVisibility() {
@@ -343,25 +469,20 @@
     var preset = getSelectValue("timeBucketPreset");
     var customField = document.getElementById("customBucketField");
     if (customField) customField.style.display = preset === "custom" ? "block" : "none";
-
-    // Auto-enable Full Data when a time bucket or aggregation is selected
-    if (!suppressChangeEvents && fullDataToggle && !fullDataToggle.checked) {
-      var aggFn = getSelectValue("aggFunction");
-      if ((preset && preset !== "(none)") || (aggFn && aggFn !== "none")) {
-        fullDataToggle.checked = true;
-        showStatus(TT.fullDataAuto || "Full Data enabled — aggregation needs all rows, not just the current page.");
-      }
-    }
   }
 
-  function executeServerSideQuery() {
+  /**
+   * Run the chart query against the database. Aggregation is used whenever the user picked an
+   * aggregation function or a time bucket; otherwise we pull every row (SELECT *). Re-clicking
+   * during an in-flight query tells the host to cancel the previous driver query before
+   * dispatching the new one.
+   */
+  function executeShowFullDbData() {
     var config = buildConfig();
-    if (config.aggregation.function === "none" && !config.aggregation.timeBucketPreset) {
-      showStatus("Select an aggregation function or time bucket first");
-      return;
-    }
-    vscode.postMessage({ type: "executeChartQuery", queryType: "aggregation", config: config });
-    showStatus("Running aggregation query...");
+    var hasAgg = config.aggregation.function !== "none" || !!config.aggregation.timeBucketPreset;
+    var queryType = hasAgg ? "aggregation" : "fullData";
+    vscode.postMessage({ type: "executeChartQuery", queryType: queryType, config: config });
+    showStatus(hasAgg ? "Running aggregation query..." : "Loading full DB data...");
   }
 
   // ---- Build config sections ----
@@ -373,7 +494,7 @@
       html += '<div class="ds-item">';
       html += '<div class="ds-header">';
       html += '<span class="ds-label" title="' + escapeHtml(ds.label) + '">' + escapeHtml(truncate(ds.label, 30)) + "</span>";
-      html += '<button class="ds-remove-btn" data-ds-id="' + escapeHtml(ds.id) + '" title="Remove">&times;</button>';
+      html += '<vscode-button class="ds-remove-btn" secondary icon="close" data-ds-id="' + escapeHtml(ds.id) + '" title="Remove" aria-label="Remove data source"></vscode-button>';
       html += "</div>";
       html += '<div class="ds-detail">';
       html += "<span>" + escapeHtml(ds.mergeMode) + (ds.joinColumn ? " on " + escapeHtml(ds.joinColumn) : "") + "</span>";
@@ -412,8 +533,8 @@
   function buildGaugeConfig(numericCols) {
     var html = "<h3>Gauge Mapping</h3>";
     html += buildSelect("valueColumn", "Value Column" + tip("gaugeValueCol"), numericCols.map(function (c) { return c.name; }));
-    html += '<div class="field"><label>Min' + tip("gaugeMin") + '</label><input type="number" id="gaugeMin" value="0"></div>';
-    html += '<div class="field"><label>Max' + tip("gaugeMax") + '</label><input type="number" id="gaugeMax" value="100"></div>';
+    html += '<div class="field"><label>Min' + tip("gaugeMin") + '</label><vscode-textfield type="number" id="gaugeMin" value="0"></vscode-textfield></div>';
+    html += '<div class="field"><label>Max' + tip("gaugeMax") + '</label><vscode-textfield type="number" id="gaugeMax" value="100"></vscode-textfield></div>';
     return html;
   }
 
@@ -433,7 +554,6 @@
       title: titleInput ? titleInput.value : "",
       dataSources: dataSources.length > 0 ? dataSources : undefined,
       syncEnabled: syncEnabled,
-      fullData: fullDataToggle ? fullDataToggle.checked : false,
       tableName: tableName,
       schemaName: schemaName,
     };
@@ -538,17 +658,17 @@
     var numericCols = pendingDsConfig.columns.filter(function (c) { return isNumericType(c.dataType); });
     var allCols = pendingDsConfig.columns;
     var primaryCols = currentColumns;
-    var html = '<div class="field"><label>Label</label><input type="text" id="dsLabel" value="' + escapeHtml(truncate(pendingDsConfig.label, 40)) + '"></div>';
-    html += '<div class="field"><label>Merge Mode</label><select id="dsMergeMode"><option value="separate">Separate series</option><option value="join">Join by column</option></select></div>';
+    var html = '<div class="field"><label>Label</label><vscode-textfield id="dsLabel" value="' + escapeHtml(truncate(pendingDsConfig.label, 40)) + '"></vscode-textfield></div>';
+    html += '<div class="field"><label>Merge Mode</label><vscode-single-select id="dsMergeMode"><vscode-option value="separate" selected>Separate series</vscode-option><vscode-option value="join">Join by column</vscode-option></vscode-single-select></div>';
     html += '<div id="dsJoinConfig" style="display:none">';
-    html += '<div class="field"><label>Join: primary column</label><select id="dsJoinPrimaryCol">';
-    primaryCols.forEach(function (c) { html += '<option value="' + escapeHtml(c.name) + '">' + escapeHtml(c.name) + "</option>"; });
-    html += "</select></div>";
-    html += '<div class="field"><label>Join: source column</label><select id="dsJoinSourceCol">';
-    allCols.forEach(function (c) { html += '<option value="' + escapeHtml(c.name) + '">' + escapeHtml(c.name) + "</option>"; });
-    html += "</select></div></div>";
+    html += '<div class="field"><label>Join: primary column</label><vscode-single-select id="dsJoinPrimaryCol">';
+    primaryCols.forEach(function (c) { html += '<vscode-option value="' + escapeHtml(c.name) + '">' + escapeHtml(c.name) + "</vscode-option>"; });
+    html += "</vscode-single-select></div>";
+    html += '<div class="field"><label>Join: source column</label><vscode-single-select id="dsJoinSourceCol">';
+    allCols.forEach(function (c) { html += '<vscode-option value="' + escapeHtml(c.name) + '">' + escapeHtml(c.name) + "</vscode-option>"; });
+    html += "</vscode-single-select></div></div>";
     html += '<div class="field"><label>Y Columns</label><div class="multi-select" id="dsYColumns">';
-    numericCols.forEach(function (c) { html += '<label><input type="checkbox" value="' + escapeHtml(c.name) + '" checked>' + escapeHtml(c.name) + "</label>"; });
+    numericCols.forEach(function (c) { html += '<vscode-checkbox value="' + escapeHtml(c.name) + '" checked>' + escapeHtml(c.name) + "</vscode-checkbox>"; });
     html += "</div></div>";
     body.innerHTML = html;
     var mergeSelect = document.getElementById("dsMergeMode");
@@ -567,7 +687,8 @@
   var dsConfigConfirmBtn = document.getElementById("dsConfigConfirm");
   if (dsConfigConfirmBtn) dsConfigConfirmBtn.addEventListener("click", function () {
     if (!pendingDsConfig) return;
-    var label = (document.getElementById("dsLabel") || {}).value || pendingDsConfig.label;
+    var dsLabelEl = document.getElementById("dsLabel");
+    var label = (dsLabelEl ? dsLabelEl.value : "") || pendingDsConfig.label;
     var mergeMode = getSelectValue("dsMergeMode") || "separate";
     var yColumns = getMultiSelectValues("dsYColumns");
     if (yColumns.length === 0) return;
@@ -599,23 +720,37 @@
 
   // ---- Helpers ----
   function getChartType() { return chartTypeSelect ? chartTypeSelect.value : "line"; }
-  function getSelectValue(id) { var el = document.getElementById(id); return el ? el.value : ""; }
+  function getSelectValue(id) {
+    var el = document.getElementById(id);
+    if (!el) return "";
+    // Prefer property; fall back to selected-option attribute for pre-upgrade reads
+    if (el.value) return el.value;
+    var sel = el.querySelector('vscode-option[selected]');
+    if (sel) return sel.getAttribute('value') || "";
+    var first = el.querySelector('vscode-option');
+    return first ? first.getAttribute('value') || "" : "";
+  }
   function getMultiSelectValues(id) {
     var container = document.getElementById(id);
     if (!container) return [];
-    return Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map(function (cb) { return cb.value; });
+    return Array.from(container.querySelectorAll('vscode-checkbox'))
+      .filter(function (cb) { return cb.checked || cb.hasAttribute('checked'); })
+      .map(function (cb) { return cb.value || cb.getAttribute('value') || ''; });
   }
   function buildSelect(id, label, options) {
     // label may contain HTML from tip() — do NOT escape it
+    // vscode-single-select auto-selects the first vscode-option; no `selected` attribute needed
     var html = '<div class="field"><label for="' + id + '">' + label + "</label>";
-    html += '<select id="' + id + '">';
-    options.forEach(function (opt) { html += '<option value="' + escapeHtml(opt) + '">' + escapeHtml(opt) + "</option>"; });
-    return html + "</select></div>";
+    html += '<vscode-single-select id="' + id + '">';
+    options.forEach(function (opt) {
+      html += '<vscode-option value="' + escapeHtml(opt) + '">' + escapeHtml(opt) + "</vscode-option>";
+    });
+    return html + "</vscode-single-select></div>";
   }
   function buildMultiSelect(id, label, options) {
     var html = '<div class="field"><label>' + label + '</label><div class="multi-select" id="' + id + '">';
     options.forEach(function (opt, idx) {
-      html += '<label><input type="checkbox" value="' + escapeHtml(opt) + '"' + (idx === 0 ? " checked" : "") + ">" + escapeHtml(opt) + "</label>";
+      html += '<vscode-checkbox value="' + escapeHtml(opt) + '"' + (idx === 0 ? " checked" : "") + ">" + escapeHtml(opt) + "</vscode-checkbox>";
     });
     return html + "</div></div>";
   }

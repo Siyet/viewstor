@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { QueryDocumentProvider } from '../editors/queryEditor';
-import { CommandContext, QueryCodeLensProvider, queryResults, historyDocMap, setOutputChannel, clearQueryDecorations, fireCodeLens } from './shared';
+import { CommandContext, QueryCodeLensProvider, queryResults, historyDocMap, customQueryCountCache, setOutputChannel, clearQueryDecorations, fireCodeLens } from './shared';
 import { registerQueryCommands } from './queryCommands';
 import { registerTableCommands } from './tableCommands';
 import { registerConnectionCommands } from './connectionCommands';
@@ -8,6 +8,7 @@ import { registerHistoryCommands } from './historyCommands';
 import { registerSchemaCommands } from './schemaCommands';
 import { registerExportCommands } from './exportCommands';
 import { registerDiffCommands } from './diffCommands';
+import { registerMapCommands } from './mapCommands';
 
 // Re-export CommandContext so extension.ts import path stays the same
 export type { CommandContext } from './shared';
@@ -46,6 +47,9 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
       historyDocMap.forEach((uri, id) => { if (uri === doc.uri.toString()) historyDocMap.delete(id); });
       ctx.queryEditorProvider.removeConnectionForUri(doc.uri);
     }),
+    // Custom-query COUNT cache is keyed by result-panel title; flush whenever a connection
+    // is removed so a re-added connection with the same name can't reuse a stale count.
+    ctx.connectionManager.onDidChange(() => customQueryCountCache.clear()),
   );
 
   context.subscriptions.push(
@@ -61,4 +65,5 @@ export function registerCommands(context: vscode.ExtensionContext, ctx: CommandC
   registerSchemaCommands(context, ctx);
   registerExportCommands(context, ctx);
   registerDiffCommands(context, ctx);
+  registerMapCommands(context, ctx);
 }

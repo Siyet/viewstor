@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { CommandContext, logQueryToOutput, logAndShowError } from './shared';
+import { CommandContext, logQueryToOutput, logAndShowError, getRequiredDriver, wrapError, customQueryCountCache } from './shared';
 import { SortColumn } from '../types/query';
-import { enhanceColumnError, buildUpdateSql, buildDeleteSql, buildInsertDefaultSql, buildInsertRowSql } from '../utils/queryHelpers';
+import { enhanceColumnError, buildUpdateSql, buildDeleteSql, buildInsertDefaultSql, buildInsertRowSql, splitCustomQueryLimit, isReadOnlyQuery } from '../utils/queryHelpers';
 import { dbg } from '../utils/debug';
 
 export function registerTableCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
@@ -16,9 +16,7 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
       const color = connectionManager.getConnectionColor(item.connectionId);
       resultPanelManager.showLoading(title, { color });
 
-      const driver = item.databaseName
-        ? await connectionManager.getDriverForDatabase(item.connectionId, item.databaseName)
-        : connectionManager.getDriver(item.connectionId);
+      const driver = await getRequiredDriver(connectionManager, item.connectionId, item.databaseName);
       if (!driver) { resultPanelManager.closePanel(title); return; }
 
       const pageSize = 100;
@@ -62,14 +60,12 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
         });
       } catch (err) {
         resultPanelManager.closePanel(title);
-        logAndShowError(vscode.l10n.t('Failed to load data: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Failed to load data: {0}', wrapError(err)));
       }
     }),
 
     vscode.commands.registerCommand('viewstor._fetchPage', async (connectionId: string, tableName: string, schema: string | undefined, page: number, pageSize: number, orderBy?: SortColumn[], databaseName?: string, explicitPanelKey?: string) => {
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;
 
       try {
@@ -110,15 +106,13 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
           isEstimatedCount,
         });
       } catch (err) {
-        logAndShowError(vscode.l10n.t('Failed to load data: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Failed to load data: {0}', wrapError(err)));
       }
     }),
 
     vscode.commands.registerCommand('viewstor._saveEdits', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], edits: any[], databaseName?: string, explicitPanelKey?: string) => {
       dbg('saveEdits', 'connectionId:', connectionId, 'table:', tableName, 'schema:', schema, 'pkColumns:', pkColumns, 'edits:', edits.length, 'db:', databaseName, 'panelKey:', explicitPanelKey);
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) { dbg('saveEdits', 'no driver found'); return; }
 
       const state = connectionManager.get(connectionId);
@@ -150,9 +144,7 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
     }),
 
     vscode.commands.registerCommand('viewstor._insertRow', async (connectionId: string, tableName: string, schema: string | undefined, _row: Record<string, unknown>, databaseName?: string, explicitPanelKey?: string) => {
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;
 
       const state = connectionManager.get(connectionId);
@@ -181,9 +173,7 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
 
     vscode.commands.registerCommand('viewstor._insertRows', async (connectionId: string, tableName: string, schema: string | undefined, rows: Array<{ values: Record<string, unknown>; columnTypes: Record<string, string> }>, databaseName?: string, explicitPanelKey?: string) => {
       dbg('insertRows', 'table:', tableName, 'rowCount:', rows.length);
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;
 
       const statements = rows.map(row => buildInsertRowSql(tableName, schema, row.values, row.columnTypes) + ';');
@@ -219,9 +209,7 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
 
     vscode.commands.registerCommand('viewstor._saveAll', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], inserts: Array<{ values: Record<string, unknown>; columnTypes: Record<string, string> }>, edits: any[], databaseName?: string, explicitPanelKey?: string) => {
       dbg('saveAll', 'table:', tableName, 'inserts:', inserts.length, 'edits:', edits.length);
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;
 
       const state = connectionManager.get(connectionId);
@@ -268,9 +256,7 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
     }),
 
     vscode.commands.registerCommand('viewstor._deleteRows', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], rows: Record<string, unknown>[], databaseName?: string, pkTypes?: Record<string, string>, explicitPanelKey?: string) => {
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;
 
       const statements = rows.map(pkValues => buildDeleteSql(tableName, schema, pkColumns, pkValues, pkTypes) + ';');
@@ -282,59 +268,117 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
       });
     }),
 
-    vscode.commands.registerCommand('viewstor._runCustomTableQuery', async (connectionId: string, tableName: string, _schema: string | undefined, query: string, pageSize: number, databaseName?: string, explicitPanelKey?: string) => {
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+    vscode.commands.registerCommand('viewstor._runCustomTableQuery', async (connectionId: string, tableName: string, _schema: string | undefined, query: string, pageSize: number, databaseName?: string, explicitPanelKey?: string, page: number = 0) => {
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;
+      const state = connectionManager.get(connectionId);
+      const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
       try {
-        let displayQuery = query.trim().replace(/;+\s*$/, '');
-        const limitMatch = displayQuery.match(/LIMIT\s+(\d+)/i);
-        const userLimit = limitMatch ? parseInt(limitMatch[1], 10) : 0;
-        if (!limitMatch) {
-          displayQuery += ` LIMIT ${pageSize}`;
-        } else if (userLimit > pageSize) {
-          displayQuery = displayQuery.replace(/LIMIT\s+\d+/i, `LIMIT ${pageSize}`);
+        const cleaned = query.trim().replace(/;+\s*$/, '');
+
+        // Block anything that mutates data — the table view SQL is for exploration, not DDL/DML
+        if (!isReadOnlyQuery(cleaned)) {
+          logAndShowError(vscode.l10n.t('Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.'));
+          resultPanelManager.postMessage(panelKey, { type: 'hideLoading' });
+          return;
+        }
+
+        const { baseQuery, userLimit, userOffset } = splitCustomQueryLimit(cleaned);
+
+        let paginatedQuery: string;
+        let totalCount: number | undefined;
+        let isEstimatedCount = false;
+
+        // Disable auto-pagination when the user pinned an explicit OFFSET — combining their
+        // starting point with our page offset would silently shift the window.
+        const userControlsWindow =
+          userOffset !== undefined ||
+          (userLimit !== undefined && userLimit <= pageSize);
+
+        if (userControlsWindow) {
+          paginatedQuery = cleaned;
+        } else {
+          const offset = page * pageSize;
+          // Cap pageLimit to what user asked for, so LIMIT 250 / pageSize 100 yields 100+100+50
+          let pageLimit = pageSize;
+          if (userLimit !== undefined) {
+            pageLimit = Math.max(0, Math.min(pageSize, userLimit - offset));
+          }
+          paginatedQuery = `${baseQuery} LIMIT ${pageLimit} OFFSET ${offset}`;
+
+          // Reuse the previously-computed COUNT for the same base query — page flips on a
+          // 50M-row scan should not re-execute the full COUNT(*).
+          const cached = customQueryCountCache.get(panelKey);
+          if (cached && cached.baseQuery === baseQuery) {
+            totalCount = cached.count;
+          } else {
+            try {
+              const countResult = await driver.execute(`SELECT COUNT(*) AS cnt FROM (${baseQuery}) _viewstor_cnt`);
+              if (!countResult.error && countResult.rows.length > 0) {
+                const row = countResult.rows[0] as Record<string, unknown>;
+                const raw = row.cnt ?? Object.values(row)[0];
+                const parsed = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+                if (Number.isFinite(parsed)) {
+                  totalCount = parsed;
+                  customQueryCountCache.set(panelKey, { baseQuery, count: parsed });
+                }
+              }
+            } catch {
+              // count failed — fall through to heuristic below
+            }
+          }
+          if (userLimit !== undefined && totalCount !== undefined) {
+            totalCount = Math.min(totalCount, userLimit);
+          }
         }
 
         const result = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Running query...') },
-          () => driver.execute(displayQuery),
+          () => driver.execute(paginatedQuery),
         );
         if (result.error) {
-          const shortQ = displayQuery.length > 255 ? displayQuery.substring(0, 255) + '...' : displayQuery;
-          const enhanced = await enhanceColumnError(result.error, displayQuery, driver);
+          const shortQ = paginatedQuery.length > 255 ? paginatedQuery.substring(0, 255) + '...' : paginatedQuery;
+          const enhanced = await enhanceColumnError(result.error, paginatedQuery, driver);
           logAndShowError(`${enhanced}\n\n---\n${shortQ}`);
-          logQueryToOutput(displayQuery, `Error: ${result.error.split('\n')[0]}`, true);
+          logQueryToOutput(paginatedQuery, `Error: ${result.error.split('\n')[0]}`, true);
+          resultPanelManager.postMessage(panelKey, { type: 'hideLoading' });
           return;
         }
-        logQueryToOutput(displayQuery, `${result.rowCount} rows, ${result.executionTimeMs} ms`, false);
-        const state = connectionManager.get(connectionId);
-        const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
+        logQueryToOutput(paginatedQuery, `${result.rowCount} rows, ${result.executionTimeMs} ms`, false);
+
+        if (totalCount === undefined) {
+          // Count unknown — base total on what we see: assume at least one more page if page was full
+          const seen = page * pageSize + result.rowCount;
+          totalCount = result.rowCount === pageSize ? seen + 1 : seen;
+          isEstimatedCount = result.rowCount === pageSize;
+        }
+
         resultPanelManager.postMessage(panelKey, {
           type: 'updateData',
           columns: result.columns,
           rows: result.rows,
-          rowCount: result.rowCount,
+          rowCount: totalCount,
           executionTimeMs: result.executionTimeMs,
+          currentPage: page,
+          totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
+          isEstimatedCount,
         });
       } catch (err) {
         const shortQ = query.length > 255 ? query.substring(0, 255) + '...' : query;
-        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorMsg = wrapError(err);
         logAndShowError(`${errorMsg}\n\n---\n${shortQ}`);
+        resultPanelManager.postMessage(panelKey, { type: 'hideLoading' });
       }
     }),
 
     vscode.commands.registerCommand('viewstor._refreshCount', async (connectionId: string, tableName: string, schema: string | undefined, panelKey: string, databaseName?: string) => {
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver || !driver.getTableRowCount) return;
       try {
         const count = await driver.getTableRowCount(tableName, schema);
         resultPanelManager.postMessage(panelKey, { type: 'updateRowCount', count });
       } catch (err) {
-        logAndShowError(vscode.l10n.t('Failed to count rows: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Failed to count rows: {0}', wrapError(err)));
       }
     }),
 
@@ -351,9 +395,7 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
       connectionId: string, tableName: string, schema?: string,
       databaseName?: string, customQuery?: string, execute?: boolean,
     ) => {
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;
 
       const state = connectionManager.get(connectionId);

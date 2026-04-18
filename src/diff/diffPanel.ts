@@ -4,6 +4,7 @@ import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffRe
 import { buildDefaultDiffQuery, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, exportDiffAsCsv, exportDiffAsJson, isReadOnlyStatement } from './diffEngine';
 import { ColumnInfo, TableObjects, TableStatistic } from '../types/schema';
 import type { ConnectionManager } from '../connections/connectionManager';
+import { wrapError } from '../utils/errors';
 
 interface DiffState {
   panel: vscode.WebviewPanel;
@@ -28,13 +29,35 @@ interface DiffState {
   disposable: vscode.Disposable;
 }
 
+export type { DiffState };
+
 export class DiffPanelManager {
-  private diffs = new Map<string, DiffState>();
+  private readonly diffs = new Map<string, DiffState>();
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly connectionManager?: ConnectionManager,
   ) {}
+
+  // --- Read-only query API (production + tests) ---
+
+  /** Number of currently-open diff panels. */
+  getDiffCount(): number {
+    return this.diffs.size;
+  }
+
+  /** Whether a diff panel exists for the given key (`diff:<title>`). */
+  hasDiff(panelKey: string): boolean {
+    return this.diffs.has(panelKey);
+  }
+
+  /**
+   * Read-only snapshot of all open diff states.
+   * @internal — exposed for e2e tests only. Mutating returned objects is undefined behaviour.
+   */
+  getDiffStatesForTesting(): readonly DiffState[] {
+    return [...this.diffs.values()];
+  }
 
   show(
     left: DiffSource,
@@ -250,7 +273,7 @@ export class DiffPanelManager {
           if (!driver) throw new Error('left driver unavailable');
           return await driver.execute(state.leftQuery);
         } catch (err) {
-          leftError = err instanceof Error ? err.message : String(err);
+          leftError = wrapError(err);
           return undefined;
         }
       })(),
@@ -260,7 +283,7 @@ export class DiffPanelManager {
           if (!driver) throw new Error('right driver unavailable');
           return await driver.execute(state.rightQuery);
         } catch (err) {
-          rightError = err instanceof Error ? err.message : String(err);
+          rightError = wrapError(err);
           return undefined;
         }
       })(),
@@ -374,7 +397,7 @@ export class DiffPanelManager {
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource} 'unsafe-inline';">
-<link rel="stylesheet" href="${codiconUri}">
+<link id="vscode-codicon-stylesheet" rel="stylesheet" href="${codiconUri}">
 <link rel="stylesheet" href="${tokensUri}">
 <link rel="stylesheet" href="${ctxMenuCssUri}">
 <link rel="stylesheet" href="${cssUri}">

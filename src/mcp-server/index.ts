@@ -7,10 +7,12 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ConnectionStore } from './connectionStore';
-import { SchemaObject } from '../types/schema';
 import { ChartConfig, EChartsChartType, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { wrapError } from '../utils/errors';
+import { isReadOnlyQuery } from '../utils/queryHelpers';
+import { formatExecuteQuery, formatTableData, formatTableInfo, flattenSchema } from '../mcp/mcpFormatters';
 
 const store = new ConnectionStore();
 
@@ -176,29 +178,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'get_schema': {
         const { connectionId, database } = args as { connectionId: string; database?: string };
         const driver = await resolveDriver(connectionId, database);
-        const schema = await driver.getSchema();
-        return jsonResponse(flattenSchema(schema));
+        return jsonResponse(flattenSchema(await driver.getSchema()));
       }
 
       case 'execute_query': {
         const { connectionId, query, database } = args as { connectionId: string; query: string; database?: string };
         const config = store.get(connectionId);
-        if (config?.readonly) {
-          const trimmed = query.trim().toUpperCase();
-          if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('EXPLAIN') && !trimmed.startsWith('SHOW') && !trimmed.startsWith('WITH')) {
-            return errorResponse('Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.');
-          }
+        if (config?.readonly && !isReadOnlyQuery(query)) {
+          return errorResponse('Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.');
         }
         const driver = await resolveDriver(connectionId, database);
-        const result = await driver.execute(query);
-        return jsonResponse({
-          columns: result.columns.map(c => c.name),
-          columnTypes: result.columns.map(c => c.dataType),
-          rows: result.rows,
-          rowCount: result.rowCount,
-          executionTimeMs: result.executionTimeMs,
-          error: result.error,
-        });
+        return jsonResponse(formatExecuteQuery(await driver.execute(query)));
       }
 
       case 'get_table_data': {
@@ -206,12 +196,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           connectionId: string; tableName: string; schema?: string; limit?: number; database?: string;
         };
         const driver = await resolveDriver(connectionId, database);
-        const result = await driver.getTableData(tableName, schema, limit || 100);
-        return jsonResponse({
-          columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
-          rows: result.rows,
-          rowCount: result.rowCount,
-        });
+        return jsonResponse(formatTableData(await driver.getTableData(tableName, schema, limit || 100)));
       }
 
       case 'get_table_info': {
@@ -219,18 +204,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           connectionId: string; tableName: string; schema?: string; database?: string;
         };
         const driver = await resolveDriver(connectionId, database);
-        const info = await driver.getTableInfo(tableName, schema);
-        return jsonResponse({
-          name: info.name,
-          schema: info.schema,
-          columns: info.columns.map(c => ({
-            name: c.name,
-            type: c.dataType,
-            nullable: c.nullable,
-            isPrimaryKey: c.isPrimaryKey,
-            defaultValue: c.defaultValue,
-          })),
-        });
+        return jsonResponse(formatTableInfo(await driver.getTableInfo(tableName, schema)));
       }
 
       case 'add_connection': {
@@ -347,7 +321,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return errorResponse(`Unknown tool: ${name}`);
     }
   } catch (err) {
-    return errorResponse(err instanceof Error ? err.message : String(err));
+    return errorResponse(wrapError(err));
   }
 });
 
@@ -362,21 +336,6 @@ function jsonResponse(data: unknown) {
 
 function errorResponse(message: string) {
   return { content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }], isError: true };
-}
-
-function flattenSchema(
-  objects: SchemaObject[],
-  parentPath = '',
-): { name: string; type: string; path: string; detail?: string; schema?: string }[] {
-  const result: { name: string; type: string; path: string; detail?: string; schema?: string }[] = [];
-  for (const obj of objects) {
-    const objPath = parentPath ? `${parentPath}.${obj.name}` : obj.name;
-    result.push({ name: obj.name, type: obj.type, path: objPath, detail: obj.detail, schema: obj.schema });
-    if (obj.children) {
-      result.push(...flattenSchema(obj.children, objPath));
-    }
-  }
-  return result;
 }
 
 // --- Start server ---
