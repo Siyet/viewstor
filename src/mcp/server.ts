@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { ChartConfig, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { wrapError } from '../utils/errors';
+import { isReadOnlyQuery } from '../utils/queryHelpers';
+import { formatExecuteQuery, formatTableData, formatTableInfo, flattenSchema } from './mcpFormatters';
 
 /**
  * MCP-compatible tool definitions exposed via VS Code commands.
@@ -36,70 +39,41 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
     vscode.commands.registerCommand('viewstor.mcp.getSchema', async (connectionId: string, database?: string) => {
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
-        const schema = await driver.getSchema();
-        return flattenSchema(schema);
+        return flattenSchema(await driver.getSchema());
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: wrapError(err) };
       }
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.executeQuery', async (connectionId: string, query: string, database?: string) => {
       const state = connectionManager.get(connectionId);
-      if (state?.config.readonly) {
-        // In readonly mode, only allow SELECT/EXPLAIN/SHOW
-        const trimmed = query.trim().toUpperCase();
-        if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('EXPLAIN') && !trimmed.startsWith('SHOW') && !trimmed.startsWith('WITH')) {
-          return { error: 'Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.' };
-        }
+      if (state?.config.readonly && !isReadOnlyQuery(query)) {
+        return { error: 'Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.' };
       }
 
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
-        const result = await driver.execute(query);
-        return {
-          columns: result.columns.map(c => c.name),
-          columnTypes: result.columns.map(c => c.dataType),
-          rows: result.rows,
-          rowCount: result.rowCount,
-          executionTimeMs: result.executionTimeMs,
-          error: result.error,
-        };
+        return formatExecuteQuery(await driver.execute(query));
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: wrapError(err) };
       }
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.getTableData', async (connectionId: string, tableName: string, schema?: string, limit?: number, database?: string) => {
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
-        const result = await driver.getTableData(tableName, schema, limit || 100);
-        return {
-          columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
-          rows: result.rows,
-          rowCount: result.rowCount,
-        };
+        return formatTableData(await driver.getTableData(tableName, schema, limit || 100));
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: wrapError(err) };
       }
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.getTableInfo', async (connectionId: string, tableName: string, schema?: string, database?: string) => {
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
-        const info = await driver.getTableInfo(tableName, schema);
-        return {
-          name: info.name,
-          schema: info.schema,
-          columns: info.columns.map(c => ({
-            name: c.name,
-            type: c.dataType,
-            nullable: c.nullable,
-            isPrimaryKey: c.isPrimaryKey,
-            defaultValue: c.defaultValue,
-          })),
-        };
+        return formatTableInfo(await driver.getTableInfo(tableName, schema));
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: wrapError(err) };
       }
     }),
     vscode.commands.registerCommand('viewstor.mcp.visualize', async (
@@ -124,7 +98,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
           await connectionManager.connect(connectionId);
           driver = connectionManager.getDriver(connectionId);
         } catch (err) {
-          return { error: `Connection failed: ${err instanceof Error ? err.message : err}` };
+          return { error: `Connection failed: ${wrapError(err)}` };
         }
       }
       if (!driver) return { error: 'Driver not available' };
@@ -171,7 +145,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
           columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
         };
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: wrapError(err) };
       }
     }),
 
@@ -189,7 +163,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       // Auto-connect
       if (!state.connected) {
         try { await connectionManager.connect(connectionId); }
-        catch (err) { return { error: `Connection failed: ${err instanceof Error ? err.message : err}` }; }
+        catch (err) { return { error: `Connection failed: ${wrapError(err)}` }; }
       }
 
       // Open SQL editor with query text
@@ -217,7 +191,7 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
       // Auto-connect
       if (!state.connected) {
         try { await connectionManager.connect(connectionId); }
-        catch (err) { return { error: `Connection failed: ${err instanceof Error ? err.message : err}` }; }
+        catch (err) { return { error: `Connection failed: ${wrapError(err)}` }; }
       }
 
       // Open table data view
@@ -264,21 +238,3 @@ async function resolveMcpDriver(cm: ConnectionManager, connectionId: string, dat
   return driver;
 }
 
-/** Flatten nested schema tree into a simple array of objects */
-function flattenSchema(objects: { name: string; type: string; children?: unknown[]; detail?: string; schema?: string }[], parentPath = ''): unknown[] {
-  const result: unknown[] = [];
-  for (const obj of objects) {
-    const path = parentPath ? `${parentPath}.${obj.name}` : obj.name;
-    result.push({
-      name: obj.name,
-      type: obj.type,
-      path,
-      detail: obj.detail,
-      schema: obj.schema,
-    });
-    if (obj.children && Array.isArray(obj.children)) {
-      result.push(...flattenSchema(obj.children as typeof objects, path));
-    }
-  }
-  return result;
-}

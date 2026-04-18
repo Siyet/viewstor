@@ -3,6 +3,7 @@ import * as path from 'path';
 import { ConnectionConfig, DatabaseType, DEFAULT_PORTS } from '../types/connection';
 import { ConnectionManager } from '../connections/connectionManager';
 import { createDriver } from '../drivers';
+import { wrapError } from '../utils/errors';
 
 export interface ConnectionFormDefaults {
   folderId?: string;
@@ -114,7 +115,7 @@ export class ConnectionFormPanel {
       this.panel?.webview.postMessage({
         type: 'testResult',
         status: 'failure',
-        message: err instanceof Error ? err.message : String(err),
+        message: wrapError(err),
       });
     }
   }
@@ -206,7 +207,7 @@ export class ConnectionFormPanel {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource};">
-  <link rel="stylesheet" href="${uris.codiconUri}">
+  <link id="vscode-codicon-stylesheet" rel="stylesheet" href="${uris.codiconUri}">
   <link rel="stylesheet" href="${uris.tokensUri}">
   <link rel="stylesheet" href="${uris.styleUri}">
   <script src="${uris.shellUri}"></script>

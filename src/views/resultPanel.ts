@@ -131,14 +131,24 @@ export class ResultPanelManager {
       switch (msg.type) {
         case 'changePage':
           if (isTableMode) {
-            vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, msg.page, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            if (msg.customQuery) {
+              vscode.commands.executeCommand('viewstor._runCustomTableQuery',
+                ctx.connectionId, ctx.tableName, ctx.schema, msg.customQuery, msg.pageSize, ctx.databaseName, panelKey, msg.page);
+            } else {
+              vscode.commands.executeCommand('viewstor._fetchPage',
+                ctx.connectionId, ctx.tableName, ctx.schema, msg.page, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            }
           }
           break;
         case 'changePageSize':
           if (isTableMode) {
-            vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            if (msg.customQuery) {
+              vscode.commands.executeCommand('viewstor._runCustomTableQuery',
+                ctx.connectionId, ctx.tableName, ctx.schema, msg.customQuery, msg.pageSize, ctx.databaseName, panelKey, 0);
+            } else {
+              vscode.commands.executeCommand('viewstor._fetchPage',
+                ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            }
           }
           break;
         case 'reloadWithSort':
@@ -224,6 +234,15 @@ export class ResultPanelManager {
             tableName: ctx.tableName,
             schema: ctx.schema,
             resultPanelKey: panelKey,
+          });
+          break;
+        case 'showOnMap':
+          vscode.commands.executeCommand('viewstor.showOnMap', {
+            columns: msg.columns,
+            rows: msg.rows,
+            color: ctx.color,
+            tableName: ctx.tableName,
+            schema: ctx.schema,
           });
           break;
       }
@@ -406,6 +425,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     <span style="flex:1"></span>
     <button id="exportBtn">Export</button>
     <button id="visualizeBtn" title="Visualize as chart">📊</button>
+    <button id="mapBtn" title="Show on map">🗺</button>
     <button id="addRowBtn" class="hidden">+ Row</button>
     <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
     <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
@@ -1079,6 +1099,31 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     return -1;
   }
 
+  function parseOrderByFromQuery(query) {
+    var q = query.replace(/;+\\s*$/, '');
+    var orderPos = findOuterKw(q, /^\\s*ORDER\\s+BY\\b/i);
+    if (orderPos < 0) return [];
+    var afterOrder = q.substring(orderPos);
+    var kwMatch = afterOrder.match(/^\\s*ORDER\\s+BY\\s+/i);
+    if (!kwMatch) return [];
+    var rest = afterOrder.substring(kwMatch[0].length);
+    var limitPos = findOuterKw(rest, /^\\s*(LIMIT|OFFSET)\\b/i);
+    var clause = limitPos >= 0 ? rest.substring(0, limitPos) : rest;
+    var parts = clause.split(',');
+    var result = [];
+    for (var pi = 0; pi < parts.length; pi++) {
+      var raw = parts[pi].trim();
+      if (!raw) continue;
+      // Skip expressions / positional / qualified names — only simple "col [ASC|DESC]"
+      var m = raw.match(/^(?:"([^"]+)"|\`([^\`]+)\`|([A-Za-z_][A-Za-z0-9_]*))(?:\\s+(ASC|DESC))?\\s*$/i);
+      if (!m) continue;
+      var name = m[1] || m[2] || m[3];
+      var dir = (m[4] || 'ASC').toLowerCase();
+      result.push({ column: name, direction: dir });
+    }
+    return result;
+  }
+
   function applySortToQuery(query, sorts) {
     var q = query.replace(/;+\\s*$/, '');
     // Remove outermost ORDER BY (skip subqueries)
@@ -1501,6 +1546,11 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   }
   document.getElementById('refreshBtn').addEventListener('click', () => {
     if (IS_TABLE_MODE) {
+      if (queryInput && !queryInput.value.trim()) {
+        // User cleared the SQL bar — restore the default table query so they can keep editing from baseline
+        queryInput.value = ${safeJsonForScript(defaultQuery)};
+        updateQueryHighlight();
+      }
       if (queryInput && queryInput.value.trim()) {
         runCustomQuery();
       } else {
@@ -1513,6 +1563,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   document.getElementById('exportBtn').addEventListener('click', showExportPopup);
   document.getElementById('visualizeBtn').addEventListener('click', () => {
     vscode.postMessage({ type: 'visualize', columns, rows: pageRows });
+  });
+  document.getElementById('mapBtn').addEventListener('click', () => {
+    vscode.postMessage({ type: 'showOnMap', columns, rows: pageRows });
   });
   document.getElementById('exportClose').addEventListener('click', closeExportPopup);
   document.getElementById('exportConfirm').addEventListener('click', () => {
@@ -1534,13 +1587,17 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   document.getElementById('overlay').addEventListener('click', closeAllPopups);
 
   // --- Pagination (server-side for table mode) ---
+  function activeCustomQuery() {
+    var q = queryInput ? queryInput.value.trim() : '';
+    return q || undefined;
+  }
   function goPage(delta) {
     const np = currentPage + delta;
     if (np < 0 || np >= totalPages) return;
     if (pendingEdits.size > 0) { if (!confirm('Unsaved changes will be lost. Continue?')) return; }
     if (IS_TABLE_MODE) {
       showLoading();
-      vscode.postMessage({ type: 'changePage', page: np, pageSize, orderBy: sortColumns });
+      vscode.postMessage({ type: 'changePage', page: np, pageSize, orderBy: sortColumns, customQuery: activeCustomQuery() });
     }
   }
   document.getElementById('prevPage').addEventListener('click', () => goPage(-1));
@@ -1553,7 +1610,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     pageSize = Number(e.target.value);
     if (IS_TABLE_MODE) {
       showLoading();
-      vscode.postMessage({ type: 'changePageSize', pageSize, orderBy: sortColumns });
+      vscode.postMessage({ type: 'changePageSize', pageSize, orderBy: sortColumns, customQuery: activeCustomQuery() });
     }
   });
 
@@ -1614,6 +1671,8 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     if (userLimit > pageSize) {
       customExportQuery = q;
     }
+    // Mirror ORDER BY from user's SQL into header sort icons
+    sortColumns = parseOrderByFromQuery(q);
     showLoading();
     vscode.postMessage({ type: 'runCustomQuery', query: q, pageSize: pageSize });
   }
@@ -1748,6 +1807,10 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     }
   }
 
+  // If initial query already has ORDER BY (e.g. via MCP customQuery), sync sort icons
+  if (queryInput && queryInput.value.trim() && sortColumns.length === 0) {
+    sortColumns = parseOrderByFromQuery(queryInput.value.trim());
+  }
   renderHeader();
   renderPage();
   if (!IS_READONLY) updateSaveButtons();

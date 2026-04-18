@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildEChartsOption, buildMultiSourceEChartsOption, joinByColumn, suggestChartConfig, isTimeColumn, isNumericColumn } from '../chart/chartDataTransform';
+import { buildEChartsOption, buildMultiSourceEChartsOption, joinByColumn, suggestChartConfig, isTimeColumn, isNumericColumn, adaptConfigToColumns } from '../chart/chartDataTransform';
 import { QueryResult, QueryColumn } from '../types/query';
 import { ChartConfig, EChartsChartType } from '../types/chart';
 
@@ -779,5 +779,172 @@ describe('buildMultiSourceEChartsOption', () => {
     const option = buildMultiSourceEChartsOption(primary, additional, config);
     const series = option.series as Array<Record<string, unknown>>;
     expect(series[1].areaStyle).toBeDefined();
+  });
+});
+
+// ============================================================
+// adaptConfigToColumns — handles aggregation column rename (regression: "Show full DB
+// data" with COUNT by month produced empty chart because Y axis still pointed at the
+// pre-aggregation column `id`, which the result didn't carry)
+// ============================================================
+
+describe('adaptConfigToColumns', () => {
+  it('keeps config unchanged when every referenced column exists', () => {
+    const config: ChartConfig = {
+      chartType: 'bar',
+      axis: { xColumn: 'created_at', yColumns: ['id'], groupByColumn: 'status' },
+      aggregation: { function: 'none' },
+    };
+    const cols = [
+      { name: 'created_at', dataType: 'timestamp' },
+      { name: 'id', dataType: 'integer' },
+      { name: 'status', dataType: 'text' },
+    ];
+    const adapted = adaptConfigToColumns(config, cols);
+    expect(adapted.axis).toEqual({ xColumn: 'created_at', yColumns: ['id'], groupByColumn: 'status' });
+  });
+
+  it('replaces missing yColumns with available numeric columns (count-by-month case)', () => {
+    // Regression: user opened the chart over `emails`, picked X=created_at, Y=id, then
+    // hit "Show full DB data" with Function=count + TimeBucket=month. The aggregation
+    // SQL renamed the value column to `count` — `id` was no longer present, so the
+    // chart rendered empty Y series. Expectation: yColumns falls back to `count`.
+    const preAggConfig: ChartConfig = {
+      chartType: 'bar',
+      axis: { xColumn: 'created_at', yColumns: ['id'] },
+      aggregation: { function: 'count', timeBucketPreset: 'month' },
+    };
+    const aggResultCols = [
+      { name: 'created_at', dataType: 'timestamp' },
+      { name: 'count', dataType: 'bigint' },
+    ];
+    const adapted = adaptConfigToColumns(preAggConfig, aggResultCols);
+    expect(adapted.axis?.xColumn).toBe('created_at');
+    expect(adapted.axis?.yColumns).toEqual(['count']);
+  });
+
+  it('drops groupBy when the column is not in result', () => {
+    const config: ChartConfig = {
+      chartType: 'line',
+      axis: { xColumn: 'ts', yColumns: ['v'], groupByColumn: 'region' },
+      aggregation: { function: 'sum' },
+    };
+    const cols = [{ name: 'ts', dataType: 'timestamp' }, { name: 'v', dataType: 'real' }];
+    const adapted = adaptConfigToColumns(config, cols);
+    expect(adapted.axis?.groupByColumn).toBeUndefined();
+  });
+
+  it('falls back X axis to first time column when original X is gone', () => {
+    const config: ChartConfig = {
+      chartType: 'line',
+      axis: { xColumn: 'old_ts', yColumns: ['v'] },
+      aggregation: { function: 'avg' },
+    };
+    const cols = [{ name: 'bucket', dataType: 'timestamptz' }, { name: 'v', dataType: 'real' }];
+    const adapted = adaptConfigToColumns(config, cols);
+    expect(adapted.axis?.xColumn).toBe('bucket');
+  });
+
+  it('keeps a partial subset of yColumns that still exist', () => {
+    const config: ChartConfig = {
+      chartType: 'bar',
+      axis: { xColumn: 'x', yColumns: ['a', 'gone', 'b'] },
+      aggregation: { function: 'none' },
+    };
+    const cols = [
+      { name: 'x', dataType: 'text' },
+      { name: 'a', dataType: 'integer' },
+      { name: 'b', dataType: 'integer' },
+    ];
+    const adapted = adaptConfigToColumns(config, cols);
+    expect(adapted.axis?.yColumns).toEqual(['a', 'b']);
+  });
+
+  it('rewrites category/value columns when they are missing', () => {
+    const config: ChartConfig = {
+      chartType: 'pie',
+      category: { nameColumn: 'gone_label', valueColumn: 'gone_value' },
+      aggregation: { function: 'none' },
+    };
+    const cols = [
+      { name: 'label', dataType: 'text' },
+      { name: 'amount', dataType: 'numeric' },
+    ];
+    const adapted = adaptConfigToColumns(config, cols);
+    expect(adapted.category?.nameColumn).toBe('label');
+    expect(adapted.category?.valueColumn).toBe('amount');
+  });
+
+  it('rewrites gauge value column to first numeric when missing', () => {
+    const config: ChartConfig = {
+      chartType: 'gauge',
+      gauge: { valueColumn: 'gone', minValue: 0, maxValue: 100 },
+      aggregation: { function: 'none' },
+    };
+    const cols = [{ name: 'pct', dataType: 'real' }];
+    const adapted = adaptConfigToColumns(config, cols);
+    expect(adapted.gauge?.valueColumn).toBe('pct');
+    expect(adapted.gauge?.minValue).toBe(0);
+    expect(adapted.gauge?.maxValue).toBe(100);
+  });
+
+  it('does not mutate the input config', () => {
+    const config: ChartConfig = {
+      chartType: 'bar',
+      axis: { xColumn: 'gone', yColumns: ['gone_y'] },
+      aggregation: { function: 'count' },
+    };
+    const cols = [{ name: 'x', dataType: 'text' }, { name: 'y', dataType: 'integer' }];
+    adaptConfigToColumns(config, cols);
+    expect(config.axis?.xColumn).toBe('gone');
+    expect(config.axis?.yColumns).toEqual(['gone_y']);
+  });
+});
+
+// ============================================================
+// buildEChartsOption + adaptConfigToColumns — count-by-month integration
+// (drives the integration of the aggregation rename fix)
+// ============================================================
+
+describe('count-by-month aggregation rename — integration', () => {
+  it('produces non-empty series after aggregation column rename', () => {
+    const preAggConfig: ChartConfig = {
+      chartType: 'bar',
+      axis: { xColumn: 'created_at', yColumns: ['id'] },
+      aggregation: { function: 'count', timeBucketPreset: 'month' },
+    };
+    const aggResult = makeResult(
+      [{ name: 'created_at', dataType: 'timestamp' }, { name: 'count', dataType: 'bigint' }],
+      [
+        { created_at: '2024-01-01T00:00:00Z', count: 10 },
+        { created_at: '2024-02-01T00:00:00Z', count: 22 },
+        { created_at: '2024-03-01T00:00:00Z', count: 17 },
+      ],
+    );
+
+    const adapted = adaptConfigToColumns(preAggConfig, aggResult.columns);
+    const option = buildEChartsOption(aggResult, adapted);
+    const series = option.series as Array<{ data: Array<[number, number]> }>;
+    expect(series.length).toBeGreaterThan(0);
+    const ys = series[0].data.map(d => d[1]);
+    expect(ys).toEqual([10, 22, 17]);
+  });
+
+  it('without adaptConfigToColumns the same call produces NaN ys (proves the bug)', () => {
+    // Regression sanity: the fix lives in the adapter, not buildEChartsOption.
+    // Skipping the adapter MUST reproduce the empty-chart bug.
+    const preAggConfig: ChartConfig = {
+      chartType: 'bar',
+      axis: { xColumn: 'created_at', yColumns: ['id'] },
+      aggregation: { function: 'count', timeBucketPreset: 'month' },
+    };
+    const aggResult = makeResult(
+      [{ name: 'created_at', dataType: 'timestamp' }, { name: 'count', dataType: 'bigint' }],
+      [{ created_at: '2024-01-01T00:00:00Z', count: 10 }],
+    );
+    const option = buildEChartsOption(aggResult, preAggConfig);
+    const series = option.series as Array<{ data: Array<[number, number]> }>;
+    const ys = series[0].data.map(d => d[1]);
+    expect(ys[0]).not.toBe(10);
   });
 });

@@ -12,11 +12,14 @@ import { FolderFormPanel } from './views/folderForm';
 import { SqlCompletionProvider } from './editors/completionProvider';
 import { IndexHintProvider } from './editors/indexHintProvider';
 import { SqlDiagnosticProvider } from './editors/sqlDiagnosticProvider';
+import { SchemaCache } from './editors/schemaCache';
 import { registerMcpCommands } from './mcp/server';
+import { wrapError } from './utils/errors';
 import { registerCommands } from './commands';
 import { registerChatParticipant } from './chat/participant';
 import { ChartPanelManager, setChartOutputChannel } from './chart/chartPanel';
 import { DiffPanelManager } from './diff/diffPanel';
+import { MapPanelManager } from './map/mapPanel';
 import { TempFileManager } from './services/tempFileManager';
 import { QueryFileManager } from './services/queryFileManager';
 import { setDebugChannel, dbg } from './utils/debug';
@@ -45,6 +48,7 @@ export function activate(context: vscode.ExtensionContext) {
     chartPanelManager.setConnectionManager(connectionManager);
     setChartOutputChannel(outputChannel);
     const diffPanelManager = new DiffPanelManager(context, connectionManager);
+    const mapPanelManager = new MapPanelManager(context);
     tempFileManager = new TempFileManager(context, queryFileManager);
     tempFileManager.setPostMessage((key, msg) => resultPanelManager.postMessage(key, msg));
     resultPanelManager.setTempFileManager(tempFileManager);
@@ -103,6 +107,7 @@ export function activate(context: vscode.ExtensionContext) {
       tempFileManager,
       queryFileManager,
       diffPanelManager,
+      mapPanelManager,
     });
 
     // MCP-compatible commands for AI agent integration
@@ -114,13 +119,12 @@ export function activate(context: vscode.ExtensionContext) {
     // Copilot Chat participant (@viewstor)
     registerChatParticipant(context, connectionManager, queryEditorProvider);
 
-    // SQL autocomplete from DB schema
-    const completionProvider = new SqlCompletionProvider(connectionManager, queryEditorProvider);
-    // Index hints (missing index warnings)
+    // Single schema cache shared by completion + diagnostics — one driver call serves both passes.
+    const schemaCache = new SchemaCache(connectionManager);
+    const completionProvider = new SqlCompletionProvider(connectionManager, queryEditorProvider, schemaCache);
     const indexHintProvider = new IndexHintProvider(connectionManager, queryEditorProvider);
     indexHintProvider.register(context);
-    // SQL diagnostics (non-existent tables/columns)
-    const sqlDiagnosticProvider = new SqlDiagnosticProvider(connectionManager, queryEditorProvider);
+    const sqlDiagnosticProvider = new SqlDiagnosticProvider(connectionManager, queryEditorProvider, schemaCache);
     sqlDiagnosticProvider.register(context);
     // Status bar: Report Issue button (visible only when Viewstor is active)
     const reportBtn = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 0);
@@ -162,9 +166,9 @@ export function activate(context: vscode.ExtensionContext) {
     outputChannel.info(`Viewstor activated (v${vscode.extensions.getExtension('Siyet.viewstor')?.packageJSON.version ?? '?'})`);
 
     // Test API — used by VS Code e2e tests only
-    return { queryHistoryProvider, queryFileManager };
+    return { queryHistoryProvider, queryFileManager, diffPanelManager, chartPanelManager };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = wrapError(err);
     const stack = err instanceof Error ? err.stack : undefined;
     outputChannel.error(`Activation failed: ${message}`);
     if (stack) outputChannel.error(stack);

@@ -85,8 +85,6 @@
   "Column for horizontal axis. For timeseries charts, use a timestamp column.": "অনুভূমিক অক্ষের জন্য কলাম। টাইমসিরিজ চার্টের জন্য টাইমস্ট্যাম্প কলাম ব্যবহার করুন।",
   "Numeric columns for vertical axis — the values to plot.": "উল্লম্ব অক্ষের জন্য সংখ্যাসূচক কলাম — প্লট করার মানগুলি।",
   "Split data into separate series by this column (e.g. by region or status).": "এই কলাম দিয়ে ডেটা আলাদা সিরিজে ভাগ করুন (যেমন অঞ্চল বা স্থিতি অনুসারে)।",
-  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Requires \"Run on Server\".": "Y মান কীভাবে সমষ্টিত করবেন: সারি গণনা, কলামের যোগ/গড়/সর্বনিম্ন/সর্বোচ্চ। \"Run on Server\" প্রয়োজন।",
-  "Group timestamps into intervals. Requires a time-type X axis. Auto-enables Full Data.": "টাইমস্ট্যাম্পগুলি ব্যবধানে গোষ্ঠীবদ্ধ করুন। সময়-ধরনের X অক্ষ প্রয়োজন। স্বয়ংক্রিয়ভাবে Full Data সক্রিয় করে।",
   "Custom interval: 2h = 2 hours, 15m = 15 minutes, 3d = 3 days.": "কাস্টম ব্যবধান: 2h = 2 ঘণ্টা, 15m = 15 মিনিট, 3d = 3 দিন।",
   "Column with labels for chart segments (pie slices, funnel stages).": "চার্ট সেগমেন্টের লেবেলসহ কলাম (পাই স্লাইস, ফানেল ধাপ)।",
   "Numeric column with values for each segment.": "প্রতিটি সেগমেন্টের মানসহ সংখ্যাসূচক কলাম।",
@@ -95,10 +93,11 @@
   "Single numeric metric to display on the gauge.": "গেজে প্রদর্শনের জন্য একটি সংখ্যাসূচক মেট্রিক।",
   "Minimum value on the gauge scale.": "গেজ স্কেলের সর্বনিম্ন মান।",
   "Maximum value on the gauge scale.": "গেজ স্কেলের সর্বোচ্চ মান।",
-  "Execute aggregation query on the database — processes all data server-side.": "ডেটাবেসে অ্যাগ্রিগেশন কোয়েরি সম্পাদন করুন — সার্ভার-সাইডে সমস্ত ডেটা প্রক্রিয়া করে।",
   "Auto-update chart when the linked table changes page, sort, or query.": "লিঙ্কড টেবিলের পেজ, সর্ট বা কোয়েরি পরিবর্তন হলে চার্ট স্বয়ংক্রিয়ভাবে আপডেট করুন।",
-  "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "চার্টের জন্য প্রয়োজনীয় কলামগুলি ব্যবহার করে সমস্ত সারি আনুন (LIMIT ছাড়া)।",
-  "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data স্বয়ংক্রিয়ভাবে সক্রিয় — অ্যাগ্রিগেশনের জন্য শুধু বর্তমান পেজ নয়, সমস্ত সারি প্রয়োজন।",
   "Chart query failed: {0}": "চার্ট কোয়েরি ব্যর্থ: {0}",
-  "Running chart query...": "চার্ট কোয়েরি চলছে..."
+  "Running chart query...": "চার্ট কোয়েরি চলছে...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "টেবিল SQL বারে শুধুমাত্র রিড-অনলি কোয়েরি (SELECT / WITH / EXPLAIN / SHOW / VALUES) অনুমোদিত।",
+  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Use with \"Show full DB data\" to execute server-side.": "Y মান কীভাবে সমষ্টিত করবেন: সারি গণনা, কলামের যোগ/গড়/সর্বনিম্ন/সর্বোচ্চ। \"Run on Server\" প্রয়োজন।",
+  "Group timestamps into intervals. Requires a time-type X axis.": "টাইমস্ট্যাম্পগুলি ব্যবধানে গোষ্ঠীবদ্ধ করুন। সময়-ধরনের X অক্ষ প্রয়োজন। স্বয়ংক্রিয়ভাবে Full Data সক্রিয় করে।",
+  "Run the chart query directly against the database — uses aggregation when a function or time bucket is set, otherwise pulls all rows (no LIMIT). Clicking again while a query is running cancels the previous one.": "চার্ট ক্যোয়ারি সরাসরি ডাটাবেসে চালান — ফাংশন বা টাইম বাকেট সেট থাকলে একত্রীকরণ, অন্যথায় সব সারি (LIMIT ছাড়া)। ক্যোয়ারি চলাকালীন আবার ক্লিক করলে আগেরটি বাতিল হয়।"
 }

@@ -30,6 +30,7 @@ describe('buildResultHtml', () => {
     expect(html).toContain('<!DOCTYPE html>');
     expect(html).toContain('id="exportBtn"');
     expect(html).toContain('id="visualizeBtn"');
+    expect(html).toContain('id="mapBtn"');
     expect(html).toContain('id="searchInput"');
     expect(html).toContain('id="statsInfo"');
   });

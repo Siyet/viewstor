@@ -4,6 +4,7 @@ import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
+import { wrapError } from '../utils/errors';
 
 export class ClickHouseDriver implements DatabaseDriver {
   private client: ClickHouseClient | undefined;
@@ -80,7 +81,7 @@ export class ClickHouseDriver implements DatabaseDriver {
         rows: [],
         rowCount: 0,
         executionTimeMs: Date.now() - start,
-        error: err instanceof Error ? err.message : String(err),
+        error: wrapError(err),
       };
     }
   }
