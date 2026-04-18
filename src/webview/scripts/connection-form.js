@@ -44,15 +44,14 @@
 
   function $(id) { return document.getElementById(id); }
 
-  const colorPicker = window.__viewstorColorPicker.init({
-    colorInputId: 'connColor',
-    colorPickerId: 'connColorPicker',
-    swatchFillId: 'colorSwatchFill',
-    clearBtnId: 'btnClearColor',
-    randomBtnId: 'btnRandomColor',
-    paletteId: 'colorPalette',
+  const colorPicker = window.ViewstorColorPicker.attach({
+    textEl: connColor,
+    pickerEl: connColorPicker,
+    swatchEl: $('colorSwatchFill'),
+    clearBtn: $('btnClearColor'),
+    randomBtn: $('btnRandomColor'),
+    paletteEl: $('colorPalette'),
   });
-  const setColorSwatch = colorPicker.setSwatch;
 
   function updateFieldVisibility() {
     const isRedis = dbType.value === 'redis';
@@ -258,7 +257,7 @@
       database: isRedis ? valueOf(redisDb) : isSqlite ? valueOf(sqliteFile).trim() : database.value.trim(),
       databases: (isRedis || isSqlite) ? '' : databases.value.trim(),
       ssl: ssl.checked ? 'true' : 'false',
-      color: valueOf(connColor).trim(),
+      color: colorPicker.getValue(),
       readonly: readonlyMode.checked ? 'true' : 'false',
       folderId: folderId.value || '',
       scope: scopeEl.value,
@@ -345,9 +344,7 @@
           if (c.type === 'sqlite') sqliteFile.value = c.database || '';
           initChips();
           ssl.checked = !!c.ssl;
-          connColor.value = c.color || '';
-          connColorPicker.value = c.color && /^#[0-9a-fA-F]{6}$/.test(c.color) ? c.color : '#1e1e1e';
-          setColorSwatch(c.color || '');
+          colorPicker.setValue(c.color || '');
           readonlyMode.checked = !!c.readonly;
           folderId.value = c.folderId || '';
           scopeEl.value = c.scope || 'user';

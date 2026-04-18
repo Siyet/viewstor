@@ -9,15 +9,14 @@
   const readonlyMode = $('readonlyMode');
   const scopeEl = $('scope');
 
-  const colorPicker = window.__viewstorColorPicker.init({
-    colorInputId: 'folderColor',
-    colorPickerId: 'folderColorPicker',
-    swatchFillId: 'colorSwatchFill',
-    clearBtnId: 'btnClearColor',
-    randomBtnId: 'btnRandomColor',
-    paletteId: 'colorPalette',
+  const colorPicker = window.ViewstorColorPicker.attach({
+    textEl: folderColor,
+    pickerEl: folderColorPicker,
+    swatchEl: $('colorSwatchFill'),
+    clearBtn: $('btnClearColor'),
+    randomBtn: $('btnRandomColor'),
+    paletteEl: $('colorPalette'),
   });
-  const setColorSwatch = colorPicker.setSwatch;
 
   $('btnSave').addEventListener('click', function () {
     document.querySelectorAll('.error-text').forEach(function (el) { el.remove(); });
@@ -32,7 +31,7 @@
       type: 'save',
       data: {
         name: String(folderName.value).trim(),
-        color: String(folderColor.value || '').trim(),
+        color: colorPicker.getValue(),
         readonly: readonlyMode.checked ? 'true' : 'false',
         scope: scopeEl.value,
       },
@@ -48,9 +47,7 @@
     if (message.type === 'setFolder' && message.folder) {
       const f = message.folder;
       folderName.value = f.name || '';
-      folderColor.value = f.color || '';
-      folderColorPicker.value = f.color && /^#[0-9a-fA-F]{6}$/.test(f.color) ? f.color : '#1e1e1e';
-      setColorSwatch(f.color || '');
+      colorPicker.setValue(f.color || '');
       readonlyMode.checked = !!f.readonly;
     }
   });
