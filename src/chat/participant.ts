@@ -95,13 +95,6 @@ export function registerChatParticipant(
         const query = sqlMatch[1].trim();
         stream.markdown(`**Query:**\n\`\`\`sql\n${query}\n\`\`\`\n\n`);
 
-        // Parse optional JSON chart config from LLM response
-        const jsonMatch = fullResponse.match(/```json\n([\s\S]*?)\n```/);
-        let chartMeta: { chartType?: string; xColumn?: string; yColumns?: string[] } = {};
-        if (jsonMatch) {
-          try { chartMeta = JSON.parse(jsonMatch[1]); } catch { /* ignore parse errors */ }
-        }
-
         // Execute the query
         try {
           const result = await driver.execute(query);

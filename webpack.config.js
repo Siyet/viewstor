@@ -35,6 +35,9 @@ module.exports = (_env, argv) => {
     },
     plugins: [
       new webpack.DefinePlugin({ __DEV__: JSON.stringify(isDev) }),
+      // `pg` lazily references `pg-native` only when the caller opts in via `pg.native`.
+      // We never do — ignore the module so webpack stops warning about the missing peer.
+      new webpack.IgnorePlugin({ resourceRegExp: /^pg-native$/ }),
       new CopyPlugin({
         patterns: [
           { from: 'src/webview/styles', to: 'styles' },
@@ -66,6 +69,7 @@ module.exports = (_env, argv) => {
     },
     plugins: [
       new webpack.DefinePlugin({ __DEV__: JSON.stringify(isDev) }),
+      new webpack.IgnorePlugin({ resourceRegExp: /^pg-native$/ }),
       new webpack.BannerPlugin({ banner: '#!/usr/bin/env node', raw: true }),
     ],
   },
