@@ -58,10 +58,10 @@ describe('ImportService', () => {
     it('should skip unsupported providers with warning', () => {
       const input = JSON.stringify({
         connections: {
-          'mysql-1': {
-            provider: 'mysql',
-            name: 'MySQL DB',
-            configuration: { host: 'localhost', port: '3306' },
+          'oracle-1': {
+            provider: 'oracle',
+            name: 'Oracle DB',
+            configuration: { host: 'localhost', port: '1521' },
           },
         },
       });
@@ -70,6 +70,25 @@ describe('ImportService', () => {
       expect(result.connections).toHaveLength(0);
       expect(result.warnings).toHaveLength(1);
       expect(result.warnings[0]).toContain('unsupported provider');
+    });
+
+    it('should parse MySQL connections', () => {
+      const input = JSON.stringify({
+        connections: {
+          'mysql-1': {
+            provider: 'mysql',
+            name: 'MySQL DB',
+            configuration: { host: 'mysql.example.com', port: '3306' },
+          },
+        },
+      });
+
+      const result = parseDBeaver(input);
+      expect(result.connections).toHaveLength(1);
+      expect(result.connections[0].type).toBe('mysql');
+      expect(result.connections[0].name).toBe('MySQL DB');
+      expect(result.connections[0].host).toBe('mysql.example.com');
+      expect(result.connections[0].port).toBe(3306);
     });
 
     it('should parse Redis, ClickHouse, and SQLite connections', () => {
@@ -155,6 +174,21 @@ describe('ImportService', () => {
     it('should skip unsupported drivers', () => {
       const xml = `<application>
   <component name="dataSourceStorage">
+    <data-source source="LOCAL" name="Oracle" uuid="x">
+      <driver-ref>oracle.thin</driver-ref>
+      <jdbc-url>jdbc:oracle:thin:@localhost:1521:orcl</jdbc-url>
+    </data-source>
+  </component>
+</application>`;
+
+      const result = parseDataGrip(xml);
+      expect(result.connections).toHaveLength(0);
+      expect(result.warnings[0]).toContain('unsupported driver');
+    });
+
+    it('should parse MySQL data sources', () => {
+      const xml = `<application>
+  <component name="dataSourceStorage">
     <data-source source="LOCAL" name="MySQL" uuid="x">
       <driver-ref>mysql.8</driver-ref>
       <jdbc-url>jdbc:mysql://localhost:3306/test</jdbc-url>
@@ -163,8 +197,9 @@ describe('ImportService', () => {
 </application>`;
 
       const result = parseDataGrip(xml);
-      expect(result.connections).toHaveLength(0);
-      expect(result.warnings[0]).toContain('unsupported driver');
+      expect(result.connections).toHaveLength(1);
+      expect(result.connections[0].type).toBe('mysql');
+      expect(result.connections[0].name).toBe('MySQL');
     });
 
     it('should parse SQLite data sources', () => {

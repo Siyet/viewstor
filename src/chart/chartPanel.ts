@@ -404,7 +404,7 @@ export class ChartPanelManager {
         // Full data mode: SELECT * (no column filter) so the sidebar keeps all dropdown options —
         // otherwise narrowing to the current axis cols would trap the user on their initial choice
         // (regression guard: see "Full Data preserves all columns" e2e test).
-        sql = buildFullDataQuery(state.opts.tableName || '', state.opts.schema, []);
+        sql = buildFullDataQuery(state.opts.tableName || '', state.opts.schema, [], state.opts.databaseType);
       } else {
         // Server-side aggregation
         const axis = msg.config.axis;

@@ -11,6 +11,7 @@ import {
   TIME_BUCKET_PG,
   TIME_BUCKET_CH,
   TIME_BUCKET_SQLITE,
+  TIME_BUCKET_MYSQL,
 } from '../types/chart';
 
 const ALL_CHART_TYPES: EChartsChartType[] = [
@@ -428,5 +429,77 @@ describe('buildFullDataQuery — edge cases', () => {
   it('never includes LIMIT', () => {
     const sql = buildFullDataQuery('big_table', 'public', ['a', 'b', 'c', 'd', 'e']);
     expect(sql).not.toContain('LIMIT');
+  });
+});
+
+describe('MySQL chart query generation', () => {
+  it('TIME_BUCKET_MYSQL covers all presets', () => {
+    const presets = ['second', 'minute', 'hour', 'day', 'month', 'year'] as const;
+    for (const p of presets) {
+      expect(TIME_BUCKET_MYSQL[p]).toBeDefined();
+    }
+  });
+
+  it('MySQL minute uses %i (not %M which is month name)', () => {
+    expect(TIME_BUCKET_MYSQL.minute).toContain('%i');
+    expect(TIME_BUCKET_MYSQL.second).toContain('%i');
+  });
+
+  it('buildAggregationQuery uses backtick quoting for MySQL', () => {
+    const sql = buildAggregationQuery(
+      'orders', undefined, 'created_at', ['amount'], 'sum', undefined,
+      { function: 'sum', timeBucketPreset: 'day' }, 'mysql',
+    );
+    expect(sql).toContain('DATE_FORMAT(`created_at`');
+    expect(sql).toContain('FROM `orders`');
+    expect(sql).toContain('SUM(`amount`)');
+    expect(sql).toContain('AS `amount`');
+    expect(sql).not.toContain('"orders"');
+    expect(sql).not.toContain('"amount"');
+  });
+
+  it('buildAggregationQuery MySQL count uses backtick alias', () => {
+    const sql = buildAggregationQuery(
+      'events', undefined, 'ts', [], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'hour' }, 'mysql',
+    );
+    expect(sql).toContain('COUNT(*) AS `count`');
+    expect(sql).toContain('FROM `events`');
+  });
+
+  it('buildAggregationQuery MySQL with group by column uses backticks', () => {
+    const sql = buildAggregationQuery(
+      'sales', undefined, 'date', ['revenue'], 'sum', 'region',
+      { function: 'sum', timeBucketPreset: 'month' }, 'mysql',
+    );
+    expect(sql).toContain('`region`');
+    expect(sql).toContain('GROUP BY');
+    const groupByIdx = sql.indexOf('GROUP BY');
+    expect(sql.indexOf('`region`', groupByIdx)).toBeGreaterThan(groupByIdx);
+  });
+
+  it('custom time bucket for MySQL uses FROM_UNIXTIME/FLOOR', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['v'], 'avg', undefined,
+      { function: 'avg', timeBucketPreset: 'custom', timeBucket: '2h' }, 'mysql',
+    );
+    expect(sql).toContain('FROM_UNIXTIME');
+    expect(sql).toContain('UNIX_TIMESTAMP');
+    expect(sql).toContain('7200');
+  });
+
+  it('buildFullDataQuery uses backtick quoting for MySQL', () => {
+    const sql = buildFullDataQuery('users', undefined, ['id', 'name'], 'mysql');
+    expect(sql).toBe('SELECT `id`, `name` FROM `users`');
+  });
+
+  it('buildFullDataQuery MySQL with empty columns', () => {
+    const sql = buildFullDataQuery('orders', undefined, [], 'mysql');
+    expect(sql).toBe('SELECT * FROM `orders`');
+  });
+
+  it('buildFullDataQuery defaults to double quotes without databaseType', () => {
+    const sql = buildFullDataQuery('t', 'public', ['a']);
+    expect(sql).toBe('SELECT "a" FROM "public"."t"');
   });
 });

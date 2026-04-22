@@ -91,7 +91,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           name: { type: 'string', description: 'Display name' },
-          type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite'], description: 'Database type' },
+          type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite', 'mysql'], description: 'Database type' },
           host: { type: 'string', description: 'Host (ignored for SQLite)' },
           port: { type: 'number', description: 'Port (ignored for SQLite)' },
           username: { type: 'string', description: 'Username' },
@@ -209,7 +209,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'add_connection': {
         const { name: connName, type, host, port, username, password, database, ssl, readonly } = args as {
-          name: string; type: 'postgresql' | 'redis' | 'clickhouse';
+          name: string; type: 'postgresql' | 'redis' | 'clickhouse' | 'mysql';
           host: string; port: number;
           username?: string; password?: string; database?: string;
           ssl?: boolean; readonly?: boolean;

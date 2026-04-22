@@ -133,7 +133,7 @@ export class ConnectionFormPanel {
       if (config.type === 'postgresql') {
         const res = await driver.execute('SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname');
         databases = res.rows.map((r: Record<string, unknown>) => String(r.datname));
-      } else if (config.type === 'clickhouse') {
+      } else if (config.type === 'clickhouse' || config.type === 'mysql') {
         const res = await driver.execute('SHOW DATABASES');
         databases = res.rows.map((r: Record<string, unknown>) => String(r.name || Object.values(r)[0]));
       }
@@ -232,6 +232,7 @@ export class ConnectionFormPanel {
         <vscode-option value="redis"${c?.type === 'redis' ? ' selected' : ''}>Redis</vscode-option>
         <vscode-option value="clickhouse"${c?.type === 'clickhouse' ? ' selected' : ''}>ClickHouse</vscode-option>
         <vscode-option value="sqlite"${c?.type === 'sqlite' ? ' selected' : ''}>SQLite</vscode-option>
+        <vscode-option value="mysql"${c?.type === 'mysql' ? ' selected' : ''}>MySQL / MariaDB</vscode-option>
       </vscode-single-select>
     </div>
 

@@ -259,7 +259,7 @@ function buildChartPrompt(dbType: string, database: string | undefined, schemaCo
     'Your job is to generate a SQL query that returns data ready for chart visualization.',
     '',
     'RULES:',
-    '- For "how many X per period" questions, use GROUP BY with date_trunc() (PostgreSQL) or toStartOf*() (ClickHouse) and COUNT(*).',
+    '- For "how many X per period" questions, use GROUP BY with date_trunc() (PostgreSQL), toStartOf*() (ClickHouse), or DATE_FORMAT() (MySQL) and COUNT(*).',
     '- Always include a time/category column for the X axis and numeric columns (COUNT, SUM, AVG, etc.) for the Y axis.',
     '- ORDER BY the time/category column.',
     '- Do NOT use LIMIT unless the user explicitly asks for it.',

@@ -119,6 +119,18 @@ export const TIME_BUCKET_SQLITE: Record<Exclude<TimeBucketPreset, 'custom'>, str
   year: '%Y',
 };
 
+/**
+ * Map time bucket preset to MySQL DATE_FORMAT() format.
+ */
+export const TIME_BUCKET_MYSQL: Record<Exclude<TimeBucketPreset, 'custom'>, string> = {
+  second: '%Y-%m-%d %H:%i:%S',
+  minute: '%Y-%m-%d %H:%i:00',
+  hour: '%Y-%m-%d %H:00:00',
+  day: '%Y-%m-%d',
+  month: '%Y-%m',
+  year: '%Y',
+};
+
 /** How an additional data source is merged into the chart */
 export type DataSourceMergeMode = 'join' | 'separate';
 
@@ -179,6 +191,10 @@ export function pickChartQueryType(config: Pick<ChartConfig, 'aggregation'>): 'a
   return (hasFunction || hasBucket) ? 'aggregation' : 'fullData';
 }
 
+function quoteIdent(name: string, databaseType?: string): string {
+  return databaseType === 'mysql' ? `\`${name}\`` : `"${name}"`;
+}
+
 /**
  * Build a server-side aggregation SQL query.
  * Used when chart needs COUNT/SUM/AVG with GROUP BY + time bucketing — executed on DB, not in frontend.
@@ -194,32 +210,38 @@ export function buildAggregationQuery(
   databaseType?: string,
   limit?: number,
 ): string {
-  const table = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`;
+  const q = (name: string) => quoteIdent(name, databaseType);
+  const table = schema ? `${q(schema)}.${q(tableName)}` : q(tableName);
 
   // Build X expression with time bucketing
-  let xExpr = `"${xColumn}"`;
+  let xExpr = q(xColumn);
   if (timeBucket.timeBucketPreset && timeBucket.timeBucketPreset !== 'custom') {
     if (databaseType === 'clickhouse') {
       const chFunc = TIME_BUCKET_CH[timeBucket.timeBucketPreset];
-      xExpr = `${chFunc}("${xColumn}")`;
+      xExpr = `${chFunc}(${q(xColumn)})`;
     } else if (databaseType === 'sqlite') {
       const fmt = TIME_BUCKET_SQLITE[timeBucket.timeBucketPreset];
-      xExpr = `strftime('${fmt}', "${xColumn}")`;
+      xExpr = `strftime('${fmt}', ${q(xColumn)})`;
+    } else if (databaseType === 'mysql') {
+      const fmt = TIME_BUCKET_MYSQL[timeBucket.timeBucketPreset];
+      xExpr = `DATE_FORMAT(${q(xColumn)}, '${fmt}')`;
     } else {
       // PostgreSQL (default)
       const pgTrunc = TIME_BUCKET_PG[timeBucket.timeBucketPreset];
-      xExpr = `date_trunc('${pgTrunc}', "${xColumn}")`;
+      xExpr = `date_trunc('${pgTrunc}', ${q(xColumn)})`;
     }
   } else if (timeBucket.timeBucketPreset === 'custom' && timeBucket.timeBucket) {
     // Custom bucket: parse '2h' → interval '2 hours'
     const interval = parseCustomBucket(timeBucket.timeBucket);
     if (databaseType === 'clickhouse') {
-      xExpr = `toStartOfInterval("${xColumn}", INTERVAL ${interval})`;
+      xExpr = `toStartOfInterval(${q(xColumn)}, INTERVAL ${interval})`;
     } else if (databaseType === 'sqlite') {
       xExpr = buildSqliteCustomBucket(xColumn, timeBucket.timeBucket);
+    } else if (databaseType === 'mysql') {
+      xExpr = buildMysqlCustomBucket(xColumn, timeBucket.timeBucket);
     } else {
       // PostgreSQL (date_bin requires PG >= 14)
-      xExpr = `date_bin('${interval}', "${xColumn}", '2000-01-01')`;
+      xExpr = `date_bin('${interval}', ${q(xColumn)}, '2000-01-01')`;
     }
   }
 
@@ -227,22 +249,22 @@ export function buildAggregationQuery(
   // Aliases preserve original column names so the chart axis mapping stays valid.
   // COUNT produces a single column regardless of how many yColumns are specified
   const yExprs = aggFunction === 'count'
-    ? ['COUNT(*) AS "count"']
+    ? [`COUNT(*) AS ${q('count')}`]
     : yColumns.map(col => {
-      if (aggFunction === 'none') return `"${col}"`;
-      return `${aggFunction.toUpperCase()}("${col}") AS "${col}"`;
+      if (aggFunction === 'none') return q(col);
+      return `${aggFunction.toUpperCase()}(${q(col)}) AS ${q(col)}`;
     });
 
-  const selectParts = [`${xExpr} AS "${xColumn}"`];
+  const selectParts = [`${xExpr} AS ${q(xColumn)}`];
   yExprs.forEach((expr) => selectParts.push(expr));
-  if (groupByColumn) selectParts.push(`"${groupByColumn}"`);
+  if (groupByColumn) selectParts.push(q(groupByColumn));
 
   let sql = `SELECT ${selectParts.join(', ')} FROM ${table}`;
 
   // GROUP BY when aggregating
   if (aggFunction !== 'none') {
     const groupParts = [`${xExpr}`];
-    if (groupByColumn) groupParts.push(`"${groupByColumn}"`);
+    if (groupByColumn) groupParts.push(q(groupByColumn));
     sql += ` GROUP BY ${groupParts.join(', ')}`;
   }
 
@@ -261,9 +283,11 @@ export function buildFullDataQuery(
   tableName: string,
   schema: string | undefined,
   columns: string[],
+  databaseType?: string,
 ): string {
-  const table = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`;
-  const cols = columns.length > 0 ? columns.map(c => `"${c}"`).join(', ') : '*';
+  const q = (name: string) => quoteIdent(name, databaseType);
+  const table = schema ? `${q(schema)}.${q(tableName)}` : q(tableName);
+  const cols = columns.length > 0 ? columns.map(c => q(c)).join(', ') : '*';
   return `SELECT ${cols} FROM ${table}`;
 }
 
@@ -275,6 +299,11 @@ function buildSqliteCustomBucket(column: string, bucket: string): string {
   const seconds = parseCustomBucketSeconds(bucket);
   // Round unix timestamp down to nearest bucket, then convert back to ISO string
   return `strftime('%Y-%m-%d %H:%M:%S', (unixepoch("${column}") / ${seconds}) * ${seconds}, 'unixepoch')`;
+}
+
+function buildMysqlCustomBucket(column: string, bucket: string): string {
+  const seconds = parseCustomBucketSeconds(bucket);
+  return `FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(\`${column}\`) / ${seconds}) * ${seconds})`;
 }
 
 function parseCustomBucketSeconds(bucket: string): number {

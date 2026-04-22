@@ -2,7 +2,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
 
-  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0 };
+  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0, mysql: 3306 };
 
   // VS Code custom elements expose `value` / `checked` properties just like
   // native form controls and emit `change` / `input` events. Wrappers below
