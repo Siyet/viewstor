@@ -119,6 +119,18 @@ export const TIME_BUCKET_SQLITE: Record<Exclude<TimeBucketPreset, 'custom'>, str
   year: '%Y',
 };
 
+/**
+ * Map time bucket preset to MySQL DATE_FORMAT() format.
+ */
+export const TIME_BUCKET_MYSQL: Record<Exclude<TimeBucketPreset, 'custom'>, string> = {
+  second: '%Y-%m-%d %H:%i:%S',
+  minute: '%Y-%m-%d %H:%i:00',
+  hour: '%Y-%m-%d %H:00:00',
+  day: '%Y-%m-%d',
+  month: '%Y-%m',
+  year: '%Y',
+};
+
 /** How an additional data source is merged into the chart */
 export type DataSourceMergeMode = 'join' | 'separate';
 
@@ -205,6 +217,9 @@ export function buildAggregationQuery(
     } else if (databaseType === 'sqlite') {
       const fmt = TIME_BUCKET_SQLITE[timeBucket.timeBucketPreset];
       xExpr = `strftime('${fmt}', "${xColumn}")`;
+    } else if (databaseType === 'mysql') {
+      const fmt = TIME_BUCKET_MYSQL[timeBucket.timeBucketPreset];
+      xExpr = `DATE_FORMAT(\`${xColumn}\`, '${fmt}')`;
     } else {
       // PostgreSQL (default)
       const pgTrunc = TIME_BUCKET_PG[timeBucket.timeBucketPreset];
@@ -217,6 +232,8 @@ export function buildAggregationQuery(
       xExpr = `toStartOfInterval("${xColumn}", INTERVAL ${interval})`;
     } else if (databaseType === 'sqlite') {
       xExpr = buildSqliteCustomBucket(xColumn, timeBucket.timeBucket);
+    } else if (databaseType === 'mysql') {
+      xExpr = buildMysqlCustomBucket(xColumn, timeBucket.timeBucket);
     } else {
       // PostgreSQL (date_bin requires PG >= 14)
       xExpr = `date_bin('${interval}', "${xColumn}", '2000-01-01')`;
@@ -275,6 +292,11 @@ function buildSqliteCustomBucket(column: string, bucket: string): string {
   const seconds = parseCustomBucketSeconds(bucket);
   // Round unix timestamp down to nearest bucket, then convert back to ISO string
   return `strftime('%Y-%m-%d %H:%M:%S', (unixepoch("${column}") / ${seconds}) * ${seconds}, 'unixepoch')`;
+}
+
+function buildMysqlCustomBucket(column: string, bucket: string): string {
+  const seconds = parseCustomBucketSeconds(bucket);
+  return `FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(\`${column}\`) / ${seconds}) * ${seconds})`;
 }
 
 function parseCustomBucketSeconds(bucket: string): number {

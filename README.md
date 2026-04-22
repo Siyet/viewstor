@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>PostgreSQL + Redis + ClickHouse + SQLite in one extension.<br>Free. Open source. No paywalls.</b>
+  <b>PostgreSQL + MySQL + Redis + ClickHouse + SQLite in one extension.<br>Free. Open source. No paywalls.</b>
 </p>
 
 ---
@@ -24,13 +24,13 @@
 
 Database extensions for VS Code are either locked to one database, or freemium with crippled free tiers (limited connections, no export, closed source). Switching between DBeaver and VS Code breaks flow. DataGrip costs money.
 
-Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHouse, and SQLite in a single tool — with features you won't find elsewhere:
+Viewstor is a free, open-source extension that covers PostgreSQL, MySQL/MariaDB, Redis, ClickHouse, and SQLite in a single tool — with features you won't find elsewhere:
 
 | | Viewstor | Database Client | SQLTools | DBCode |
 |---|---|---|---|---|
 | **Price** | Free forever | Freemium | Free | Freemium |
 | **Open source** | AGPL-3.0 | Closed (since v4.7) | MIT | Closed |
-| **PG + Redis + CH + SQLite** | All free | Free tier limits | No Redis | Redis/CH paid |
+| **PG + MySQL + Redis + CH + SQLite** | All free | Free tier limits | No Redis | Redis/CH paid |
 | **Safe mode** | Block / Warn / Off | No | No | No |
 | **Copilot Chat participant** | `@viewstor` | No | No | No |
 | **MCP for AI agents** | Built-in, free | No | No | Paid tier |
@@ -75,7 +75,7 @@ Production databases deserve guardrails. Safe mode runs `EXPLAIN` before every `
 | **Warn** | Warning with "Run Anyway" / "See EXPLAIN" / "Cancel" |
 | **Off** | No checks |
 
-Supports PostgreSQL (`Seq Scan`), SQLite (`SCAN TABLE` via `EXPLAIN QUERY PLAN`), and ClickHouse. Set globally in settings or per connection. Auto-adds `LIMIT` to SELECTs that don't have one.
+Supports PostgreSQL (`Seq Scan`), MySQL (`ALL` type in EXPLAIN), SQLite (`SCAN TABLE` via `EXPLAIN QUERY PLAN`), and ClickHouse. Set globally in settings or per connection. Auto-adds `LIMIT` to SELECTs that don't have one.
 
 ### Read-only Mode
 
@@ -254,6 +254,7 @@ All shortcuts use physical key codes — work on any keyboard layout.
 | Database | Protocol | Library |
 |---|---|---|
 | PostgreSQL | TCP | [pg](https://www.npmjs.com/package/pg) |
+| MySQL / MariaDB | TCP | [mysql2](https://www.npmjs.com/package/mysql2) |
 | Redis | TCP | [ioredis](https://www.npmjs.com/package/ioredis) |
 | ClickHouse | HTTP | [@clickhouse/client](https://www.npmjs.com/package/@clickhouse/client) |
 | SQLite | File | [better-sqlite3](https://www.npmjs.com/package/better-sqlite3) |
@@ -287,7 +288,7 @@ npm run package      # .vsix package
 |---|---|---|
 | Unit tests | [vitest](https://vitest.dev/) | Pure logic: diff engine, chart transforms, query helpers, export/import, ConnectionManager, driver contracts, workflows |
 | VS Code tests | Mocha + `@vscode/test-cli` | Extension activation, command registration, CodeLens, query editor |
-| E2E tests | vitest + [testcontainers](https://www.npmjs.com/package/testcontainers) | Real PG/Redis/CH/SQLite drivers (Docker required, auto-skipped otherwise) |
+| E2E tests | vitest + [testcontainers](https://www.npmjs.com/package/testcontainers) | Real PG/MySQL/Redis/CH/SQLite drivers (Docker required, auto-skipped otherwise) |
 
 ### CI/CD
 

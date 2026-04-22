@@ -185,7 +185,7 @@ describe('buildGrafanaDashboard — datasource', () => {
 
   it('handles unknown database type gracefully', () => {
     const config: ChartConfig = {
-      chartType: 'line', aggregation: { function: 'none' }, databaseType: 'mysql',
+      chartType: 'line', aggregation: { function: 'none' }, databaseType: 'oracle',
     };
     const result = buildGrafanaDashboard(config);
     // Unknown type with no UID → datasource still created with empty type string

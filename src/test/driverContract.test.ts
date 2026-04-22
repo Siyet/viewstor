@@ -23,6 +23,10 @@ vi.mock('better-sqlite3', () => {
   return { default: vi.fn() };
 });
 
+vi.mock('mysql2/promise', () => ({
+  createConnection: vi.fn(),
+}));
+
 vi.mock('ssh2', () => ({
   Client: class MockSSHClient {},
 }));
@@ -31,6 +35,7 @@ import { PostgresDriver } from '../drivers/postgres';
 import { RedisDriver } from '../drivers/redis';
 import { ClickHouseDriver } from '../drivers/clickhouse';
 import { SqliteDriver } from '../drivers/sqlite';
+import { MysqlDriver } from '../drivers/mysql';
 import { createDriver } from '../drivers';
 import type { DatabaseDriver } from '../types/driver';
 
@@ -57,7 +62,7 @@ const OPTIONAL_METHODS: (keyof DatabaseDriver)[] = [
 
 interface DriverSpec {
   name: string;
-  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
+  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite' | 'mysql';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   DriverClass: new (...args: any[]) => DatabaseDriver;
   expectedOptional: (keyof DatabaseDriver)[];
@@ -113,6 +118,21 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getTableStatistics',
     ],
   },
+  {
+    name: 'MysqlDriver',
+    type: 'mysql',
+    DriverClass: MysqlDriver,
+    expectedOptional: [
+      'cancelQuery',
+      'getDDL',
+      'getCompletions',
+      'getIndexedColumns',
+      'getTableRowCount',
+      'getEstimatedRowCount',
+      'getTableObjects',
+      'getTableStatistics',
+    ],
+  },
 ];
 
 describe('DatabaseDriver contract', () => {
@@ -125,7 +145,7 @@ describe('DatabaseDriver contract', () => {
     }
 
     it('throws on unsupported database type', () => {
-      expect(() => createDriver('mysql' as never)).toThrow('Unsupported database type: mysql');
+      expect(() => createDriver('oracle' as never)).toThrow('Unsupported database type: oracle');
     });
 
     it('throws on empty string', () => {

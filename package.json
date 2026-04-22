@@ -23,6 +23,8 @@
     "redis",
     "clickhouse",
     "sqlite",
+    "mysql",
+    "mariadb",
     "sql",
     "query",
     "schema"
@@ -81,6 +83,13 @@
         "default": {
           "fontPath": "resources/viewstor-icons.woff2",
           "fontCharacter": "\\E004"
+        }
+      },
+      "viewstor-mysql": {
+        "description": "MySQL",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E005"
         }
       }
     },
@@ -617,6 +626,7 @@
     "glob": "^13.0.6",
     "ioredis": "^5.3.0",
     "mocha": "^11.7.5",
+    "mysql2": "^3.22.2",
     "pg": "^8.11.0",
     "style-loader": "^3.3.4",
     "svgtofont": "^6.5.1",

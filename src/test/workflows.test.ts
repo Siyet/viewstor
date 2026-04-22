@@ -632,14 +632,14 @@ describe('Workflow 6: DBeaver import -> connection configs round-trip', () => {
 
     const result = parseDBeaver(dbeaverJson);
 
-    // Two unsupported providers should produce warnings
-    expect(result.warnings).toHaveLength(2);
-    expect(result.warnings[0]).toContain('mysql');
-    expect(result.warnings[1]).toContain('oracle');
+    // Only oracle is unsupported now (mysql is a valid type)
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain('oracle');
 
-    // Only the valid PostgreSQL connection is imported
-    expect(result.connections).toHaveLength(1);
-    expect(result.connections[0].type).toBe('postgresql');
+    // MySQL and PostgreSQL connections are imported
+    expect(result.connections).toHaveLength(2);
+    const types = result.connections.map(c => c.type).sort();
+    expect(types).toEqual(['mysql', 'postgresql']);
   });
 
   it('handles invalid JSON gracefully', () => {

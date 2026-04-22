@@ -147,7 +147,7 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
 
       // Safe mode: EXPLAIN check for full table scans
       const dbType = state?.config.type;
-      const isSafeModeDB = dbType === 'postgresql' || dbType === 'sqlite' || dbType === 'clickhouse';
+      const isSafeModeDB = dbType === 'postgresql' || dbType === 'sqlite' || dbType === 'clickhouse' || dbType === 'mysql';
       if (safeMode !== 'off' && isSafeModeDB && finalQuery.trim().toUpperCase().startsWith('SELECT')) {
         try {
           const explainCmd = dbType === 'sqlite' ? 'EXPLAIN QUERY PLAN ' : 'EXPLAIN ';
@@ -157,14 +157,16 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
           const limitValue = limitMatch ? parseInt(limitMatch[1], 10) : Infinity;
           const hasFullScan = dbType === 'postgresql' ? plan.includes('Seq Scan')
             : dbType === 'sqlite' ? plan.includes('SCAN TABLE')
-            : dbType === 'clickhouse' ? plan.includes('Full') : false;
+            : dbType === 'clickhouse' ? plan.includes('Full')
+            : dbType === 'mysql' ? /\bALL\b/.test(plan) : false;
           const scanMatch = dbType === 'postgresql' ? plan.match(/Seq Scan on (\w+)/)
             : dbType === 'sqlite' ? plan.match(/SCAN TABLE (\w+)/)
+            : dbType === 'mysql' ? plan.match(/table:\s*(\w+)/i)
             : null;
           dbg('safeMode', 'fullScan:', hasFullScan, 'limit:', limitValue, 'mode:', safeMode, 'db:', dbType);
           if (hasFullScan && limitValue > 1000) {
             const tableName = scanMatch ? scanMatch[1] : 'unknown';
-            const scanLabel = dbType === 'sqlite' ? 'SCAN TABLE' : dbType === 'clickhouse' ? 'Full Scan' : 'Seq Scan';
+            const scanLabel = dbType === 'sqlite' ? 'SCAN TABLE' : dbType === 'clickhouse' ? 'Full Scan' : dbType === 'mysql' ? 'Full Table Scan' : 'Seq Scan';
             const message = vscode.l10n.t('{0} on "{1}" — may be slow on large tables.', scanLabel, tableName);
 
             if (safeMode === 'block') {
