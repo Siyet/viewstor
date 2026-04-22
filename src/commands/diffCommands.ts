@@ -25,8 +25,9 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
       // runs concurrently — the user sees the panel open right away and can
       // re-invoke the picker from inside the panel if they dismiss it.
       let picking = false;
+      let panelDisposed = false;
       const runPicker = async (pendingPanel: vscode.WebviewPanel) => {
-        if (picking) return;
+        if (picking || panelDisposed) return;
         picking = true;
         try {
           const picked = await pickTableWithLoading(
@@ -34,7 +35,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             vscode.l10n.t('Select table to compare with "{0}"', item.schemaObject!.name),
           );
           dbg('compareWith', 'picked:', picked?.tableName, picked?.connectionId);
-          if (!picked) return;
+          if (!picked || panelDisposed) return;
           await runCompare(
             connectionManager,
             diffPanelManager,
@@ -57,6 +58,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
         leftLabel,
         () => { void runPicker(pendingPanel); },
       );
+      pendingPanel.onDidDispose(() => { panelDisposed = true; });
       // Auto-open the picker once so the user doesn't have to click twice on
       // the common path. If they cancel, the placeholder stays interactive.
       void runPicker(pendingPanel);
