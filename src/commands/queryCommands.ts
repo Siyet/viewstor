@@ -134,12 +134,17 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
       {
         const trimmed = query.trim().replace(/;+\s*$/, '');
         const upper = trimmed.toUpperCase();
-        if (upper.startsWith('SELECT') && !upper.includes('LIMIT')) {
+        const hasLimit = upper.includes('LIMIT') || /\bTOP\s*\(/i.test(upper);
+        if (upper.startsWith('SELECT') && !hasLimit) {
           const autoLimit = Math.max(
             vscode.workspace.getConfiguration('viewstor').get<number>('defaultPageSize', 100),
             1000,
           );
-          finalQuery = trimmed + ` LIMIT ${autoLimit}`;
+          if (state?.config.type === 'mssql') {
+            finalQuery = trimmed.replace(/^SELECT\b/i, `SELECT TOP(${autoLimit})`);
+          } else {
+            finalQuery = trimmed + ` LIMIT ${autoLimit}`;
+          }
         } else {
           finalQuery = trimmed;
         }
@@ -147,24 +152,28 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
 
       // Safe mode: EXPLAIN check for full table scans
       const dbType = state?.config.type;
-      const isSafeModeDB = dbType === 'postgresql' || dbType === 'sqlite' || dbType === 'clickhouse';
+      const isSafeModeDB = dbType === 'postgresql' || dbType === 'sqlite' || dbType === 'clickhouse' || dbType === 'mssql';
       if (safeMode !== 'off' && isSafeModeDB && finalQuery.trim().toUpperCase().startsWith('SELECT')) {
         try {
-          const explainCmd = dbType === 'sqlite' ? 'EXPLAIN QUERY PLAN ' : 'EXPLAIN ';
-          const explainResult = await driver.execute(explainCmd + finalQuery);
+          const explainCmd = dbType === 'sqlite' ? 'EXPLAIN QUERY PLAN '
+            : dbType === 'mssql' ? 'SET SHOWPLAN_TEXT ON; ' : 'EXPLAIN ';
+          const explainSuffix = dbType === 'mssql' ? '; SET SHOWPLAN_TEXT OFF' : '';
+          const explainResult = await driver.execute(explainCmd + finalQuery + explainSuffix);
           const plan = explainResult.rows.map(r => Object.values(r).join(' ')).join('\n');
-          const limitMatch = finalQuery.match(/\bLIMIT\s+(\d+)/i);
+          const limitMatch = finalQuery.match(/\bLIMIT\s+(\d+)/i) || finalQuery.match(/\bTOP\s*\(\s*(\d+)\s*\)/i);
           const limitValue = limitMatch ? parseInt(limitMatch[1], 10) : Infinity;
           const hasFullScan = dbType === 'postgresql' ? plan.includes('Seq Scan')
             : dbType === 'sqlite' ? plan.includes('SCAN TABLE')
-            : dbType === 'clickhouse' ? plan.includes('Full') : false;
+            : dbType === 'clickhouse' ? plan.includes('Full')
+            : dbType === 'mssql' ? plan.includes('Table Scan') : false;
           const scanMatch = dbType === 'postgresql' ? plan.match(/Seq Scan on (\w+)/)
             : dbType === 'sqlite' ? plan.match(/SCAN TABLE (\w+)/)
+            : dbType === 'mssql' ? plan.match(/Table Scan.*\[(\w+)\]/)
             : null;
           dbg('safeMode', 'fullScan:', hasFullScan, 'limit:', limitValue, 'mode:', safeMode, 'db:', dbType);
           if (hasFullScan && limitValue > 1000) {
             const tableName = scanMatch ? scanMatch[1] : 'unknown';
-            const scanLabel = dbType === 'sqlite' ? 'SCAN TABLE' : dbType === 'clickhouse' ? 'Full Scan' : 'Seq Scan';
+            const scanLabel = dbType === 'sqlite' ? 'SCAN TABLE' : dbType === 'clickhouse' ? 'Full Scan' : dbType === 'mssql' ? 'Table Scan' : 'Seq Scan';
             const message = vscode.l10n.t('{0} on "{1}" — may be slow on large tables.', scanLabel, tableName);
 
             if (safeMode === 'block') {
@@ -238,7 +247,7 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
               } catch { /* table info unavailable — skip */ }
             }
 
-            const queryLimitMatch = finalQuery.match(/\bLIMIT\s+(\d+)/i);
+            const queryLimitMatch = finalQuery.match(/\bLIMIT\s+(\d+)/i) || finalQuery.match(/\bTOP\s*\(\s*(\d+)\s*\)/i);
             const queryPageSize = queryLimitMatch
               ? Math.min(parseInt(queryLimitMatch[1], 10), 1000)
               : Math.min(result.rowCount, 1000);
