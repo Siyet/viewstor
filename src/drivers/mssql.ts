@@ -55,11 +55,6 @@ export class MssqlDriver implements DatabaseDriver {
     const request = this.pool!.request();
     this.currentRequest = request;
     try {
-      const trimmed = query.trim().toUpperCase();
-      const isSelect = trimmed.startsWith('SELECT') || trimmed.startsWith('EXEC') ||
-        trimmed.startsWith('EXECUTE') || trimmed.startsWith('SP_') ||
-        trimmed.startsWith('WITH');
-
       const result = await request.query(query);
       const executionTimeMs = Date.now() - start;
 

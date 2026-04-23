@@ -254,7 +254,8 @@ export function buildAggregationQuery(
   yExprs.forEach((expr) => selectParts.push(expr));
   if (groupByColumn) selectParts.push(`"${groupByColumn}"`);
 
-  let sql = `SELECT ${selectParts.join(', ')} FROM ${table}`;
+  const topClause = (limit && databaseType === 'mssql') ? `TOP(${limit}) ` : '';
+  let sql = `SELECT ${topClause}${selectParts.join(', ')} FROM ${table}`;
 
   // GROUP BY when aggregating
   if (aggFunction !== 'none') {
@@ -264,7 +265,7 @@ export function buildAggregationQuery(
   }
 
   sql += ` ORDER BY ${xExpr}`;
-  if (limit) sql += ` LIMIT ${limit}`;
+  if (limit && databaseType !== 'mssql') sql += ` LIMIT ${limit}`;
 
   return sql;
 }
@@ -284,15 +285,15 @@ export function buildFullDataQuery(
   return `SELECT ${cols} FROM ${table}`;
 }
 
-/**
- * Build a SQLite-compatible expression for custom time buckets.
- * SQLite lacks date_bin/date_trunc, so we round via integer arithmetic on unixepoch.
- */
 function buildMssqlCustomBucket(column: string, bucket: string): string {
   const seconds = parseCustomBucketSeconds(bucket);
   return `DATEADD(second, (DATEDIFF(second, '2000-01-01', "${column}") / ${seconds}) * ${seconds}, '2000-01-01')`;
 }
 
+/**
+ * Build a SQLite-compatible expression for custom time buckets.
+ * SQLite lacks date_bin/date_trunc, so we round via integer arithmetic on unixepoch.
+ */
 function buildSqliteCustomBucket(column: string, bucket: string): string {
   const seconds = parseCustomBucketSeconds(bucket);
   // Round unix timestamp down to nearest bucket, then convert back to ISO string
