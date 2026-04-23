@@ -107,6 +107,18 @@ export const TIME_BUCKET_CH: Record<Exclude<TimeBucketPreset, 'custom'>, string>
 };
 
 /**
+ * Map time bucket preset to MSSQL DATETRUNC datepart argument.
+ */
+export const TIME_BUCKET_MSSQL: Record<Exclude<TimeBucketPreset, 'custom'>, string> = {
+  second: 'second',
+  minute: 'minute',
+  hour: 'hour',
+  day: 'day',
+  month: 'month',
+  year: 'year',
+};
+
+/**
  * Map time bucket preset to SQLite strftime() format.
  * SQLite has no date_trunc — use strftime() to truncate timestamps.
  */
@@ -205,6 +217,9 @@ export function buildAggregationQuery(
     } else if (databaseType === 'sqlite') {
       const fmt = TIME_BUCKET_SQLITE[timeBucket.timeBucketPreset];
       xExpr = `strftime('${fmt}', "${xColumn}")`;
+    } else if (databaseType === 'mssql') {
+      const part = TIME_BUCKET_MSSQL[timeBucket.timeBucketPreset];
+      xExpr = `DATETRUNC(${part}, "${xColumn}")`;
     } else {
       // PostgreSQL (default)
       const pgTrunc = TIME_BUCKET_PG[timeBucket.timeBucketPreset];
@@ -217,6 +232,8 @@ export function buildAggregationQuery(
       xExpr = `toStartOfInterval("${xColumn}", INTERVAL ${interval})`;
     } else if (databaseType === 'sqlite') {
       xExpr = buildSqliteCustomBucket(xColumn, timeBucket.timeBucket);
+    } else if (databaseType === 'mssql') {
+      xExpr = buildMssqlCustomBucket(xColumn, timeBucket.timeBucket);
     } else {
       // PostgreSQL (date_bin requires PG >= 14)
       xExpr = `date_bin('${interval}', "${xColumn}", '2000-01-01')`;
@@ -271,6 +288,11 @@ export function buildFullDataQuery(
  * Build a SQLite-compatible expression for custom time buckets.
  * SQLite lacks date_bin/date_trunc, so we round via integer arithmetic on unixepoch.
  */
+function buildMssqlCustomBucket(column: string, bucket: string): string {
+  const seconds = parseCustomBucketSeconds(bucket);
+  return `DATEADD(second, (DATEDIFF(second, '2000-01-01', "${column}") / ${seconds}) * ${seconds}, '2000-01-01')`;
+}
+
 function buildSqliteCustomBucket(column: string, bucket: string): string {
   const seconds = parseCustomBucketSeconds(bucket);
   // Round unix timestamp down to nearest bucket, then convert back to ISO string

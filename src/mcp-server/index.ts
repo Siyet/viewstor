@@ -91,7 +91,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           name: { type: 'string', description: 'Display name' },
-          type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite'], description: 'Database type' },
+          type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite', 'mssql'], description: 'Database type' },
           host: { type: 'string', description: 'Host (ignored for SQLite)' },
           port: { type: 'number', description: 'Port (ignored for SQLite)' },
           username: { type: 'string', description: 'Username' },

@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>PostgreSQL + Redis + ClickHouse + SQLite in one extension.<br>Free. Open source. No paywalls.</b>
+  <b>PostgreSQL + Redis + ClickHouse + SQLite + SQL Server in one extension.<br>Free. Open source. No paywalls.</b>
 </p>
 
 ---
@@ -24,13 +24,13 @@
 
 Database extensions for VS Code are either locked to one database, or freemium with crippled free tiers (limited connections, no export, closed source). Switching between DBeaver and VS Code breaks flow. DataGrip costs money.
 
-Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHouse, and SQLite in a single tool — with features you won't find elsewhere:
+Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHouse, SQLite, and SQL Server in a single tool — with features you won't find elsewhere:
 
 | | Viewstor | Database Client | SQLTools | DBCode |
 |---|---|---|---|---|
 | **Price** | Free forever | Freemium | Free | Freemium |
 | **Open source** | AGPL-3.0 | Closed (since v4.7) | MIT | Closed |
-| **PG + Redis + CH + SQLite** | All free | Free tier limits | No Redis | Redis/CH paid |
+| **PG + Redis + CH + SQLite + MSSQL** | All free | Free tier limits | No Redis | Redis/CH paid |
 | **Safe mode** | Block / Warn / Off | No | No | No |
 | **Copilot Chat participant** | `@viewstor` | No | No | No |
 | **MCP for AI agents** | Built-in, free | No | No | Paid tier |
@@ -75,7 +75,7 @@ Production databases deserve guardrails. Safe mode runs `EXPLAIN` before every `
 | **Warn** | Warning with "Run Anyway" / "See EXPLAIN" / "Cancel" |
 | **Off** | No checks |
 
-Supports PostgreSQL (`Seq Scan`), SQLite (`SCAN TABLE` via `EXPLAIN QUERY PLAN`), and ClickHouse. Set globally in settings or per connection. Auto-adds `LIMIT` to SELECTs that don't have one.
+Supports PostgreSQL (`Seq Scan`), SQLite (`SCAN TABLE` via `EXPLAIN QUERY PLAN`), ClickHouse, and SQL Server (`Table Scan` via `SET SHOWPLAN_TEXT ON`). Set globally in settings or per connection. Auto-adds `LIMIT` to SELECTs that don't have one.
 
 ### Read-only Mode
 
@@ -151,7 +151,7 @@ Compare data between tables — even across different connections (dev vs stagin
 - Right-click a table → **Compare With...** → pick another table from any connected database
 - **Row diff** — matches rows by primary key, highlights added/removed/changed cells side-by-side, zebra-striped rows
 - **Schema diff** — compare column names, types, nullability, PK status, plus indexes, constraints, triggers, and sequences
-- **Statistics diff** — side-by-side row count, table/index/total size, dead tuples, last vacuum/analyze, scan counters (PostgreSQL); row count, compressed/uncompressed size, compression ratio, parts, engine (ClickHouse); row count, table size, index/trigger counts (SQLite). Only shown when both sides are the same database type
+- **Statistics diff** — side-by-side row count, table/index/total size, dead tuples, last vacuum/analyze, scan counters (PostgreSQL); row count, compressed/uncompressed size, compression ratio, parts, engine (ClickHouse); row count, table size, index/trigger counts (SQLite); row count, total/data/index size, create/modify dates (SQL Server). Only shown when both sides are the same database type
 - **Custom SQL** — editable queries per side under the collapsible "SQL" block, with Synced toggle + lock indicator for mirrored edits
 - Tab headers show colored count badges (e.g. `Schema Diff •6`); filter chips per tab (click to solo, Shift+click to toggle)
 - Export diff as CSV or JSON
@@ -257,6 +257,7 @@ All shortcuts use physical key codes — work on any keyboard layout.
 | Redis | TCP | [ioredis](https://www.npmjs.com/package/ioredis) |
 | ClickHouse | HTTP | [@clickhouse/client](https://www.npmjs.com/package/@clickhouse/client) |
 | SQLite | File | [better-sqlite3](https://www.npmjs.com/package/better-sqlite3) |
+| SQL Server | TDS | [mssql](https://www.npmjs.com/package/mssql) (wraps tedious) |
 
 ## Development
 
@@ -287,7 +288,7 @@ npm run package      # .vsix package
 |---|---|---|
 | Unit tests | [vitest](https://vitest.dev/) | Pure logic: diff engine, chart transforms, query helpers, export/import, ConnectionManager, driver contracts, workflows |
 | VS Code tests | Mocha + `@vscode/test-cli` | Extension activation, command registration, CodeLens, query editor |
-| E2E tests | vitest + [testcontainers](https://www.npmjs.com/package/testcontainers) | Real PG/Redis/CH/SQLite drivers (Docker required, auto-skipped otherwise) |
+| E2E tests | vitest + [testcontainers](https://www.npmjs.com/package/testcontainers) | Real PG/Redis/CH/SQLite/MSSQL drivers (Docker required, auto-skipped otherwise) |
 
 ### CI/CD
 

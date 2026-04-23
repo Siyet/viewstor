@@ -122,9 +122,11 @@ export class ConnectionFormPanel {
 
   private async handleFetchDatabases(data: Record<string, string>) {
     const config = this.parseFormData(data);
-    // Use 'postgres' as default DB for listing databases (always exists in PG)
+    // Use default system DB for listing databases
     if (config.type === 'postgresql' && !config.database) {
       config.database = 'postgres';
+    } else if (config.type === 'mssql' && !config.database) {
+      config.database = 'master';
     }
     try {
       const driver = createDriver(config.type);
@@ -136,6 +138,9 @@ export class ConnectionFormPanel {
       } else if (config.type === 'clickhouse') {
         const res = await driver.execute('SHOW DATABASES');
         databases = res.rows.map((r: Record<string, unknown>) => String(r.name || Object.values(r)[0]));
+      } else if (config.type === 'mssql') {
+        const res = await driver.execute('SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name');
+        databases = res.rows.map((r: Record<string, unknown>) => String(r.name));
       }
       await driver.disconnect();
       this.panel?.webview.postMessage({ type: 'databaseList', databases });
@@ -232,6 +237,7 @@ export class ConnectionFormPanel {
         <vscode-option value="redis"${c?.type === 'redis' ? ' selected' : ''}>Redis</vscode-option>
         <vscode-option value="clickhouse"${c?.type === 'clickhouse' ? ' selected' : ''}>ClickHouse</vscode-option>
         <vscode-option value="sqlite"${c?.type === 'sqlite' ? ' selected' : ''}>SQLite</vscode-option>
+        <vscode-option value="mssql"${c?.type === 'mssql' ? ' selected' : ''}>SQL Server</vscode-option>
       </vscode-single-select>
     </div>
 

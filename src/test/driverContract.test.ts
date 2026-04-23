@@ -27,10 +27,20 @@ vi.mock('ssh2', () => ({
   Client: class MockSSHClient {},
 }));
 
+vi.mock('mssql', () => {
+  const NVarChar = { name: 'NVarChar' };
+  return {
+    default: { ConnectionPool: class MockPool {}, NVarChar },
+    ConnectionPool: class MockPool {},
+    NVarChar,
+  };
+});
+
 import { PostgresDriver } from '../drivers/postgres';
 import { RedisDriver } from '../drivers/redis';
 import { ClickHouseDriver } from '../drivers/clickhouse';
 import { SqliteDriver } from '../drivers/sqlite';
+import { MssqlDriver } from '../drivers/mssql';
 import { createDriver } from '../drivers';
 import type { DatabaseDriver } from '../types/driver';
 
@@ -57,7 +67,7 @@ const OPTIONAL_METHODS: (keyof DatabaseDriver)[] = [
 
 interface DriverSpec {
   name: string;
-  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
+  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite' | 'mssql';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   DriverClass: new (...args: any[]) => DatabaseDriver;
   expectedOptional: (keyof DatabaseDriver)[];
@@ -104,6 +114,21 @@ const DRIVER_SPECS: DriverSpec[] = [
     type: 'sqlite',
     DriverClass: SqliteDriver,
     expectedOptional: [
+      'getDDL',
+      'getCompletions',
+      'getIndexedColumns',
+      'getTableRowCount',
+      'getEstimatedRowCount',
+      'getTableObjects',
+      'getTableStatistics',
+    ],
+  },
+  {
+    name: 'MssqlDriver',
+    type: 'mssql',
+    DriverClass: MssqlDriver,
+    expectedOptional: [
+      'cancelQuery',
       'getDDL',
       'getCompletions',
       'getIndexedColumns',

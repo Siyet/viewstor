@@ -278,8 +278,13 @@ export function buildInsertDefaultSql(
   tableName: string,
   schema: string | undefined,
   columnNames: string[],
+  dbType?: string,
 ): string {
-  return `INSERT INTO ${quoteTable(tableName, schema)} (${columnNames.map(c => quoteIdentifier(c)).join(', ')}) VALUES (${columnNames.map(() => 'DEFAULT').join(', ')}) RETURNING *`;
+  const table = quoteTable(tableName, schema);
+  const cols = columnNames.map(c => quoteIdentifier(c)).join(', ');
+  const vals = columnNames.map(() => 'DEFAULT').join(', ');
+  const returning = dbType === 'mssql' ? ' OUTPUT INSERTED.*' : ' RETURNING *';
+  return `INSERT INTO ${table} (${cols})${dbType === 'mssql' ? returning : ''} VALUES (${vals})${dbType !== 'mssql' ? returning : ''}`;
 }
 
 /** Build INSERT with explicit values (for inline row editing). __DEFAULT__ → DEFAULT keyword. */
@@ -288,6 +293,7 @@ export function buildInsertRowSql(
   schema: string | undefined,
   values: Record<string, unknown>,
   columnTypes: Record<string, string>,
+  dbType?: string,
 ): string {
   const colNames = Object.keys(values);
   const sqlValues = colNames.map(col => {
@@ -295,7 +301,10 @@ export function buildInsertRowSql(
     if (val === '__DEFAULT__') return 'DEFAULT';
     return sqlValue(val, columnTypes[col]);
   });
-  return `INSERT INTO ${quoteTable(tableName, schema)} (${colNames.map(c => quoteIdentifier(c)).join(', ')}) VALUES (${sqlValues.join(', ')}) RETURNING *`;
+  const table = quoteTable(tableName, schema);
+  const cols = colNames.map(c => quoteIdentifier(c)).join(', ');
+  const returning = dbType === 'mssql' ? ' OUTPUT INSERTED.*' : ' RETURNING *';
+  return `INSERT INTO ${table} (${cols})${dbType === 'mssql' ? returning : ''} VALUES (${sqlValues.join(', ')})${dbType !== 'mssql' ? returning : ''}`;
 }
 
 export interface StatementRange {

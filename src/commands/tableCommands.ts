@@ -152,7 +152,7 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
 
       const tableInfo = await driver.getTableInfo(tableName, schema);
       const colNames = tableInfo.columns.map(c => c.name);
-      const sql = buildInsertDefaultSql(tableName, schema, colNames) + ';';
+      const sql = buildInsertDefaultSql(tableName, schema, colNames, state?.config.type) + ';';
 
       const confirmEdits = vscode.workspace.getConfiguration('viewstor').get<boolean>('confirmEdits', true);
       if (confirmEdits) {
@@ -176,10 +176,9 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
       const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;
 
-      const statements = rows.map(row => buildInsertRowSql(tableName, schema, row.values, row.columnTypes) + ';');
-      const confirmEdits = vscode.workspace.getConfiguration('viewstor').get<boolean>('confirmEdits', true);
-
       const state = connectionManager.get(connectionId);
+      const statements = rows.map(row => buildInsertRowSql(tableName, schema, row.values, row.columnTypes, state?.config.type) + ';');
+      const confirmEdits = vscode.workspace.getConfiguration('viewstor').get<boolean>('confirmEdits', true);
       const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
 
       if (confirmEdits) {
@@ -215,7 +214,7 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
       const state = connectionManager.get(connectionId);
       const panelKey = explicitPanelKey || `${tableName} — ${state?.config.name}`;
 
-      const insertStatements = inserts.map(row => buildInsertRowSql(tableName, schema, row.values, row.columnTypes) + ';');
+      const insertStatements = inserts.map(row => buildInsertRowSql(tableName, schema, row.values, row.columnTypes, state?.config.type) + ';');
       const editStatements = edits.map(edit => buildUpdateSql(tableName, schema, pkColumns, edit) + ';');
       const allStatements = [...insertStatements, ...editStatements];
       if (allStatements.length === 0) return;
