@@ -232,6 +232,7 @@ export class ConnectionFormPanel {
         <vscode-option value="redis"${c?.type === 'redis' ? ' selected' : ''}>Redis</vscode-option>
         <vscode-option value="clickhouse"${c?.type === 'clickhouse' ? ' selected' : ''}>ClickHouse</vscode-option>
         <vscode-option value="sqlite"${c?.type === 'sqlite' ? ' selected' : ''}>SQLite</vscode-option>
+        <vscode-option value="qdrant"${c?.type === 'qdrant' ? ' selected' : ''}>Qdrant</vscode-option>
       </vscode-single-select>
     </div>
 
@@ -266,6 +267,11 @@ export class ConnectionFormPanel {
       <div id="dbDropdown" class="db-dropdown hidden"></div>
       <input type="hidden" id="database" value="${esc(c?.database)}" />
       <input type="hidden" id="databases" value="${esc(c?.databases?.join(','))}" />
+    </div>
+
+    <div id="qdrantApiKeyField" class="form-group hidden">
+      <label for="qdrantApiKey">API Key</label>
+      <vscode-textfield id="qdrantApiKey" type="password" placeholder="Optional" value="${c?.type === 'qdrant' ? esc(c?.password) : ''}"></vscode-textfield>
     </div>
 
     <div id="redisDbField" class="form-group hidden">
