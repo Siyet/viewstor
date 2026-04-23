@@ -6,8 +6,12 @@ import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, C
  * Generate the default diff query for a given table.
  * Pure function — unit-tested, no driver/vscode dependency.
  */
-export function buildDefaultDiffQuery(tableName: string, schema: string | undefined, rowLimit: number): string {
-  return `SELECT * FROM ${quoteTable(tableName, schema)} LIMIT ${rowLimit}`;
+export function buildDefaultDiffQuery(tableName: string, schema: string | undefined, rowLimit: number, databaseType?: string): string {
+  const table = quoteTable(tableName, schema);
+  if (databaseType === 'mssql') {
+    return `SELECT TOP(${rowLimit}) * FROM ${table}`;
+  }
+  return `SELECT * FROM ${table} LIMIT ${rowLimit}`;
 }
 
 /**

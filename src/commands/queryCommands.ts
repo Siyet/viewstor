@@ -134,12 +134,17 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
       {
         const trimmed = query.trim().replace(/;+\s*$/, '');
         const upper = trimmed.toUpperCase();
-        if (upper.startsWith('SELECT') && !upper.includes('LIMIT')) {
+        const hasLimit = upper.includes('LIMIT') || /\bTOP\s*\(/i.test(upper);
+        if (upper.startsWith('SELECT') && !hasLimit) {
           const autoLimit = Math.max(
             vscode.workspace.getConfiguration('viewstor').get<number>('defaultPageSize', 100),
             1000,
           );
-          finalQuery = trimmed + ` LIMIT ${autoLimit}`;
+          if (state?.config.type === 'mssql') {
+            finalQuery = trimmed.replace(/^SELECT\b/i, `SELECT TOP(${autoLimit})`);
+          } else {
+            finalQuery = trimmed + ` LIMIT ${autoLimit}`;
+          }
         } else {
           finalQuery = trimmed;
         }
@@ -242,7 +247,7 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
               } catch { /* table info unavailable — skip */ }
             }
 
-            const queryLimitMatch = finalQuery.match(/\bLIMIT\s+(\d+)/i);
+            const queryLimitMatch = finalQuery.match(/\bLIMIT\s+(\d+)/i) || finalQuery.match(/\bTOP\s*\(\s*(\d+)\s*\)/i);
             const queryPageSize = queryLimitMatch
               ? Math.min(parseInt(queryLimitMatch[1], 10), 1000)
               : Math.min(result.rowCount, 1000);
