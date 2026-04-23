@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitCustomQueryLimit, isReadOnlyQuery } from '../utils/queryHelpers';
+import { splitCustomQueryLimit, isReadOnlyQuery, buildInsertDefaultSql, buildInsertRowSql } from '../utils/queryHelpers';
 
 describe('splitCustomQueryLimit', () => {
   it('returns query unchanged when no LIMIT present', () => {
@@ -158,5 +158,35 @@ describe('isReadOnlyQuery — false-positive avoidance (literals/identifiers)', 
 
   it('handles dollar-quoted PG strings', () => {
     expect(isReadOnlyQuery('SELECT $body$DROP TABLE evil$body$')).toBe(true);
+  });
+});
+
+describe('buildInsertDefaultSql', () => {
+  it('uses RETURNING * for non-MSSQL', () => {
+    const sql = buildInsertDefaultSql('users', 'public', ['name', 'email']);
+    expect(sql).toContain('RETURNING *');
+    expect(sql).not.toContain('OUTPUT');
+  });
+
+  it('uses OUTPUT INSERTED.* for MSSQL', () => {
+    const sql = buildInsertDefaultSql('users', 'dbo', ['name', 'email'], 'mssql');
+    expect(sql).toContain('OUTPUT INSERTED.*');
+    expect(sql).not.toContain('RETURNING');
+    expect(sql).toMatch(/INSERT INTO.*OUTPUT INSERTED\.\*.*VALUES/);
+  });
+});
+
+describe('buildInsertRowSql', () => {
+  it('uses RETURNING * for non-MSSQL', () => {
+    const sql = buildInsertRowSql('users', 'public', { name: 'Alice' }, { name: 'text' });
+    expect(sql).toContain('RETURNING *');
+    expect(sql).not.toContain('OUTPUT');
+  });
+
+  it('uses OUTPUT INSERTED.* for MSSQL', () => {
+    const sql = buildInsertRowSql('users', 'dbo', { name: 'Alice' }, { name: 'nvarchar' }, 'mssql');
+    expect(sql).toContain('OUTPUT INSERTED.*');
+    expect(sql).not.toContain('RETURNING');
+    expect(sql).toMatch(/INSERT INTO.*OUTPUT INSERTED\.\*.*VALUES/);
   });
 });

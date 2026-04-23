@@ -823,6 +823,11 @@ describe('buildDefaultDiffQuery', () => {
     expect(buildDefaultDiffQuery('t', undefined, 1)).toBe('SELECT * FROM t LIMIT 1');
     expect(buildDefaultDiffQuery('t', undefined, 99999)).toBe('SELECT * FROM t LIMIT 99999');
   });
+
+  it('uses TOP(N) for MSSQL', () => {
+    expect(buildDefaultDiffQuery('users', 'dbo', 100, 'mssql')).toBe('SELECT TOP(100) * FROM dbo.users');
+    expect(buildDefaultDiffQuery('order', undefined, 50, 'mssql')).toBe('SELECT TOP(50) * FROM "order"');
+  });
 });
 
 // --- isReadOnlyStatement ---

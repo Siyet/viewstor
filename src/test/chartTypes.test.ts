@@ -11,6 +11,7 @@ import {
   TIME_BUCKET_PG,
   TIME_BUCKET_CH,
   TIME_BUCKET_SQLITE,
+  TIME_BUCKET_MSSQL,
 } from '../types/chart';
 
 const ALL_CHART_TYPES: EChartsChartType[] = [
@@ -428,5 +429,46 @@ describe('buildFullDataQuery — edge cases', () => {
   it('never includes LIMIT', () => {
     const sql = buildFullDataQuery('big_table', 'public', ['a', 'b', 'c', 'd', 'e']);
     expect(sql).not.toContain('LIMIT');
+  });
+});
+
+describe('buildAggregationQuery — MSSQL', () => {
+  it('all MSSQL time bucket presets produce DATETRUNC', () => {
+    for (const preset of ['second', 'minute', 'hour', 'day', 'month', 'year'] as const) {
+      const sql = buildAggregationQuery(
+        't', undefined, 'ts', ['v'], 'count', undefined,
+        { function: 'count', timeBucketPreset: preset }, 'mssql',
+      );
+      expect(sql).toContain('DATETRUNC');
+      expect(sql).toContain(TIME_BUCKET_MSSQL[preset]);
+    }
+  });
+
+  it('custom time bucket for MSSQL uses DATEADD/DATEDIFF', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['v'], 'avg', undefined,
+      { function: 'avg', timeBucketPreset: 'custom', timeBucket: '2h' }, 'mssql',
+    );
+    expect(sql).toContain('DATEADD');
+    expect(sql).toContain('DATEDIFF');
+    expect(sql).toContain('7200');
+  });
+
+  it('uses TOP(N) instead of LIMIT for MSSQL', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['v'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'day' }, 'mssql', 100,
+    );
+    expect(sql).toContain('TOP(100)');
+    expect(sql).not.toContain('LIMIT');
+  });
+
+  it('uses LIMIT for non-MSSQL when limit is specified', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['v'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'day' }, 'postgresql', 100,
+    );
+    expect(sql).toContain('LIMIT 100');
+    expect(sql).not.toContain('TOP');
   });
 });
