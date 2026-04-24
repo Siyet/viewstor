@@ -628,6 +628,7 @@
     "webpack-cli": "^5.1.0"
   },
   "dependencies": {
+    "@qdrant/js-client-rest": "^1.17.0",
     "@vscode-elements/elements": "^2.5.1",
     "@vscode/codicons": "^0.0.45",
     "better-sqlite3": "^12.8.0",

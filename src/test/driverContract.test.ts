@@ -27,10 +27,15 @@ vi.mock('ssh2', () => ({
   Client: class MockSSHClient {},
 }));
 
+vi.mock('@qdrant/js-client-rest', () => ({
+  QdrantClient: class MockQdrant {},
+}));
+
 import { PostgresDriver } from '../drivers/postgres';
 import { RedisDriver } from '../drivers/redis';
 import { ClickHouseDriver } from '../drivers/clickhouse';
 import { SqliteDriver } from '../drivers/sqlite';
+import { QdrantDriver } from '../drivers/qdrant';
 import { createDriver } from '../drivers';
 import type { DatabaseDriver } from '../types/driver';
 
@@ -57,7 +62,7 @@ const OPTIONAL_METHODS: (keyof DatabaseDriver)[] = [
 
 interface DriverSpec {
   name: string;
-  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
+  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite' | 'qdrant';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   DriverClass: new (...args: any[]) => DatabaseDriver;
   expectedOptional: (keyof DatabaseDriver)[];
@@ -111,6 +116,17 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getEstimatedRowCount',
       'getTableObjects',
       'getTableStatistics',
+    ],
+  },
+  {
+    name: 'QdrantDriver',
+    type: 'qdrant',
+    DriverClass: QdrantDriver,
+    expectedOptional: [
+      'getDDL',
+      'getCompletions',
+      'getTableRowCount',
+      'getEstimatedRowCount',
     ],
   },
 ];

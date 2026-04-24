@@ -79,6 +79,19 @@ describe('isReadOnlyQuery — happy path', () => {
   it('ignores trailing semicolon', () => {
     expect(isReadOnlyQuery('SELECT 1;')).toBe(true);
   });
+
+  it.each([
+    'LIST COLLECTIONS',
+    'SCROLL docs limit=10',
+    'SEARCH docs vector=[0.1,0.2] limit=5',
+    'COUNT my_collection',
+  ])('accepts Qdrant read verb: %s', (sql) => {
+    expect(isReadOnlyQuery(sql)).toBe(true);
+  });
+
+  it('rejects Qdrant write verb UPSERT', () => {
+    expect(isReadOnlyQuery('UPSERT docs id=1 vector=[0.1]')).toBe(false);
+  });
 });
 
 describe('isReadOnlyQuery — bypass rejection (review item #1)', () => {

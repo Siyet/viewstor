@@ -4,7 +4,7 @@ Guidance for Claude Code when working with this repository.
 
 ## What is Viewstor
 
-VS Code extension for database management. Supports PostgreSQL, Redis, ClickHouse, SQLite. Free, open-source (AGPL-3.0) alternative to DBeaver/DataGrip. Follows [ZeroVer](https://0ver.org) — version 0.x until API is stable.
+VS Code extension for database management. Supports PostgreSQL, Redis, ClickHouse, SQLite, Qdrant. Free, open-source (AGPL-3.0) alternative to DBeaver/DataGrip. Follows [ZeroVer](https://0ver.org) — version 0.x until API is stable.
 
 ## Commands
 
@@ -33,7 +33,9 @@ Required methods: `connect`, `disconnect`, `ping`, `execute`, `getSchema`, `getT
 
 Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff), `getTableStatistics` (row count, sizes, vacuum info, scan counters — used by stats diff tab; PG uses `pg_table_size`/`pg_indexes_size` + `pg_stat_user_tables`, CH uses `system.tables` + `system.parts`, SQLite uses `COUNT(*)` + optional `dbstat` vtable).
 
-Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
+Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3), `qdrant.ts` (@qdrant/js-client-rest).
+
+Qdrant driver: vector database over HTTP REST. Schema maps collections → vector configs + payload fields. Command DSL via `parseQdrantCommand()` (exported): `LIST COLLECTIONS`, `DESCRIBE <collection>`, `SCROLL <collection> [limit=N]`, `SEARCH <collection> vector=[...] limit=N`, `COUNT <collection>`, `UPSERT <collection> id=<id> vector=[...] [key=value]`, `DELETE <collection> id1 id2`. Password field stores API key. `getEstimatedRowCount` uses `points_count` from collection info; `getTableRowCount` uses exact `count()`. `getDDL` returns collection config JSON. No SQL, no safe mode, no proxy/SSL form fields (HTTP-only).
 
 ### Connections
 `src/connections/connectionManager.ts` — persists in VS Code `globalState` (keys: `viewstor.connections`, `viewstor.connectionFolders`).

@@ -2,7 +2,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
 
-  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0 };
+  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0, qdrant: 6333 };
 
   // VS Code custom elements expose `value` / `checked` properties just like
   // native form controls and emit `change` / `input` events. Wrappers below
@@ -42,6 +42,9 @@
   const sqliteFileField = $('sqliteFileField');
   const sqliteFile = $('sqliteFile');
 
+  const qdrantApiKeyField = $('qdrantApiKeyField');
+  const qdrantApiKey = $('qdrantApiKey');
+
   function $(id) { return document.getElementById(id); }
 
   const colorPicker = window.ViewstorColorPicker.attach({
@@ -56,16 +59,19 @@
   function updateFieldVisibility() {
     const isRedis = dbType.value === 'redis';
     const isSqlite = dbType.value === 'sqlite';
-    const isNetworkDb = !isRedis && !isSqlite;
-    authFields.style.display = isNetworkDb ? 'block' : 'none';
-    dbFields.style.display = isNetworkDb ? 'block' : 'none';
+    const isQdrant = dbType.value === 'qdrant';
+    const hasAuth = !isRedis && !isSqlite && !isQdrant;
+    const hasDbChips = !isRedis && !isSqlite && !isQdrant;
+    authFields.style.display = hasAuth ? 'block' : 'none';
+    dbFields.style.display = hasDbChips ? 'block' : 'none';
     if (hostPortRow) hostPortRow.style.display = isSqlite ? 'none' : '';
     redisDbField.classList.toggle('hidden', !isRedis);
     sqliteFileField.classList.toggle('hidden', !isSqlite);
-    if (sslGroup) sslGroup.style.display = isSqlite ? 'none' : '';
-    if (proxyGroup) proxyGroup.style.display = isSqlite ? 'none' : '';
+    qdrantApiKeyField.classList.toggle('hidden', !isQdrant);
+    if (sslGroup) sslGroup.style.display = (isSqlite || isQdrant) ? 'none' : '';
+    if (proxyGroup) proxyGroup.style.display = (isSqlite || isQdrant) ? 'none' : '';
     const hiddenSchemasGroup = $('hiddenSchemasGroup');
-    if (hiddenSchemasGroup) hiddenSchemasGroup.style.display = isSqlite ? 'none' : '';
+    if (hiddenSchemasGroup) hiddenSchemasGroup.style.display = (isSqlite || isQdrant) ? 'none' : '';
     updateProxyVisibility();
   }
 
@@ -246,16 +252,17 @@
   function getFormData() {
     const isRedis = dbType.value === 'redis';
     const isSqlite = dbType.value === 'sqlite';
+    const isQdrant = dbType.value === 'qdrant';
     return {
       id: connId.value || '',
       name: valueOf(connName).trim(),
       type: dbType.value,
       host: valueOf(host).trim(),
       port: valueOf(port),
-      username: valueOf(username).trim(),
-      password: valueOf(password),
+      username: isQdrant ? '' : valueOf(username).trim(),
+      password: isQdrant ? valueOf(qdrantApiKey) : valueOf(password),
       database: isRedis ? valueOf(redisDb) : isSqlite ? valueOf(sqliteFile).trim() : database.value.trim(),
-      databases: (isRedis || isSqlite) ? '' : databases.value.trim(),
+      databases: (isRedis || isSqlite || isQdrant) ? '' : databases.value.trim(),
       ssl: ssl.checked ? 'true' : 'false',
       color: colorPicker.getValue(),
       readonly: readonlyMode.checked ? 'true' : 'false',
@@ -342,6 +349,7 @@
           databases.value = (c.databases || []).join(',');
           if (c.type === 'redis') redisDb.value = c.database || '0';
           if (c.type === 'sqlite') sqliteFile.value = c.database || '';
+          if (c.type === 'qdrant') qdrantApiKey.value = c.password || '';
           initChips();
           ssl.checked = !!c.ssl;
           colorPicker.setValue(c.color || '');
