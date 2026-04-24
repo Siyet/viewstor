@@ -1,4 +1,4 @@
-import { Client, types } from 'pg';
+import type { Client as PgClient, types as PgTypes } from 'pg';
 import { DatabaseDriver } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
@@ -7,10 +7,18 @@ import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, Inde
 import { createSSHTunnel, createSocks5Connection, TunnelInfo } from '../connections/tunnel';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import { wrapError } from '../utils/errors';
+import { requireAdapter } from '../adapters/adapterManager';
 
-// Return raw strings for bigint, numeric, etc. instead of JS number
-types.setTypeParser(20, (val: string) => val); // int8
-types.setTypeParser(1700, (val: string) => val); // numeric
+let pgModule: { Client: typeof PgClient; types: typeof PgTypes } | undefined;
+
+function loadPg(): NonNullable<typeof pgModule> {
+  if (!pgModule) {
+    pgModule = requireAdapter('pg') as typeof pgModule;
+    pgModule!.types.setTypeParser(20, (val: string) => val); // int8
+    pgModule!.types.setTypeParser(1700, (val: string) => val); // numeric
+  }
+  return pgModule!;
+}
 
 /**
  * PG array_agg can come back as a JS array or as a `{curly,brace}` string
@@ -23,10 +31,11 @@ function toStringArray(value: unknown): string[] {
 }
 
 export class PostgresDriver implements DatabaseDriver {
-  private client: Client | undefined;
+  private client: PgClient | undefined;
   private tunnel: TunnelInfo | undefined;
 
   async connect(config: ConnectionConfig): Promise<void> {
+    const { Client } = loadPg();
     let host = config.host;
     let port = config.port;
     let stream: unknown;
@@ -78,6 +87,7 @@ export class PostgresDriver implements DatabaseDriver {
     const pid = (this.client as any).processID;
     if (!pid) return;
     // Use a temporary connection to cancel the running query
+    const { Client } = loadPg();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cancelClient = new Client((this.client as any).connectionParameters);
     try {

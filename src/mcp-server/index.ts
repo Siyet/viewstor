@@ -214,10 +214,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           username?: string; password?: string; database?: string;
           ssl?: boolean; readonly?: boolean;
         };
+
+        const { isAdapterInstalled, installAdapter } = await import('../adapters/adapterManager');
+        const installed: string[] = [];
+        if (!isAdapterInstalled(type)) {
+          await installAdapter(type);
+          installed.push(type);
+        }
+
         const id = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
         const config = { id, name: connName, type, host, port, username, password, database, ssl, readonly };
         await store.add(config);
-        return jsonResponse({ id, name: connName, type, host, port, database, message: 'Connection added' });
+        return jsonResponse({
+          id, name: connName, type, host, port, database,
+          message: 'Connection added',
+          ...(installed.length > 0 ? { installed } : {}),
+        });
       }
 
       case 'reload_connections': {

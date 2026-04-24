@@ -4,6 +4,7 @@ import * as os from 'os';
 import { ConnectionConfig } from '../types/connection';
 import { DatabaseDriver } from '../types/driver';
 import { createDriver } from '../drivers';
+import { setAdapterDir } from '../adapters/adapterManager';
 
 const USER_CONFIG_DIR = path.join(os.homedir(), '.viewstor');
 const USER_CONFIG_FILE = path.join(USER_CONFIG_DIR, 'connections.json');
@@ -21,6 +22,7 @@ export class ConnectionStore {
   private dbDriverLocks = new Map<string, Promise<DatabaseDriver>>();
 
   constructor() {
+    setAdapterDir(path.join(USER_CONFIG_DIR, 'adapters'));
     this.reload();
   }
 

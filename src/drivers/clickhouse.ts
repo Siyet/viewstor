@@ -1,10 +1,15 @@
-import { createClient, type ClickHouseClient } from '@clickhouse/client';
+import type { createClient as createClickHouseClient, ClickHouseClient } from '@clickhouse/client';
 import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import { wrapError } from '../utils/errors';
+import { requireAdapter } from '../adapters/adapterManager';
+
+function loadClickHouse(): { createClient: typeof createClickHouseClient } {
+  return requireAdapter('@clickhouse/client') as { createClient: typeof createClickHouseClient };
+}
 
 export class ClickHouseDriver implements DatabaseDriver {
   private client: ClickHouseClient | undefined;
@@ -12,6 +17,7 @@ export class ClickHouseDriver implements DatabaseDriver {
   private database: string | undefined;
 
   async connect(config: ConnectionConfig): Promise<void> {
+    const { createClient } = loadClickHouse();
     const protocol = config.ssl ? 'https' : 'http';
     this.database = config.database;
     this.client = createClient({

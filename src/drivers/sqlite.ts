@@ -5,13 +5,10 @@ import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/
 import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import { wrapError } from '../utils/errors';
+import { requireAdapter } from '../adapters/adapterManager';
 
-// Lazy-load better-sqlite3 to avoid crashing the entire extension on ABI mismatch.
-// Top-level require of this native module runs at bundle load time, which means
-// a broken binary (wrong Electron ABI, missing prebuild) prevents activate() from
-// ever executing — no commands get registered and all connections "disappear".
 function loadSqlite(): typeof BetterSqlite3 {
-  return require('better-sqlite3');
+  return requireAdapter('better-sqlite3') as typeof BetterSqlite3;
 }
 
 export class SqliteDriver implements DatabaseDriver {

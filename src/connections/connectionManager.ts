@@ -6,6 +6,7 @@ import { ConnectionConfig, ConnectionState, ConnectionFolder } from '../types/co
 import { DatabaseDriver } from '../types/driver';
 import { SchemaObject } from '../types/schema';
 import { createDriver } from '../drivers';
+import { isAdapterInstalled } from '../adapters/adapterManager';
 
 const STORAGE_KEY = 'viewstor.connections';
 const FOLDERS_KEY = 'viewstor.connectionFolders';
@@ -247,6 +248,10 @@ export class ConnectionManager {
     const state = this.connections.get(id);
     if (!state) {
       throw new Error(`Connection ${id} not found`);
+    }
+
+    if (!isAdapterInstalled(state.config.type)) {
+      throw new Error(`The ${state.config.type} adapter is not installed. Run "Viewstor: Manage Database Adapters" to install it.`);
     }
 
     const driver = createDriver(state.config.type);

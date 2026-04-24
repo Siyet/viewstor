@@ -346,6 +346,12 @@
         "title": "%command.showOnMap%",
         "category": "Viewstor",
         "icon": "$(globe)"
+      },
+      {
+        "command": "viewstor.manageAdapters",
+        "title": "%command.manageAdapters%",
+        "category": "Viewstor",
+        "icon": "$(extensions)"
       }
     ],
     "menus": {

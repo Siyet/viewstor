@@ -26,6 +26,11 @@ F5 in VS Code → Extension Development Host. Reload Window picks up new `dist/`
 ### Entry point
 `src/extension.ts` — activates on `viewstor.connections` view. Creates ConnectionManager, tree providers, form panels, completion/index providers, MCP commands.
 
+### Adapters
+`src/adapters/adapterRegistry.ts` — pure data: maps `DatabaseType` to npm package name, version, approximate size, native flag.
+
+`src/adapters/adapterManager.ts` — manages on-demand adapter installation. `setAdapterDir(dir)` (called in `activate()` with `globalStorageUri/adapters`, and in `ConnectionStore` constructor with `~/.viewstor/adapters`). `isAdapterInstalled(type)` checks adapter dir then falls back to `require.resolve` for dev. `installAdapter(type, onProgress?)` runs `npm install --prefix <adapterDir>`. `uninstallAdapter(type)`. `requireAdapter(packageName)` loads from adapter dir with dev fallback. `listAdapters()` returns all four types with installed status.
+
 ### Drivers
 `src/types/driver.ts` → `DatabaseDriver` interface. Factory in `src/drivers/index.ts`.
 
@@ -33,7 +38,7 @@ Required methods: `connect`, `disconnect`, `ping`, `execute`, `getSchema`, `getT
 
 Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff), `getTableStatistics` (row count, sizes, vacuum info, scan counters — used by stats diff tab; PG uses `pg_table_size`/`pg_indexes_size` + `pg_stat_user_tables`, CH uses `system.tables` + `system.parts`, SQLite uses `COUNT(*)` + optional `dbstat` vtable).
 
-Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
+Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3). All use lazy `require()` via `requireAdapter()` — no top-level imports of DB libraries. Webpack externalizes all four packages.
 
 ### Connections
 `src/connections/connectionManager.ts` — persists in VS Code `globalState` (keys: `viewstor.connections`, `viewstor.connectionFolders`).
@@ -216,7 +221,8 @@ All commands support `databaseName` parameter for multi-DB connections.
 - State in `context.globalState`, not files (project-scoped in `.vscode/viewstor.json`)
 - `viewstor:` URI scheme links query editors to connections via `connectionMap`
 - Redis driver parses raw commands (`parseRedisCommand`, exported), not SQL
-- Webpack externalizes `vscode` — never bundle it
+- Webpack externalizes `vscode`, `pg`, `ioredis`, `@clickhouse/client`, `better-sqlite3`, `ssh2` — never bundle them
+- DB adapter libraries loaded on demand via `requireAdapter()` from `src/adapters/adapterManager.ts`; adapter dir is `globalStorageUri/adapters` (extension) or `~/.viewstor/adapters` (MCP server)
 - `pg-native` build warning is expected
 - Tests: vitest (unit `src/test/`, e2e `src/test/e2e/`), separate configs
 - Estimated row count for fast table open; exact via refresh button
