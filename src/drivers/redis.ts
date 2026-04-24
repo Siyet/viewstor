@@ -168,6 +168,7 @@ export class RedisDriver implements DatabaseDriver {
       case 'set': rowCount = await this.client!.scard(name); break;
       case 'zset': rowCount = await this.client!.zcard(name); break;
       case 'hash': rowCount = await this.client!.hlen(name); break;
+      case 'stream': rowCount = await this.client!.xlen(name); break;
     }
 
     let totalSize: number | null = null;

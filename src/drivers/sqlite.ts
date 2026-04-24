@@ -389,17 +389,10 @@ export class SqliteDriver implements DatabaseDriver {
       tableSize = row?.sz ?? null;
 
       // total_size = table pages + all its index pages
-      const indexNames = this.db!.prepare(
-        'SELECT name FROM sqlite_master WHERE type = ? AND tbl_name = ?'
-      ).all('index', name) as { name: string }[];
-      let indexSize = 0;
-      for (const idx of indexNames) {
-        const idxRow = this.db!.prepare(
-          'SELECT SUM(pgsize) AS sz FROM dbstat WHERE name = ?'
-        ).get(idx.name) as { sz: number | null };
-        indexSize += idxRow?.sz ?? 0;
-      }
-      totalSize = (tableSize ?? 0) + indexSize;
+      const idxSizeRow = this.db!.prepare(
+        'SELECT SUM(pgsize) AS sz FROM dbstat WHERE name IN (SELECT name FROM sqlite_master WHERE type = ? AND tbl_name = ?)'
+      ).get('index', name) as { sz: number | null };
+      totalSize = (tableSize ?? 0) + (idxSizeRow?.sz ?? 0);
     } catch { /* dbstat unavailable */ }
 
     return [
