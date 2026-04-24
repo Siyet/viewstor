@@ -83,7 +83,9 @@ const DRIVER_SPECS: DriverSpec[] = [
     name: 'RedisDriver',
     type: 'redis',
     DriverClass: RedisDriver,
-    expectedOptional: [],
+    expectedOptional: [
+      'getTableStatistics',
+    ],
   },
   {
     name: 'ClickHouseDriver',
