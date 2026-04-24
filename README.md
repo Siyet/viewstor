@@ -157,7 +157,7 @@ Compare data between tables — even across different connections (dev vs stagin
 - Export diff as CSV or JSON
 - Configure max rows in settings (`viewstor.diffRowLimit`, default 10,000)
 
-Also available via Command Palette: `Viewstor: Compare Data`.
+Also available via Command Palette: `Viewstor: Compare Data` — opens the diff panel immediately with placeholder panes; click each side to pick a table.
 
 ### Map View
 
