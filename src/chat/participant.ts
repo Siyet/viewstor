@@ -3,6 +3,8 @@ import { ConnectionManager } from '../connections/connectionManager';
 import { QueryEditorProvider } from '../editors/queryEditor';
 import { SchemaObject } from '../types/schema';
 import { wrapError } from '../utils/errors';
+import { isAdapterInstalled } from '../adapters/adapterManager';
+import { ensureAdapterInstalled } from '../commands/adapterCommands';
 
 const PARTICIPANT_ID = 'viewstor.chat';
 
@@ -21,6 +23,14 @@ export function registerChatParticipant(
 
     const state = connectionManager.get(connectionId);
     if (!state) return;
+
+    if (!isAdapterInstalled(state.config.type)) {
+      const installed = await ensureAdapterInstalled(state.config.type);
+      if (!installed) {
+        stream.markdown(vscode.l10n.t('The {0} database adapter is required. Install it via "Viewstor: Manage Database Adapters".', state.config.type));
+        return;
+      }
+    }
 
     // Auto-connect if needed
     let driver = connectionManager.getDriver(connectionId);

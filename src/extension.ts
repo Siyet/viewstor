@@ -23,6 +23,8 @@ import { MapPanelManager } from './map/mapPanel';
 import { TempFileManager } from './services/tempFileManager';
 import { QueryFileManager } from './services/queryFileManager';
 import { setDebugChannel, dbg } from './utils/debug';
+import { setAdapterDir } from './adapters/adapterManager';
+import { registerAdapterCommands } from './commands/adapterCommands';
 
 let connectionManager: ConnectionManager;
 let outputChannel: vscode.LogOutputChannel;
@@ -36,6 +38,11 @@ export function activate(context: vscode.ExtensionContext) {
 
   try {
     dbg('activate', 'starting activation');
+
+    const adapterPath = path.join(context.globalStorageUri.fsPath, 'adapters');
+    setAdapterDir(adapterPath);
+    dbg('activate', 'adapter dir:', adapterPath);
+
     connectionManager = new ConnectionManager(context);
 
     const connectionTreeProvider = new ConnectionTreeProvider(connectionManager);
@@ -109,6 +116,8 @@ export function activate(context: vscode.ExtensionContext) {
       diffPanelManager,
       mapPanelManager,
     });
+
+    registerAdapterCommands(context);
 
     // MCP-compatible commands for AI agent integration
     registerMcpCommands(context, connectionManager);

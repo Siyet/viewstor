@@ -65,6 +65,10 @@ Passwords are excluded for security — you'll enter them on first connect. See 
 
 ## Features
 
+### On-demand database adapters
+
+Database driver libraries (pg, ioredis, @clickhouse/client, better-sqlite3) are not bundled with the extension. On first connection of each type, Viewstor prompts to download the adapter (~2–8 MB). Subsequent connections of the same type skip the download. Manage installed adapters via `Viewstor: Manage Database Adapters` in the Command Palette. The MCP `add_connection` tool auto-installs missing adapters.
+
 ### Safe Mode
 
 Production databases deserve guardrails. Safe mode runs `EXPLAIN` before every `SELECT` and catches full table scans:

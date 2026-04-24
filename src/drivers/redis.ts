@@ -1,15 +1,22 @@
-import Redis from 'ioredis';
+import type Redis from 'ioredis';
 import { DatabaseDriver } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, MAX_RESULT_ROWS } from '../types/query';
 import { SchemaObject, TableInfo } from '../types/schema';
 import { wrapError } from '../utils/errors';
+import { requireAdapter } from '../adapters/adapterManager';
+
+function loadRedis(): typeof Redis {
+  const mod = requireAdapter('ioredis') as { default?: typeof Redis } & typeof Redis;
+  return mod.default || mod;
+}
 
 export class RedisDriver implements DatabaseDriver {
   private client: Redis | undefined;
 
   async connect(config: ConnectionConfig): Promise<void> {
-    this.client = new Redis({
+    const RedisClient = loadRedis();
+    this.client = new RedisClient({
       host: config.host,
       port: config.port,
       password: config.password,

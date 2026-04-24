@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { CommandContext, logAndShowError, wrapError } from './shared';
 import { ConnectionTreeItem } from '../views/connectionTree';
 import { ImportSource, parseImportFile } from '../services/importService';
+import { isAdapterInstalled } from '../adapters/adapterManager';
+import { ensureAdapterInstalled } from './adapterCommands';
 
 export function registerConnectionCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
   const { connectionManager, connectionTreeProvider, connectionFormPanel, folderFormPanel, queryEditorProvider } = ctx;
@@ -40,6 +42,11 @@ export function registerConnectionCommands(context: vscode.ExtensionContext, ctx
 
     vscode.commands.registerCommand('viewstor.connect', async (item?: ConnectionTreeItem) => {
       if (!item?.connectionId) return;
+      const state = connectionManager.get(item.connectionId);
+      if (state && !isAdapterInstalled(state.config.type)) {
+        const installed = await ensureAdapterInstalled(state.config.type);
+        if (!installed) return;
+      }
       try {
         await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Connecting...') },
@@ -63,6 +70,10 @@ export function registerConnectionCommands(context: vscode.ExtensionContext, ctx
       if (!item?.connectionId) return;
       const state = connectionManager.get(item.connectionId);
       if (state && !state.connected) {
+        if (!isAdapterInstalled(state.config.type)) {
+          const installed = await ensureAdapterInstalled(state.config.type);
+          if (!installed) return;
+        }
         try {
           await connectionManager.connect(item.connectionId);
         } catch (err) {

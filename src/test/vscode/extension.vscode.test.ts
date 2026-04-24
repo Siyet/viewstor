@@ -108,6 +108,7 @@ suite('Extension Activation', () => {
       'viewstor._openTableDataFromMcp',
       'viewstor.compareWith',
       'viewstor.compareData',
+      'viewstor.manageAdapters',
     ];
     for (const cmd of required) {
       assert.ok(commands.includes(cmd), `Command ${cmd} not registered`);
