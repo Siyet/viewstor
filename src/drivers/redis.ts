@@ -7,8 +7,8 @@ import { wrapError } from '../utils/errors';
 import { requireAdapter } from '../adapters/adapterManager';
 
 function loadRedis(): typeof Redis {
-  const mod = requireAdapter('ioredis') as { default: typeof Redis };
-  return mod.default;
+  const mod = requireAdapter('ioredis') as { default?: typeof Redis } & typeof Redis;
+  return mod.default || mod;
 }
 
 export class RedisDriver implements DatabaseDriver {
