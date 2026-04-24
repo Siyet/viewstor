@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { listAdapters, installAdapter, uninstallAdapter, isAdapterInstalled } from '../adapters/adapterManager';
+import { getAdapterSpec } from '../adapters/adapterRegistry';
 import { DatabaseType } from '../types/connection';
 
 export function registerAdapterCommands(context: vscode.ExtensionContext) {
@@ -70,16 +71,11 @@ export async function ensureAdapterInstalled(type: DatabaseType): Promise<boolea
 
   const install = vscode.l10n.t('Install');
   const result = await vscode.window.showWarningMessage(
-    vscode.l10n.t('The {0} database adapter is not installed. Install it now (~{1} MB)?', type, String(getApproxSize(type))),
+    vscode.l10n.t('The {0} database adapter is not installed. Install it now (~{1} MB)?', type, String(getAdapterSpec(type).approxSizeMB)),
     install,
     vscode.l10n.t('Cancel'),
   );
   if (result !== install) return false;
 
   return installAdapterWithProgress(type);
-}
-
-function getApproxSize(type: DatabaseType): number {
-  const adapters = listAdapters();
-  return adapters.find(a => a.type === type)?.spec.approxSizeMB ?? 0;
 }
