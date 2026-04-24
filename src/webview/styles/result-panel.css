@@ -194,11 +194,11 @@ tbody tr:nth-child(even) .row-num {
   background: color-mix(in srgb, var(--vscode-editor-background) 96%, var(--vscode-foreground));
 }
 
-tr:hover {
+tbody tr:hover {
   background: var(--vscode-list-hoverBackground);
 }
 
-tr:hover .row-num {
+tbody tr:hover .row-num {
   background: var(--vscode-list-hoverBackground);
 }
 
@@ -275,11 +275,11 @@ td.modified {
   border-left: 3px solid var(--vscode-inputValidation-warningBorder);
 }
 
-tr.new-row {
+tbody tr.new-row {
   background: var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08));
 }
 
-tr.out-of-query-row {
+tbody tr.out-of-query-row {
   opacity: 0.4;
 }
 
