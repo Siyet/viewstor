@@ -1,6 +1,6 @@
 import { ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
 import { quoteTable } from '../utils/queryHelpers';
-import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult } from './diffTypes';
+import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult, NWayDiffOptions, NWayMatchedRow, NWayRowDiffResult, NWayColumnCompare, NWaySchemaDiffResult, NWayStatsDiffItem, NWayStatsDiffResult } from './diffTypes';
 
 /**
  * Generate the default diff query for a given table.
@@ -579,4 +579,223 @@ export function exportDiffAsJson(result: RowDiffResult): string {
     added: result.rightOnly,
     removed: result.leftOnly,
   }, null, 2);
+}
+
+// ---------------------------------------------------------------------------
+// N-way (multi-source) diff
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute row-level diff across N sources.
+ * One source is the reference (default index 0). Every other source is
+ * compared against it using the key columns.
+ */
+export function computeNWayRowDiff(sources: DiffSource[], options: NWayDiffOptions): NWayRowDiffResult {
+  const n = sources.length;
+  if (n < 2) throw new Error('computeNWayRowDiff requires at least 2 sources');
+
+  const { keyColumns, rowLimit, referenceIndex = 0 } = options;
+  if (referenceIndex < 0 || referenceIndex >= n) throw new Error(`referenceIndex ${referenceIndex} out of bounds`);
+
+  const sliced = sources.map(s => s.rows.slice(0, rowLimit));
+  const truncated = sources.some(s => s.rows.length > rowLimit);
+
+  const allColumnsSet = new Set<string>();
+  for (const s of sources) {
+    for (const c of s.columns) allColumnsSet.add(c.name);
+  }
+  const allColumns = [...allColumnsSet];
+  const nonKeyColumns = allColumns.filter(col => !keyColumns.includes(col));
+
+  const indexes: Map<string, Record<string, unknown>>[] = sliced.map(rows => {
+    const m = new Map<string, Record<string, unknown>>();
+    for (const row of rows) m.set(buildRowKey(row, keyColumns), row);
+    return m;
+  });
+
+  const allKeys = new Set<string>();
+  for (const idx of indexes) {
+    for (const key of idx.keys()) allKeys.add(key);
+  }
+
+  const matched: NWayMatchedRow[] = [];
+  const sourceOnly: Record<string, unknown>[][] = Array.from({ length: n }, () => []);
+  let unchanged = 0;
+  let changed = 0;
+  let added = 0;
+  let removed = 0;
+
+  for (const key of allKeys) {
+    const values: (Record<string, unknown> | null)[] = indexes.map(idx => idx.get(key) ?? null);
+    const refRow = values[referenceIndex];
+
+    if (!refRow) {
+      for (let i = 0; i < n; i++) {
+        if (values[i]) sourceOnly[i].push(values[i]!);
+      }
+      added += values.filter((v, i) => v && i !== referenceIndex).length ? 1 : 0;
+      continue;
+    }
+
+    const otherPresent = values.some((v, i) => i !== referenceIndex && v !== null);
+    if (!otherPresent) {
+      sourceOnly[referenceIndex].push(refRow);
+      removed++;
+      continue;
+    }
+
+    const changedCols: string[] = [];
+    for (const col of nonKeyColumns) {
+      const refVal = stringifyCell(refRow[col]);
+      for (let i = 0; i < n; i++) {
+        if (i === referenceIndex || !values[i]) continue;
+        if (stringifyCell(values[i]![col]) !== refVal) {
+          changedCols.push(col);
+          break;
+        }
+      }
+    }
+
+    matched.push({ key, values, changedColumns: changedCols });
+    if (changedCols.length === 0) unchanged++;
+    else changed++;
+  }
+
+  const refRowCount = sliced[referenceIndex].length;
+  return {
+    sourceCount: n,
+    allColumns,
+    matched,
+    sourceOnly,
+    truncated,
+    summary: {
+      total: refRowCount + added,
+      unchanged,
+      changed,
+      added,
+      removed,
+    },
+  };
+}
+
+/**
+ * Compute schema-level diff across N column lists.
+ * Collects all column names and compares type, nullable, PK, and comment
+ * across all sources.
+ */
+export function computeNWaySchemaDiff(columnSets: ColumnInfo[][]): NWaySchemaDiffResult {
+  const n = columnSets.length;
+  if (n < 2) throw new Error('computeNWaySchemaDiff requires at least 2 sources');
+
+  const maps = columnSets.map(cols => {
+    const m = new Map<string, ColumnInfo>();
+    for (const c of cols) m.set(c.name, c);
+    return m;
+  });
+
+  const allNames = new Set<string>();
+  for (const m of maps) for (const name of m.keys()) allNames.add(name);
+
+  const columns: NWayColumnCompare[] = [];
+
+  for (const name of allNames) {
+    const present = maps.map(m => m.has(name));
+    const types = maps.map(m => m.get(name)?.dataType ?? '');
+    const nullables = maps.map(m => m.get(name)?.nullable ?? false);
+    const isPKs = maps.map(m => m.get(name)?.isPrimaryKey ?? false);
+    const comments = maps.map(m => m.get(name)?.comment);
+
+    const refType = types[0];
+    const refNull = nullables[0];
+    const refPK = isPKs[0];
+    const refComment = comments[0] || '';
+
+    let hasDifferences = !present.every(p => p === present[0]);
+    if (!hasDifferences) {
+      hasDifferences = types.some(t => t !== refType)
+        || nullables.some(n => n !== refNull)
+        || isPKs.some(pk => pk !== refPK)
+        || comments.some(c => (c || '') !== refComment);
+    }
+
+    columns.push({ name, types, nullables, isPKs, comments, present, hasDifferences });
+  }
+
+  return { sourceCount: n, columns };
+}
+
+/**
+ * Compute statistics diff across N stat lists.
+ * Collects all keys and builds one row per unique key with values from
+ * each source.
+ */
+export function computeNWayStatsDiff(statSets: (TableStatistic[] | undefined)[]): NWayStatsDiffResult {
+  const n = statSets.length;
+  if (n < 2) throw new Error('computeNWayStatsDiff requires at least 2 sources');
+
+  const resolved = statSets.map(s => s || []);
+  const maps = resolved.map(stats => {
+    const m = new Map<string, TableStatistic>();
+    for (const s of stats) m.set(s.key, s);
+    return m;
+  });
+
+  const orderedKeys: string[] = [];
+  const seen = new Set<string>();
+  for (const stats of resolved) {
+    for (const s of stats) {
+      if (!seen.has(s.key)) {
+        seen.add(s.key);
+        orderedKeys.push(s.key);
+      }
+    }
+  }
+
+  const items: NWayStatsDiffItem[] = [];
+
+  for (const key of orderedKeys) {
+    const entries = maps.map(m => m.get(key));
+    const ref = entries.find(e => e !== undefined)!;
+    const present = entries.map(e => e !== undefined);
+    const values = entries.map(e => e ? e.value : null);
+
+    const firstNonNull = values.find(v => v !== null);
+    let hasDifferences = !present.every(p => p === present[0]);
+    if (!hasDifferences && firstNonNull !== undefined) {
+      const refStr = String(values[0]);
+      hasDifferences = values.some(v => String(v) !== refStr);
+    }
+
+    items.push({
+      key,
+      label: ref.label,
+      unit: ref.unit,
+      badWhen: ref.badWhen,
+      values,
+      present,
+      hasDifferences,
+    });
+  }
+
+  return { sourceCount: n, items };
+}
+
+/**
+ * Adapt a 2-source computeRowDiff call to the N-way engine and convert
+ * the result back to the legacy RowDiffResult shape.
+ */
+export function nwayToLegacyRowDiff(nway: NWayRowDiffResult): RowDiffResult {
+  return {
+    allColumns: nway.allColumns,
+    matched: nway.matched.map(m => ({
+      key: m.key,
+      left: m.values[0]!,
+      right: m.values[1]!,
+      changedColumns: m.changedColumns,
+    })),
+    leftOnly: nway.sourceOnly[0],
+    rightOnly: nway.sourceOnly[1],
+    truncated: nway.truncated,
+    summary: nway.summary,
+  };
 }
