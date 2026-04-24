@@ -275,7 +275,6 @@ describe('buildResultHtml — cell editing', () => {
       readonly: false,
     });
     expect(html).toContain('editable');
-    expect(html).toContain('cursor:text');
   });
 
   it('does not mark cells as editable when readonly', () => {
@@ -477,5 +476,107 @@ describe('buildResultHtml — inline JS syntax', () => {
     );
     const html = buildResultHtml(result);
     expect(() => extractAndValidateScripts(html)).not.toThrow();
+  });
+});
+
+// ============================================================
+// @vscode-elements migration
+// ============================================================
+
+describe('buildResultHtml — vscode-elements components', () => {
+  it('uses vscode-button for toolbar buttons', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result);
+    expect(html).toContain('<vscode-button id="exportBtn"');
+    expect(html).toContain('<vscode-button id="visualizeBtn"');
+    expect(html).toContain('<vscode-button id="mapBtn"');
+    expect(html).toContain('<vscode-button id="refreshBtn"');
+  });
+
+  it('uses vscode-textfield for search input', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result);
+    expect(html).toContain('<vscode-textfield id="searchInput"');
+    expect(html).toContain('placeholder="Search..."');
+  });
+
+  it('uses vscode-single-select for page size', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result);
+    expect(html).toContain('<vscode-single-select id="pageSize"');
+    expect(html).toContain('<vscode-option value="100"');
+  });
+
+  it('uses vscode-single-select for export format', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result);
+    expect(html).toContain('<vscode-single-select id="exportFormat"');
+    expect(html).toContain('<vscode-option value="csv">CSV</vscode-option>');
+  });
+
+  it('uses vscode-icon for codicon icons', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result);
+    expect(html).toContain('name="search"');
+    expect(html).toContain('name="export"');
+    expect(html).toContain('name="graph"');
+    expect(html).toContain('name="refresh"');
+  });
+
+  it('uses vscode-button for footer buttons', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result);
+    expect(html).toContain('<vscode-button id="footerExportBtn"');
+    expect(html).toContain('<vscode-button id="footerRefreshBtn"');
+  });
+
+  it('uses vscode-button for query run in table mode', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result, { connectionId: 'x', tableName: 't' });
+    expect(html).toContain('<vscode-button id="queryRun"');
+    expect(html).toContain('name="play"');
+  });
+
+  it('includes toolbar grouping with separators', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result);
+    expect(html).toContain('toolbar-group');
+    expect(html).toContain('toolbar-sep');
+    expect(html).toContain('toolbar-spacer');
+  });
+
+  it('renders type annotations with col-type class', () => {
+    const result = makeResult(
+      [{ name: 'id', dataType: 'integer' }, { name: 'name', dataType: 'text' }],
+      [{ id: 1, name: 'Alice' }],
+    );
+    const html = buildResultHtml(result);
+    expect(html).toContain('dataTypeClass');
+    expect(html).toContain('col-type');
+  });
+
+  it('includes data-type-class attribute in inline JS', () => {
+    const result = makeResult(
+      [{ name: 'id', dataType: 'integer' }],
+      [{ id: 1 }],
+    );
+    const html = buildResultHtml(result);
+    expect(html).toContain('data-type-class');
+  });
+
+  it('includes CSP and external asset links when uris provided', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result, undefined, {
+      tokensUri: 'https://test/tokens.css',
+      codiconUri: 'https://test/codicon.css',
+      resultPanelUri: 'https://test/result-panel.css',
+      shellUri: 'https://test/shell.js',
+      elementsUri: 'https://test/elements.js',
+      cspSource: 'https://test',
+    });
+    expect(html).toContain('Content-Security-Policy');
+    expect(html).toContain('https://test/tokens.css');
+    expect(html).toContain('https://test/result-panel.css');
+    expect(html).toContain('https://test/elements.js');
   });
 });
