@@ -381,18 +381,34 @@ export class SqliteDriver implements DatabaseDriver {
 
     // dbstat is an optional virtual table — present when SQLite is built with SQLITE_ENABLE_DBSTAT_VTAB.
     let tableSize: number | null = null;
+    let totalSize: number | null = null;
     try {
       const row = this.db!.prepare(
         'SELECT SUM(pgsize) AS sz FROM dbstat WHERE name = ?'
       ).get(name) as { sz: number | null };
       tableSize = row?.sz ?? null;
+
+      // total_size = table pages + all its index pages
+      const indexNames = this.db!.prepare(
+        'SELECT name FROM sqlite_master WHERE type = ? AND tbl_name = ?'
+      ).all('index', name) as { name: string }[];
+      let indexSize = 0;
+      for (const idx of indexNames) {
+        const idxRow = this.db!.prepare(
+          'SELECT SUM(pgsize) AS sz FROM dbstat WHERE name = ?'
+        ).get(idx.name) as { sz: number | null };
+        indexSize += idxRow?.sz ?? 0;
+      }
+      totalSize = (tableSize ?? 0) + indexSize;
     } catch { /* dbstat unavailable */ }
 
     return [
       { key: 'row_count', label: 'Row count', value: rowCount, unit: 'count' },
+      { key: 'total_size', label: 'Total size', value: totalSize, unit: 'bytes' },
       { key: 'table_size', label: 'Table size', value: tableSize, unit: 'bytes' },
       { key: 'index_count', label: 'Index count', value: idxCount.cnt, unit: 'count' },
       { key: 'trigger_count', label: 'Trigger count', value: triggerCount.cnt, unit: 'count' },
+      { key: 'last_modified', label: 'Last modified', value: null, unit: 'date' },
     ];
   }
 
