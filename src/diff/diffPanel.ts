@@ -141,8 +141,11 @@ export class DiffPanelManager {
       const rightDriver = await getDriver(right);
       if (!leftDriver || !rightDriver) {
         vscode.window.showErrorMessage(vscode.l10n.t('Could not get database driver.'));
+        this.resetPendingPanel(state);
         return;
       }
+
+      if (this.pendingDiff !== state) return;
 
       const [leftInfo, rightInfo, leftData, rightData] = await Promise.all([
         leftDriver.getTableInfo(left.tableName, left.schema),
@@ -150,6 +153,8 @@ export class DiffPanelManager {
         leftDriver.getTableData(left.tableName, left.schema, rowLimit, 0),
         rightDriver.getTableData(right.tableName, right.schema, rowLimit, 0),
       ]);
+
+      if (this.pendingDiff !== state) return;
 
       let leftObjects, rightObjects;
       try {
@@ -180,9 +185,14 @@ export class DiffPanelManager {
           leftInfo.columns.map(c => ({ label: c.name, description: c.dataType, picked: false })),
           { canPickMany: true, placeHolder: vscode.l10n.t('No primary key found. Select key column(s) for matching:') },
         );
-        if (!colPick || colPick.length === 0) return;
+        if (!colPick || colPick.length === 0) {
+          this.resetPendingPanel(state);
+          return;
+        }
         keyColumns = colPick.map(c => c.label);
       }
+
+      if (this.pendingDiff !== state) return;
 
       const leftSource: DiffSource = {
         label: `${left.connectionName} → ${left.tableName}`,
@@ -216,8 +226,18 @@ export class DiffPanelManager {
         existingPanel,
       );
     } catch (err) {
+      this.resetPendingPanel(state);
       vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', wrapError(err)));
     }
+  }
+
+  private resetPendingPanel(state: PendingDiffState): void {
+    if (this.pendingDiff !== state) return;
+    state.leftPick = undefined;
+    state.rightPick = undefined;
+    state.disposable.dispose();
+    state.panel.webview.html = this.buildPendingHtml(state.panel.webview, state);
+    state.disposable = this.registerPendingMessageHandler(state);
   }
 
   // --- Read-only query API (production + tests) ---
