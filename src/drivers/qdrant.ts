@@ -84,7 +84,7 @@ export class QdrantDriver implements DatabaseDriver {
       const parsed = parseQdrantCommand(query);
       if (!parsed) {
         return {
-          columns: [], rows: [], rowCount: 0, executionTimeMs: 0,
+          columns: [], rows: [], rowCount: 0, executionTimeMs: Date.now() - start,
           error: `Unknown Qdrant command: ${query.trim().split(/\s+/)[0]?.toUpperCase() || query}. Supported: LIST COLLECTIONS, DESCRIBE <collection>, SEARCH <collection> vector=[...] limit=N, SCROLL <collection> [limit=N], COUNT <collection>, UPSERT <collection> id=<id> vector=[...] [key=value ...], DELETE <collection> id1 id2 ...`,
         };
       }
@@ -325,7 +325,7 @@ export class QdrantDriver implements DatabaseDriver {
       const row: Record<string, unknown> = { id: r.id, score: r.score };
       if (r.payload) {
         for (const [k, v] of Object.entries(r.payload)) {
-          row[k] = typeof v === 'object' ? JSON.stringify(v) : v;
+          row[k] = typeof v === 'object' && v !== null ? JSON.stringify(v) : v;
         }
       }
       return row;
@@ -423,7 +423,7 @@ export class QdrantDriver implements DatabaseDriver {
       if (hasScore) row.score = p.score;
       if (p.payload) {
         for (const [k, v] of Object.entries(p.payload)) {
-          row[k] = typeof v === 'object' ? JSON.stringify(v) : v;
+          row[k] = typeof v === 'object' && v !== null ? JSON.stringify(v) : v;
         }
       }
       if (hasVector && p.vector) {

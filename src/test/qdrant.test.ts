@@ -123,6 +123,15 @@ describe('parseQdrantCommand', () => {
         options: { _args: 'abc-123 def-456' },
       });
     });
+
+    it('parses DELETE with no IDs (empty _args)', () => {
+      const result = parseQdrantCommand('DELETE docs');
+      expect(result).toEqual({
+        command: 'DELETE',
+        collection: 'docs',
+        options: { _args: '' },
+      });
+    });
   });
 
   describe('invalid commands', () => {
