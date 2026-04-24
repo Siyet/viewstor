@@ -282,22 +282,27 @@ export class ClickHouseDriver implements DatabaseDriver {
     // Part stats are only populated for MergeTree-family engines.
     let activeParts: number | null = null;
     let totalParts: number | null = null;
+    let lastModified: string | null = null;
     try {
       const partsRes = await this.client!.query({
         query: `SELECT
                   countIf(active) AS active_parts,
-                  count() AS total_parts
+                  count() AS total_parts,
+                  max(modification_time) AS last_modified
                 FROM system.parts
                 WHERE database = {db:String} AND table = {name:String}`,
         format: 'JSONEachRow',
         query_params: { db, name },
       });
-      const partsRows = await partsRes.json<{ active_parts: string | number; total_parts: string | number }[]>();
+      const partsRows = await partsRes.json<{ active_parts: string | number; total_parts: string | number; last_modified: string | null }[]>();
       if (partsRows[0]) {
         activeParts = parseInt(String(partsRows[0].active_parts), 10);
         totalParts = parseInt(String(partsRows[0].total_parts), 10);
         if (!Number.isFinite(activeParts)) activeParts = null;
         if (!Number.isFinite(totalParts)) totalParts = null;
+        lastModified = partsRows[0].last_modified && partsRows[0].last_modified !== '1970-01-01 00:00:00'
+          ? partsRows[0].last_modified
+          : null;
       }
     } catch { /* system.parts unavailable for non-MergeTree tables */ }
 
@@ -324,6 +329,7 @@ export class ClickHouseDriver implements DatabaseDriver {
       { key: 'lifetime_bytes', label: 'Lifetime bytes inserted', value: toNumber(row?.lifetime_bytes), unit: 'bytes' },
       { key: 'engine', label: 'Engine', value: row?.engine ?? null, unit: 'text' },
       { key: 'metadata_modified', label: 'Metadata modified', value: row?.metadata_modification_time ?? null, unit: 'date' },
+      { key: 'last_modified', label: 'Last modified', value: lastModified, unit: 'date' },
     ];
   }
 

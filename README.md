@@ -151,7 +151,7 @@ Compare data between tables — even across different connections (dev vs stagin
 - Right-click a table → **Compare With...** → pick another table from any connected database
 - **Row diff** — matches rows by primary key, highlights added/removed/changed cells side-by-side, zebra-striped rows
 - **Schema diff** — compare column names, types, nullability, PK status, plus indexes, constraints, triggers, and sequences
-- **Statistics diff** — side-by-side row count, table/index/total size, dead tuples, last vacuum/analyze, scan counters (PostgreSQL); row count, compressed/uncompressed size, compression ratio, parts, engine (ClickHouse); row count, table size, index/trigger counts (SQLite). Only shown when both sides are the same database type
+- **Statistics diff** — side-by-side row count, table/index/total size, dead tuples, last vacuum/analyze, scan counters (PostgreSQL); row count, compressed/uncompressed size, compression ratio, parts, engine (ClickHouse); row count, total/table size, index/trigger counts (SQLite); element count, memory usage, type, TTL, encoding (Redis). All drivers emit a common baseline (`row_count`, `total_size`, `last_modified`) for cross-type comparisons
 - **Custom SQL** — editable queries per side under the collapsible "SQL" block, with Synced toggle + lock indicator for mirrored edits
 - Tab headers show colored count badges (e.g. `Schema Diff •6`); filter chips per tab (click to solo, Shift+click to toggle)
 - Export diff as CSV or JSON

@@ -117,3 +117,13 @@ export interface TableStatistic {
    */
   badWhen?: 'higher' | 'lower';
 }
+
+/**
+ * Keys every driver should emit from getTableStatistics (value may be null
+ * when the database engine doesn't track the metric natively).
+ *
+ *   row_count  — number of rows / elements (unit: count)
+ *   total_size — on-disk footprint including indexes (unit: bytes)
+ *   last_modified — most recent data-modification timestamp (unit: date)
+ */
+export const COMMON_STAT_KEYS = ['row_count', 'total_size', 'last_modified'] as const;

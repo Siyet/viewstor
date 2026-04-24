@@ -807,6 +807,7 @@ export class PostgresDriver implements DatabaseDriver {
       { key: 'tup_inserted', label: 'Tuples inserted', value: toNumber(stat.n_tup_ins), unit: 'count' },
       { key: 'tup_updated', label: 'Tuples updated', value: toNumber(stat.n_tup_upd), unit: 'count' },
       { key: 'tup_deleted', label: 'Tuples deleted', value: toNumber(stat.n_tup_del), unit: 'count' },
+      { key: 'last_modified', label: 'Last modified', value: null, unit: 'date' },
     ];
   }
 

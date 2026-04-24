@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, formatStatValue, toggleFilter, exportDiffAsCsv, exportDiffAsJson, buildDefaultDiffQuery, isReadOnlyStatement } from '../diff/diffEngine';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
-import { ColumnInfo, TableStatistic } from '../types/schema';
+import { ColumnInfo, TableStatistic, COMMON_STAT_KEYS } from '../types/schema';
 
 // --- stringifyCell ---
 
@@ -704,6 +704,97 @@ describe('computeStatsDiff', () => {
     const result = computeStatsDiff(left, right);
     expect(result.items[0].status).toBe('differs');
     expect(result.items[0].delta).toBeUndefined();
+  });
+
+  describe('cross-type common schema keys', () => {
+    const pgStats: TableStatistic[] = [
+      { key: 'row_count', label: 'Row count (estimated)', value: 5000, unit: 'count' },
+      { key: 'live_tuples', label: 'Live tuples', value: 4900, unit: 'count' },
+      { key: 'dead_tuples', label: 'Dead tuples', value: 100, unit: 'count', badWhen: 'higher' },
+      { key: 'table_size', label: 'Table size', value: 8192, unit: 'bytes' },
+      { key: 'indexes_size', label: 'Indexes size', value: 4096, unit: 'bytes' },
+      { key: 'total_size', label: 'Total size', value: 12288, unit: 'bytes' },
+      { key: 'last_modified', label: 'Last modified', value: null, unit: 'date' },
+    ];
+
+    const chStats: TableStatistic[] = [
+      { key: 'row_count', label: 'Row count', value: 5000, unit: 'count' },
+      { key: 'total_size', label: 'Total size (compressed)', value: 6144, unit: 'bytes' },
+      { key: 'uncompressed_size', label: 'Total size (uncompressed)', value: 24576, unit: 'bytes' },
+      { key: 'compression_ratio', label: 'Compression ratio', value: 4.0, unit: 'text' },
+      { key: 'active_parts', label: 'Active parts', value: 3, unit: 'count' },
+      { key: 'engine', label: 'Engine', value: 'MergeTree', unit: 'text' },
+      { key: 'last_modified', label: 'Last modified', value: '2026-04-01T12:00:00Z', unit: 'date' },
+    ];
+
+    const sqliteStats: TableStatistic[] = [
+      { key: 'row_count', label: 'Row count', value: 5000, unit: 'count' },
+      { key: 'total_size', label: 'Total size', value: 16384, unit: 'bytes' },
+      { key: 'table_size', label: 'Table size', value: 12288, unit: 'bytes' },
+      { key: 'index_count', label: 'Index count', value: 2, unit: 'count' },
+      { key: 'last_modified', label: 'Last modified', value: null, unit: 'date' },
+    ];
+
+    const redisStats: TableStatistic[] = [
+      { key: 'row_count', label: 'Element count', value: 42, unit: 'count' },
+      { key: 'total_size', label: 'Memory usage', value: 2048, unit: 'bytes' },
+      { key: 'last_modified', label: 'Last modified', value: null, unit: 'date' },
+      { key: 'type', label: 'Type', value: 'hash', unit: 'text' },
+    ];
+
+    it('COMMON_STAT_KEYS defines the three canonical keys', () => {
+      expect(COMMON_STAT_KEYS).toEqual(['row_count', 'total_size', 'last_modified']);
+    });
+
+    it('PG ↔ CH: common keys match, driver-specific keys show as leftOnly/rightOnly', () => {
+      const result = computeStatsDiff(pgStats, chStats);
+      const common = result.items.filter(i => COMMON_STAT_KEYS.includes(i.key as typeof COMMON_STAT_KEYS[number]));
+      expect(common).toHaveLength(3);
+      const rowCount = common.find(i => i.key === 'row_count')!;
+      expect(rowCount.status).toBe('same');
+      const totalSize = common.find(i => i.key === 'total_size')!;
+      expect(totalSize.status).toBe('differs');
+      expect(totalSize.delta).toBe(6144 - 12288);
+      const pgOnly = result.items.filter(i => i.status === 'leftOnly');
+      expect(pgOnly.some(i => i.key === 'live_tuples')).toBe(true);
+      const chOnly = result.items.filter(i => i.status === 'rightOnly');
+      expect(chOnly.some(i => i.key === 'engine')).toBe(true);
+    });
+
+    it('PG ↔ SQLite: total_size present on both sides', () => {
+      const result = computeStatsDiff(pgStats, sqliteStats);
+      const totalSize = result.items.find(i => i.key === 'total_size')!;
+      expect(totalSize.leftValue).toBe(12288);
+      expect(totalSize.rightValue).toBe(16384);
+      expect(totalSize.status).toBe('differs');
+    });
+
+    it('CH ↔ SQLite: row_count same, total_size differs', () => {
+      const result = computeStatsDiff(chStats, sqliteStats);
+      const rowCount = result.items.find(i => i.key === 'row_count')!;
+      expect(rowCount.status).toBe('same');
+      const totalSize = result.items.find(i => i.key === 'total_size')!;
+      expect(totalSize.status).toBe('differs');
+    });
+
+    it('Redis ↔ PG: all three common keys present', () => {
+      const result = computeStatsDiff(redisStats, pgStats);
+      for (const key of COMMON_STAT_KEYS) {
+        const item = result.items.find(i => i.key === key);
+        expect(item).toBeDefined();
+        expect(item!.status).not.toBe('leftOnly');
+        expect(item!.status).not.toBe('rightOnly');
+      }
+    });
+
+    it('all driver stat sets contain every COMMON_STAT_KEYS entry', () => {
+      for (const stats of [pgStats, chStats, sqliteStats, redisStats]) {
+        const keys = stats.map(s => s.key);
+        for (const common of COMMON_STAT_KEYS) {
+          expect(keys).toContain(common);
+        }
+      }
+    });
   });
 });
 
