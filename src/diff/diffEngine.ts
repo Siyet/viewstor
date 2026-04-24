@@ -713,7 +713,7 @@ export function computeNWaySchemaDiff(columnSets: ColumnInfo[][]): NWaySchemaDif
     let hasDifferences = !present.every(p => p === present[0]);
     if (!hasDifferences) {
       hasDifferences = types.some(t => t !== refType)
-        || nullables.some(n => n !== refNull)
+        || nullables.some(v => v !== refNull)
         || isPKs.some(pk => pk !== refPK)
         || comments.some(c => (c || '') !== refComment);
     }
@@ -785,6 +785,7 @@ export function computeNWayStatsDiff(statSets: (TableStatistic[] | undefined)[])
  * the result back to the legacy RowDiffResult shape.
  */
 export function nwayToLegacyRowDiff(nway: NWayRowDiffResult): RowDiffResult {
+  if (nway.sourceCount !== 2) throw new Error('nwayToLegacyRowDiff requires exactly 2 sources');
   return {
     allColumns: nway.allColumns,
     matched: nway.matched.map(m => ({

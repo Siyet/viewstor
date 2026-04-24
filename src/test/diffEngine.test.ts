@@ -888,6 +888,14 @@ describe('computeNWayRowDiff', () => {
     expect(converted.truncated).toBe(legacy.truncated);
   });
 
+  it('nwayToLegacyRowDiff throws for more than 2 sources', () => {
+    const s0 = makeSource([{ id: 1, name: 'A' }]);
+    const s1 = makeSource([{ id: 1, name: 'B' }]);
+    const s2 = makeSource([{ id: 1, name: 'C' }]);
+    const nway = computeNWayRowDiff([s0, s1, s2], nwayOptions(['id']));
+    expect(() => nwayToLegacyRowDiff(nway)).toThrow('exactly 2 sources');
+  });
+
   it('3 sources: detects unchanged, changed, added, removed', () => {
     const s0 = makeSource([
       { id: 1, name: 'Alice' },

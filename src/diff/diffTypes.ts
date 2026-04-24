@@ -127,7 +127,7 @@ export interface NWayRowDiffResult {
   sourceCount: number;
   allColumns: string[];
   matched: NWayMatchedRow[];
-  /** sourceOnly[i] = rows present only in source i and no other. */
+  /** sourceOnly[i] = rows from source i not present in the reference source. */
   sourceOnly: Record<string, unknown>[][];
   truncated: boolean;
   summary: {
