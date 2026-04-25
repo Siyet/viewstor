@@ -10,10 +10,8 @@ const SAMPLE_SIZE = 100;
 export class MongoDriver implements DatabaseDriver {
   private client: MongoClient | undefined;
   private db: Db | undefined;
-  private config: ConnectionConfig | undefined;
 
   async connect(config: ConnectionConfig): Promise<void> {
-    this.config = config;
     const authSource = config.options?.authSource || 'admin';
     const opts: Record<string, unknown> = {
       connectTimeoutMS: 10000,
@@ -480,10 +478,10 @@ export function parseMongoCommand(input: string): ParsedMongoCommand {
   if (!trimmed) throw new Error('Empty command');
 
   // db.collection.operation(args) or db.collection.operation()
-  const match = trimmed.match(/^db\.([a-zA-Z0-9_$]+)\.([a-zA-Z]+)\s*\(([\s\S]*)\)$/);
+  const match = trimmed.match(/^db\.([a-zA-Z0-9_$-]+)\.([a-zA-Z]+)\s*\(([\s\S]*)\)$/);
   if (!match) {
-    // Shorthand: just a collection name → find all
-    if (/^[a-zA-Z0-9_$]+$/.test(trimmed)) {
+    // Shorthand: just a collection name -> find all
+    if (/^[a-zA-Z0-9_$-]+$/.test(trimmed)) {
       return { collection: trimmed, operation: 'find', args: [{}] };
     }
     throw new Error(
@@ -505,15 +503,22 @@ export function parseMongoCommand(input: string): ParsedMongoCommand {
 }
 
 function parseArgs(argsStr: string): unknown[] {
-  // Wrap in array brackets so JSON.parse can handle multiple args
-  const wrapped = `[${argsStr}]`;
+  const wrapped = '[' + argsStr + ']';
   try {
     return JSON.parse(wrapped);
   } catch {
-    // Try relaxed JSON: add quotes to unquoted keys
-    const relaxed = wrapped.replace(/(['"])?([a-zA-Z_$][a-zA-Z0-9_$]*)\1\s*:/g, '"$2":');
+    // Protect double-quoted string literals before quoting bare keys
+    const strings: string[] = [];
+    const tag = '___VS';
+    let safe = wrapped.replace(/"(?:[^"\\]|\\.)*"/g, (m) => {
+      strings.push(m);
+      return '"' + tag + (strings.length - 1) + tag + '"';
+    });
+    safe = safe.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g, '"$1":');
+    const restore = new RegExp('"' + tag + '(\\d+)' + tag + '"', 'g');
+    safe = safe.replace(restore, (_, i) => strings[parseInt(i)]);
     try {
-      return JSON.parse(relaxed);
+      return JSON.parse(safe);
     } catch {
       throw new Error(
         'Could not parse arguments. Use valid JSON syntax. ' +
