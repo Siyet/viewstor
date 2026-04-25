@@ -125,4 +125,32 @@ describe('parseMongoCommand', () => {
     const result = parseMongoCommand('db._admin.listDatabases()');
     expect(result).toEqual({ collection: '_admin', operation: 'listDatabases', args: [] });
   });
+
+  it('handles hyphenated collection names', () => {
+    const result = parseMongoCommand('db.my-collection.find({})');
+    expect(result).toEqual({ collection: 'my-collection', operation: 'find', args: [{}] });
+  });
+
+  it('handles hyphenated shorthand collection name', () => {
+    const result = parseMongoCommand('my-events');
+    expect(result).toEqual({ collection: 'my-events', operation: 'find', args: [{}] });
+  });
+
+  it('parses unquoted keys with colon in string value', () => {
+    const result = parseMongoCommand('db.users.find({name: "test: value"})');
+    expect(result).toEqual({
+      collection: 'users',
+      operation: 'find',
+      args: [{ name: 'test: value' }],
+    });
+  });
+
+  it('parses unquoted keys with multiple args', () => {
+    const result = parseMongoCommand('db.users.find({active: true}, {name: 1})');
+    expect(result).toEqual({
+      collection: 'users',
+      operation: 'find',
+      args: [{ active: true }, { name: 1 }],
+    });
+  });
 });
