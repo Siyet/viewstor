@@ -1,4 +1,4 @@
-export type DatabaseType = 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
+export type DatabaseType = 'postgresql' | 'redis' | 'clickhouse' | 'sqlite' | 'mongodb';
 
 export interface ConnectionConfig {
   id: string;
@@ -66,4 +66,5 @@ export const DEFAULT_PORTS: Record<DatabaseType, number> = {
   redis: 6379,
   clickhouse: 8123,
   sqlite: 0,
+  mongodb: 27017,
 };

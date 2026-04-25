@@ -23,6 +23,7 @@
     "redis",
     "clickhouse",
     "sqlite",
+    "mongodb",
     "sql",
     "query",
     "schema"
@@ -617,6 +618,7 @@
     "glob": "^13.0.6",
     "ioredis": "^5.3.0",
     "mocha": "^11.7.5",
+    "mongodb": "^6.21.0",
     "pg": "^8.11.0",
     "style-loader": "^3.3.4",
     "svgtofont": "^6.5.1",
