@@ -27,10 +27,16 @@ vi.mock('ssh2', () => ({
   Client: class MockSSHClient {},
 }));
 
+vi.mock('mongodb', () => ({
+  MongoClient: class MockMongoClient {},
+  Db: class MockDb {},
+}));
+
 import { PostgresDriver } from '../drivers/postgres';
 import { RedisDriver } from '../drivers/redis';
 import { ClickHouseDriver } from '../drivers/clickhouse';
 import { SqliteDriver } from '../drivers/sqlite';
+import { MongoDriver } from '../drivers/mongodb';
 import { createDriver } from '../drivers';
 import type { DatabaseDriver } from '../types/driver';
 
@@ -57,7 +63,7 @@ const OPTIONAL_METHODS: (keyof DatabaseDriver)[] = [
 
 interface DriverSpec {
   name: string;
-  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
+  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite' | 'mongodb';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   DriverClass: new (...args: any[]) => DatabaseDriver;
   expectedOptional: (keyof DatabaseDriver)[];
@@ -107,6 +113,19 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getDDL',
       'getCompletions',
       'getIndexedColumns',
+      'getTableRowCount',
+      'getEstimatedRowCount',
+      'getTableObjects',
+      'getTableStatistics',
+    ],
+  },
+  {
+    name: 'MongoDriver',
+    type: 'mongodb',
+    DriverClass: MongoDriver,
+    expectedOptional: [
+      'getDDL',
+      'getCompletions',
       'getTableRowCount',
       'getEstimatedRowCount',
       'getTableObjects',

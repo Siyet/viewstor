@@ -136,6 +136,9 @@ export class ConnectionFormPanel {
       } else if (config.type === 'clickhouse') {
         const res = await driver.execute('SHOW DATABASES');
         databases = res.rows.map((r: Record<string, unknown>) => String(r.name || Object.values(r)[0]));
+      } else if (config.type === 'mongodb') {
+        const res = await driver.execute('db._admin.listDatabases()');
+        databases = res.rows.map((r: Record<string, unknown>) => String(r.name));
       }
       await driver.disconnect();
       this.panel?.webview.postMessage({ type: 'databaseList', databases });
@@ -179,6 +182,7 @@ export class ConnectionFormPanel {
         const db = data.database || 'default';
         return { [db]: schemas };
       })() : undefined,
+      options: data.type === 'mongodb' && data.mongoAuthDb ? { authSource: data.mongoAuthDb } : undefined,
     };
   }
 
@@ -232,6 +236,7 @@ export class ConnectionFormPanel {
         <vscode-option value="redis"${c?.type === 'redis' ? ' selected' : ''}>Redis</vscode-option>
         <vscode-option value="clickhouse"${c?.type === 'clickhouse' ? ' selected' : ''}>ClickHouse</vscode-option>
         <vscode-option value="sqlite"${c?.type === 'sqlite' ? ' selected' : ''}>SQLite</vscode-option>
+        <vscode-option value="mongodb"${c?.type === 'mongodb' ? ' selected' : ''}>MongoDB</vscode-option>
       </vscode-single-select>
     </div>
 
@@ -278,6 +283,14 @@ export class ConnectionFormPanel {
       <vscode-textfield id="sqliteFile" placeholder="/path/to/database.sqlite" value="${c?.type === 'sqlite' ? esc(c?.database) : ''}"></vscode-textfield>
       <div class="field-hint">
         Path to an existing .sqlite/.db file, or a new file to create. Use <code>:memory:</code> for in-memory database.
+      </div>
+    </div>
+
+    <div id="mongoAuthDbField" class="form-group hidden">
+      <label for="mongoAuthDb">Authentication Database</label>
+      <vscode-textfield id="mongoAuthDb" placeholder="admin" value="${esc(c?.type === 'mongodb' && c?.options?.authSource ? c.options.authSource : 'admin')}"></vscode-textfield>
+      <div class="field-hint">
+        Database used to authenticate credentials (default: <code>admin</code>).
       </div>
     </div>
 
