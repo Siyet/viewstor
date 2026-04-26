@@ -232,6 +232,7 @@ export class ConnectionFormPanel {
         <vscode-option value="redis"${c?.type === 'redis' ? ' selected' : ''}>Redis</vscode-option>
         <vscode-option value="clickhouse"${c?.type === 'clickhouse' ? ' selected' : ''}>ClickHouse</vscode-option>
         <vscode-option value="sqlite"${c?.type === 'sqlite' ? ' selected' : ''}>SQLite</vscode-option>
+        <vscode-option value="neo4j"${c?.type === 'neo4j' ? ' selected' : ''}>Neo4j</vscode-option>
       </vscode-single-select>
     </div>
 

@@ -2,7 +2,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
 
-  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0 };
+  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0, neo4j: 7687 };
 
   // VS Code custom elements expose `value` / `checked` properties just like
   // native form controls and emit `change` / `input` events. Wrappers below
@@ -56,16 +56,18 @@
   function updateFieldVisibility() {
     const isRedis = dbType.value === 'redis';
     const isSqlite = dbType.value === 'sqlite';
-    const isNetworkDb = !isRedis && !isSqlite;
-    authFields.style.display = isNetworkDb ? 'block' : 'none';
-    dbFields.style.display = isNetworkDb ? 'block' : 'none';
+    const isNeo4j = dbType.value === 'neo4j';
+    const hasAuth = !isRedis && !isSqlite;
+    const hasMultiDb = !isRedis && !isSqlite && !isNeo4j;
+    authFields.style.display = hasAuth ? 'block' : 'none';
+    dbFields.style.display = hasMultiDb ? 'block' : 'none';
     if (hostPortRow) hostPortRow.style.display = isSqlite ? 'none' : '';
     redisDbField.classList.toggle('hidden', !isRedis);
     sqliteFileField.classList.toggle('hidden', !isSqlite);
     if (sslGroup) sslGroup.style.display = isSqlite ? 'none' : '';
     if (proxyGroup) proxyGroup.style.display = isSqlite ? 'none' : '';
     const hiddenSchemasGroup = $('hiddenSchemasGroup');
-    if (hiddenSchemasGroup) hiddenSchemasGroup.style.display = isSqlite ? 'none' : '';
+    if (hiddenSchemasGroup) hiddenSchemasGroup.style.display = (isSqlite || isNeo4j) ? 'none' : '';
     updateProxyVisibility();
   }
 

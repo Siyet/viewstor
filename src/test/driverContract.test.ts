@@ -27,10 +27,35 @@ vi.mock('ssh2', () => ({
   Client: class MockSSHClient {},
 }));
 
+vi.mock('neo4j-driver', () => {
+  return {
+    default: {
+      driver: vi.fn(),
+      auth: { basic: vi.fn() },
+      isPoint: () => false,
+      isDate: () => false,
+      isDateTime: () => false,
+      isLocalDateTime: () => false,
+      isTime: () => false,
+      isLocalTime: () => false,
+      isDuration: () => false,
+    },
+    Integer: class MockInteger { low = 0; high = 0; toNumber() { return 0; } },
+    isPoint: () => false,
+    isDate: () => false,
+    isDateTime: () => false,
+    isLocalDateTime: () => false,
+    isTime: () => false,
+    isLocalTime: () => false,
+    isDuration: () => false,
+  };
+});
+
 import { PostgresDriver } from '../drivers/postgres';
 import { RedisDriver } from '../drivers/redis';
 import { ClickHouseDriver } from '../drivers/clickhouse';
 import { SqliteDriver } from '../drivers/sqlite';
+import { Neo4jDriver } from '../drivers/neo4j';
 import { createDriver } from '../drivers';
 import type { DatabaseDriver } from '../types/driver';
 
@@ -111,6 +136,18 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getEstimatedRowCount',
       'getTableObjects',
       'getTableStatistics',
+    ],
+  },
+  {
+    name: 'Neo4jDriver',
+    type: 'neo4j',
+    DriverClass: Neo4jDriver,
+    expectedOptional: [
+      'getDDL',
+      'getCompletions',
+      'getTableRowCount',
+      'getEstimatedRowCount',
+      'getTableObjects',
     ],
   },
 ];
