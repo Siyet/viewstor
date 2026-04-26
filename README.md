@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <b>PostgreSQL + Redis + ClickHouse + SQLite in one extension.<br>Free. Open source. No paywalls.</b>
+  <b>PostgreSQL + Redis + ClickHouse + SQLite + Neo4j in one extension.<br>Free. Open source. No paywalls.</b>
 </p>
 
 ---
@@ -24,13 +24,13 @@
 
 Database extensions for VS Code are either locked to one database, or freemium with crippled free tiers (limited connections, no export, closed source). Switching between DBeaver and VS Code breaks flow. DataGrip costs money.
 
-Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHouse, and SQLite in a single tool — with features you won't find elsewhere:
+Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHouse, SQLite, and Neo4j in a single tool — with features you won't find elsewhere:
 
 | | Viewstor | Database Client | SQLTools | DBCode |
 |---|---|---|---|---|
 | **Price** | Free forever | Freemium | Free | Freemium |
 | **Open source** | AGPL-3.0 | Closed (since v4.7) | MIT | Closed |
-| **PG + Redis + CH + SQLite** | All free | Free tier limits | No Redis | Redis/CH paid |
+| **PG + Redis + CH + SQLite + Neo4j** | All free | Free tier limits | No Redis | Redis/CH paid |
 | **Safe mode** | Block / Warn / Off | No | No | No |
 | **Copilot Chat participant** | `@viewstor` | No | No | No |
 | **MCP for AI agents** | Built-in, free | No | No | Paid tier |
@@ -257,6 +257,7 @@ All shortcuts use physical key codes — work on any keyboard layout.
 | Redis | TCP | [ioredis](https://www.npmjs.com/package/ioredis) |
 | ClickHouse | HTTP | [@clickhouse/client](https://www.npmjs.com/package/@clickhouse/client) |
 | SQLite | File | [better-sqlite3](https://www.npmjs.com/package/better-sqlite3) |
+| Neo4j | Bolt | [neo4j-driver](https://www.npmjs.com/package/neo4j-driver) |
 
 ## Development
 
