@@ -86,16 +86,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'add_connection',
-      description: 'Add a new database connection. For SQLite: set type="sqlite", database="/path/to/file.db" (or ":memory:"), host and port are ignored.',
+      description: 'Add a new database connection. For SQLite: set type="sqlite", database="/path/to/file.db" (or ":memory:"), host and port are ignored. For Pinecone: set type="pinecone", password=API key, host and port are ignored.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           name: { type: 'string', description: 'Display name' },
-          type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite'], description: 'Database type' },
-          host: { type: 'string', description: 'Host (ignored for SQLite)' },
-          port: { type: 'number', description: 'Port (ignored for SQLite)' },
+          type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite', 'pinecone'], description: 'Database type' },
+          host: { type: 'string', description: 'Host (ignored for SQLite and Pinecone)' },
+          port: { type: 'number', description: 'Port (ignored for SQLite and Pinecone)' },
           username: { type: 'string', description: 'Username' },
-          password: { type: 'string', description: 'Password' },
+          password: { type: 'string', description: 'Password (API key for Pinecone)' },
           database: { type: 'string', description: 'Database name, or file path for SQLite (e.g. "/tmp/test.db", ":memory:")' },
           ssl: { type: 'boolean', description: 'Use SSL' },
           readonly: { type: 'boolean', description: 'Read-only mode' },

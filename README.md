@@ -257,6 +257,7 @@ All shortcuts use physical key codes — work on any keyboard layout.
 | Redis | TCP | [ioredis](https://www.npmjs.com/package/ioredis) |
 | ClickHouse | HTTP | [@clickhouse/client](https://www.npmjs.com/package/@clickhouse/client) |
 | SQLite | File | [better-sqlite3](https://www.npmjs.com/package/better-sqlite3) |
+| Pinecone | HTTPS | [@pinecone-database/pinecone](https://www.npmjs.com/package/@pinecone-database/pinecone) |
 
 ## Development
 

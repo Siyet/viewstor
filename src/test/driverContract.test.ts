@@ -27,10 +27,15 @@ vi.mock('ssh2', () => ({
   Client: class MockSSHClient {},
 }));
 
+vi.mock('@pinecone-database/pinecone', () => ({
+  Pinecone: class MockPinecone {},
+}));
+
 import { PostgresDriver } from '../drivers/postgres';
 import { RedisDriver } from '../drivers/redis';
 import { ClickHouseDriver } from '../drivers/clickhouse';
 import { SqliteDriver } from '../drivers/sqlite';
+import { PineconeDriver } from '../drivers/pinecone';
 import { createDriver } from '../drivers';
 import type { DatabaseDriver } from '../types/driver';
 
@@ -57,7 +62,7 @@ const OPTIONAL_METHODS: (keyof DatabaseDriver)[] = [
 
 interface DriverSpec {
   name: string;
-  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
+  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite' | 'pinecone';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   DriverClass: new (...args: any[]) => DatabaseDriver;
   expectedOptional: (keyof DatabaseDriver)[];
@@ -110,6 +115,15 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getTableRowCount',
       'getEstimatedRowCount',
       'getTableObjects',
+      'getTableStatistics',
+    ],
+  },
+  {
+    name: 'PineconeDriver',
+    type: 'pinecone',
+    DriverClass: PineconeDriver,
+    expectedOptional: [
+      'getEstimatedRowCount',
       'getTableStatistics',
     ],
   },

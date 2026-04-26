@@ -4,7 +4,7 @@ Guidance for Claude Code when working with this repository.
 
 ## What is Viewstor
 
-VS Code extension for database management. Supports PostgreSQL, Redis, ClickHouse, SQLite. Free, open-source (AGPL-3.0) alternative to DBeaver/DataGrip. Follows [ZeroVer](https://0ver.org) — version 0.x until API is stable.
+VS Code extension for database management. Supports PostgreSQL, Redis, ClickHouse, SQLite, Pinecone. Free, open-source (AGPL-3.0) alternative to DBeaver/DataGrip. Follows [ZeroVer](https://0ver.org) — version 0.x until API is stable.
 
 ## Commands
 
@@ -33,7 +33,7 @@ Required methods: `connect`, `disconnect`, `ping`, `execute`, `getSchema`, `getT
 
 Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff), `getTableStatistics` (row count, sizes, vacuum info, scan counters — used by stats diff tab; PG uses `pg_table_size`/`pg_indexes_size` + `pg_stat_user_tables`, CH uses `system.tables` + `system.parts`, SQLite uses `COUNT(*)` + optional `dbstat` vtable).
 
-Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
+Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3), `pinecone.ts` (@pinecone-database/pinecone).
 
 ### Connections
 `src/connections/connectionManager.ts` — persists in VS Code `globalState` (keys: `viewstor.connections`, `viewstor.connectionFolders`).
@@ -231,3 +231,4 @@ All commands support `databaseName` parameter for multi-DB connections.
 - ClickHouse execute uses `JSON` format (not `JSONEachRow`) to get column types from response metadata
 - SQLite: file-based connection (`config.database` = file path or `:memory:`), no host/port/auth. Uses `sqlite_master` + `PRAGMA table_info()` for schema. `getEstimatedRowCount()` falls back to exact `COUNT(*)`. WAL journal mode enabled on connect (skipped for readonly). Foreign keys always enabled. Connection form shows file picker instead of host/port fields. `inferTypeFromValue()` detects column types for computed expressions (COUNT→INTEGER, SUM→REAL).
 - SQLite native module: `better-sqlite3` requires different prebuilds for Node.js (tests) and Electron (Extension Host). `scripts/sqlite-rebuild.js` manages dual builds with `prebuild-install` (NOT `electron-rebuild` which is broken). Cache in `node_modules/.cache/sqlite-builds/` with `.meta` files. `npm run dev/build/watch` auto-restores Electron binary; `npm test` switches to Node.js binary.
+- Pinecone: cloud vector database, API key auth (`config.password` = API key), no host/port. Uses `@pinecone-database/pinecone` SDK via lazy `require()`. Schema: indexes as tables, namespaces as children. Custom command parser (`parsePineconeCommand`): `QUERY <index> vector=[...] topK=N`, `UPSERT <index> id=... vector=[...]`, `DELETE <index> ids=[...]`, `STATS <index>`, `LIST <index>`. Optional methods: `getEstimatedRowCount` (describeIndexStats), `getTableStatistics`. Connection form shows API key field instead of host/port/auth.

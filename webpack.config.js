@@ -32,6 +32,7 @@ module.exports = (_env, argv) => {
       ssh2: 'commonjs ssh2',
       'cpu-features': 'commonjs cpu-features',
       'better-sqlite3': 'commonjs better-sqlite3',
+      '@pinecone-database/pinecone': 'commonjs @pinecone-database/pinecone',
     },
     plugins: [
       new webpack.DefinePlugin({ __DEV__: JSON.stringify(isDev) }),
@@ -66,6 +67,7 @@ module.exports = (_env, argv) => {
       ssh2: 'commonjs ssh2',
       'cpu-features': 'commonjs cpu-features',
       'better-sqlite3': 'commonjs better-sqlite3',
+      '@pinecone-database/pinecone': 'commonjs @pinecone-database/pinecone',
     },
     plugins: [
       new webpack.DefinePlugin({ __DEV__: JSON.stringify(isDev) }),
