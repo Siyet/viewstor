@@ -23,6 +23,8 @@
     "redis",
     "clickhouse",
     "sqlite",
+    "pinecone",
+    "vector",
     "sql",
     "query",
     "schema"
@@ -81,6 +83,13 @@
         "default": {
           "fontPath": "resources/viewstor-icons.woff2",
           "fontCharacter": "\\E004"
+        }
+      },
+      "viewstor-pinecone": {
+        "description": "Pinecone",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E005"
         }
       }
     },
@@ -628,6 +637,7 @@
     "webpack-cli": "^5.1.0"
   },
   "dependencies": {
+    "@pinecone-database/pinecone": "^7.2.0",
     "@vscode-elements/elements": "^2.5.1",
     "@vscode/codicons": "^0.0.45",
     "better-sqlite3": "^12.8.0",

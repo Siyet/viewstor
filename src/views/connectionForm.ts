@@ -232,6 +232,7 @@ export class ConnectionFormPanel {
         <vscode-option value="redis"${c?.type === 'redis' ? ' selected' : ''}>Redis</vscode-option>
         <vscode-option value="clickhouse"${c?.type === 'clickhouse' ? ' selected' : ''}>ClickHouse</vscode-option>
         <vscode-option value="sqlite"${c?.type === 'sqlite' ? ' selected' : ''}>SQLite</vscode-option>
+        <vscode-option value="pinecone"${c?.type === 'pinecone' ? ' selected' : ''}>Pinecone</vscode-option>
       </vscode-single-select>
     </div>
 
@@ -278,6 +279,14 @@ export class ConnectionFormPanel {
       <vscode-textfield id="sqliteFile" placeholder="/path/to/database.sqlite" value="${c?.type === 'sqlite' ? esc(c?.database) : ''}"></vscode-textfield>
       <div class="field-hint">
         Path to an existing .sqlite/.db file, or a new file to create. Use <code>:memory:</code> for in-memory database.
+      </div>
+    </div>
+
+    <div id="pineconeApiKeyField" class="form-group hidden">
+      <label for="pineconeApiKey">API Key</label>
+      <vscode-textfield id="pineconeApiKey" type="password" placeholder="pcsk_..." value="${c?.type === 'pinecone' ? esc(c?.password) : ''}"></vscode-textfield>
+      <div class="field-hint">
+        Pinecone API key from the <a href="https://app.pinecone.io">Pinecone console</a>. Stored as connection password.
       </div>
     </div>
 

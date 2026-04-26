@@ -4,6 +4,9 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- **Pinecone vector database driver** — browse indexes and namespaces, query vectors by similarity, upsert/delete vectors, view index statistics. Connection uses API key (no host/port). Custom command syntax: `QUERY <index> vector=[...] topK=N`, `UPSERT`, `DELETE`, `STATS`, `LIST`. Read-only mode disables upsert/delete ([#15](https://github.com/Siyet/viewstor/issues/15))
+
 ### Fixed
 - **Pagination broken after running a custom query in table mode** — editing the SQL in the table view ran the query once and showed `Page 1/1`; clicking Next silently reverted to the original table. `_runCustomTableQuery` now accepts a `page` parameter, strips the trailing `LIMIT [OFFSET]`, re-applies server-side `LIMIT pageSize OFFSET page*pageSize`, and gets the exact row count via `SELECT COUNT(*) FROM (<user query>) _sub`. Webview forwards the active custom query on every `changePage` / `changePageSize` so the host routes back to the same query instead of falling back to the default table fetch. User's explicit `LIMIT` is respected as a ceiling — e.g. `LIMIT 250` with `pageSize=100` yields exactly `100 + 100 + 50` rows across three pages, not `100 + 100 + 100`. When the count query fails (exotic SQL) pagination falls back to a "page full ⇒ probably more" heuristic. Manual ORDER BY in the SQL bar now syncs back to the header sort icons on Run. Destructive statements (VACUUM / INSERT / UPDATE / DELETE / DROP / …) are blocked at the host — only SELECT / WITH / EXPLAIN / SHOW / VALUES / TABLE are executed. Clearing the SQL bar and pressing Refresh re-populates the field with the default table SELECT so the baseline is always recoverable
 
