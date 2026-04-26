@@ -232,6 +232,26 @@ describe('buildResultHtml', () => {
     // count(*) should be escaped
     expect(html).toContain('count(');
   });
+
+  it('includes zebra striping CSS rule', () => {
+    const result = makeResult(
+      [{ name: 'id', dataType: 'integer' }],
+      [{ id: 1 }],
+    );
+    const html = buildResultHtml(result);
+    expect(html).toContain('nth-child(even)');
+    expect(html).toContain('viewstor-row-zebra');
+  });
+
+  it('includes toolbar group separators', () => {
+    const result = makeResult(
+      [{ name: 'id', dataType: 'integer' }],
+      [{ id: 1 }],
+    );
+    const html = buildResultHtml(result);
+    expect(html).toContain('toolbar-group');
+    expect(html).toContain('toolbar-sep');
+  });
 });
 
 // ============================================================
