@@ -92,4 +92,22 @@ describe('parsePineconeCommand', () => {
       params: {},
     });
   });
+
+  it('handles nested JSON in filter param', () => {
+    const result = parsePineconeCommand('QUERY idx vector=[1,2] filter={"$and":[{"genre":"comedy"},{"year":{"$gte":2020}}]}');
+    expect(result).toEqual({
+      command: 'QUERY',
+      index: 'idx',
+      params: { vector: '[1,2]', filter: '{"$and":[{"genre":"comedy"},{"year":{"$gte":2020}}]}' },
+    });
+  });
+
+  it('handles nested arrays in vector param', () => {
+    const result = parsePineconeCommand('UPSERT idx id=v1 vector=[0.1,0.2,0.3] metadata={"tags":["a","b"]}');
+    expect(result).toEqual({
+      command: 'UPSERT',
+      index: 'idx',
+      params: { id: 'v1', vector: '[0.1,0.2,0.3]', metadata: '{"tags":["a","b"]}' },
+    });
+  });
 });

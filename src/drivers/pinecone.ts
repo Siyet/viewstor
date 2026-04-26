@@ -360,10 +360,45 @@ export function parsePineconeCommand(input: string): ParsedCommand | null {
 
   const params: Record<string, string> = {};
   if (paramsStr) {
-    const paramRegex = /(\w+)=((?:\[.*?\]|\{.*?\}|"[^"]*"|'[^']*'|\S+))/g;
-    let match;
-    while ((match = paramRegex.exec(paramsStr)) !== null) {
-      params[match[1]] = match[2];
+    let pos = 0;
+    while (pos < paramsStr.length) {
+      while (pos < paramsStr.length && paramsStr[pos] === ' ') pos++;
+      if (pos >= paramsStr.length) break;
+      const eqPos = paramsStr.indexOf('=', pos);
+      if (eqPos === -1) break;
+      const key = paramsStr.substring(pos, eqPos);
+      pos = eqPos + 1;
+      if (pos >= paramsStr.length) break;
+      const ch = paramsStr[pos];
+      if (ch === '[' || ch === '{') {
+        const open = ch;
+        const close = ch === '[' ? ']' : '}';
+        let depth = 0;
+        const start = pos;
+        let inStr = false;
+        while (pos < paramsStr.length) {
+          const c = paramsStr[pos];
+          if (c === '"' && (pos === 0 || paramsStr[pos - 1] !== '\\')) inStr = !inStr;
+          else if (!inStr) {
+            if (c === open) depth++;
+            else if (c === close) depth--;
+          }
+          pos++;
+          if (depth === 0) break;
+        }
+        params[key] = paramsStr.substring(start, pos);
+      } else if (ch === '"' || ch === '\'') {
+        const quote = ch;
+        pos++;
+        const start = pos;
+        while (pos < paramsStr.length && paramsStr[pos] !== quote) pos++;
+        params[key] = paramsStr.substring(start, pos);
+        if (pos < paramsStr.length) pos++;
+      } else {
+        const start = pos;
+        while (pos < paramsStr.length && paramsStr[pos] !== ' ') pos++;
+        params[key] = paramsStr.substring(start, pos);
+      }
     }
   }
 
