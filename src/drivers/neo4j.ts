@@ -146,7 +146,7 @@ export class Neo4jDriver implements DatabaseDriver {
           'CALL db.schema.nodeTypeProperties() YIELD nodeType, propertyName, propertyTypes ' +
           'WHERE nodeType = $nodeType ' +
           'RETURN propertyName, propertyTypes',
-          { nodeType: `:${name}` },
+          { nodeType: `:\`${name}\`` },
         );
         columns = propsRes.records.map(r => ({
           name: String(r.get('propertyName')),
@@ -342,11 +342,11 @@ export class Neo4jDriver implements DatabaseDriver {
   }
 }
 
-function escapeCypherLabel(name: string): string {
+export function escapeCypherLabel(name: string): string {
   return name.replace(/`/g, '``');
 }
 
-function toJsNumber(value: unknown): number {
+export function toJsNumber(value: unknown): number {
   if (value instanceof Integer || (value && typeof value === 'object' && 'low' in value && 'high' in value)) {
     return (value as Integer).toNumber();
   }
@@ -354,7 +354,7 @@ function toJsNumber(value: unknown): number {
   return typeof value === 'number' ? value : parseInt(String(value), 10) || 0;
 }
 
-function toJsValue(value: unknown): unknown {
+export function toJsValue(value: unknown): unknown {
   if (value === null || value === undefined) return null;
   if (value instanceof Integer || (value && typeof value === 'object' && 'low' in value && 'high' in value)) {
     return (value as Integer).toNumber();
@@ -426,7 +426,7 @@ function extractColumns(records: Neo4jRecord[]): QueryColumn[] {
   }));
 }
 
-function neo4jTypeOf(value: unknown): string {
+export function neo4jTypeOf(value: unknown): string {
   if (value === null || value === undefined) return 'Null';
   if (value instanceof Integer || (value && typeof value === 'object' && 'low' in value && 'high' in value)) return 'Integer';
   if (typeof value === 'number') return Number.isInteger(value) ? 'Integer' : 'Float';
@@ -445,7 +445,7 @@ function neo4jTypeOf(value: unknown): string {
   return 'Object';
 }
 
-function formatCounters(counters: Record<string, number>): string {
+export function formatCounters(counters: Record<string, number>): string {
   return Object.entries(counters)
     .filter(([, v]) => v > 0)
     .map(([k, v]) => `${k}: ${v}`)
