@@ -185,7 +185,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { connectionId, query, database } = args as { connectionId: string; query: string; database?: string };
         const config = store.get(connectionId);
         if (config?.readonly && !isReadOnlyQuery(query)) {
-          return errorResponse('Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.');
+          return errorResponse('Connection is read-only. Only SELECT, EXPLAIN, SHOW, WITH, and read-only driver commands (QUERY, STATS, LIST) are allowed.');
         }
         const driver = await resolveDriver(connectionId, database);
         return jsonResponse(formatExecuteQuery(await driver.execute(query)));
