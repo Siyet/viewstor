@@ -108,6 +108,7 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 
 - Server-side pagination (50 / 100 / 500 / 1000 rows)
 - Estimated row count from statistics, exact count via refresh
+- **CodeMirror 6 SQL editor** in the table query bar and diff panel — dialect-aware syntax highlighting, schema-aware autocomplete, inline table-name validation, undo/redo history, `Ctrl/Cmd+Enter` to execute
 - **Editable SQL bar above the table** — edit the query in place, pagination stays live (host re-applies `LIMIT N OFFSET p*N` and fetches an exact `COUNT(*)` for the user's query); your explicit `LIMIT` acts as a ceiling across pages; only read-only SQL (`SELECT` / `WITH` / `EXPLAIN` / `SHOW` / `VALUES`) runs from the bar
 - Inline editing with PK-based `UPDATE`, type-aware SQL (numeric PKs without quotes, `::jsonb` cast)
 - **Add / delete rows** — insert with DEFAULT values, delete from toolbar or right-click context menu

@@ -65,6 +65,10 @@ export interface ShowOptions {
   queryMode?: boolean;
   /** Localized loading phrases for the animated loading overlay */
   loadingPhrases?: string[];
+  /** Webview URI for the CodeMirror SQL editor bundle (omit to fall back to textarea) */
+  sqlEditorUri?: string;
+  /** Schema info for SQL autocompletion in CodeMirror */
+  sqlSchema?: { tables: Record<string, string[]>; tableNames: string[] };
 }
 
 const PAGE_SIZE_OPTIONS = [50, 100, 500, 1000];
@@ -159,7 +163,9 @@ export class ResultPanelManager {
     const panel = this.getOrCreatePanel(panelTitle);
 
     const phrases = getLoadingPhrases();
-    panel.webview.html = buildResultHtml(result, { ...opts, loadingPhrases: phrases });
+    const distUri = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
+    const sqlEditorUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'sql-editor.js')).toString();
+    panel.webview.html = buildResultHtml(result, { ...opts, loadingPhrases: phrases, sqlEditorUri });
 
     this.messageDisposables.get(panelKey)?.dispose();
 
@@ -470,6 +476,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
 <script>
 ${getCtxMenuScript()}
 </script>
+${opts?.sqlEditorUri ? `<script src="${opts.sqlEditorUri}"></script>` : ''}
 </head>
 <body>
   <div class="toolbar">
@@ -493,10 +500,7 @@ ${getCtxMenuScript()}
     </select></label>
   </div>
   ${isTableMode ? `<div class="query-bar">
-    <div class="query-editor-wrap">
-      <div class="query-editor-highlight" id="queryHighlight" aria-hidden="true"></div>
-      <textarea class="query-editor-textarea has-highlight" id="queryInput" rows="1" spellcheck="false">${esc(defaultQuery)}</textarea>
-    </div>
+    <div class="query-editor-wrap" id="queryEditorWrap" data-default-query="${esc(defaultQuery)}"></div>
     <button id="queryRun" class="btn-primary" title="Run query (Enter)">▶</button>
   </div>` : ''}
   <div class="container">
@@ -552,6 +556,8 @@ ${getCtxMenuScript()}
   let pageRows = ${safeJsonForScript(result.rows)};
   const pkColumns = ${safeJsonForScript(opts?.pkColumns || [])};
   const columnInfo = ${safeJsonForScript(opts?.columnInfo || [])};
+  const SQL_EDITOR_DIALECT = ${safeJsonForScript(opts?.databaseType || '')};
+  const SQL_EDITOR_SCHEMA = ${safeJsonForScript(opts?.sqlSchema || null)};
   const IS_READONLY = ${!!opts?.readonly};
   const IS_TABLE_MODE = ${isTableMode};
   const IS_QUERY_MODE = ${!!opts?.queryMode};
@@ -642,10 +648,7 @@ ${getCtxMenuScript()}
   }
 
   function updateQueryHighlight() {
-    var textarea = document.getElementById('queryInput');
-    var highlight = document.getElementById('queryHighlight');
-    if (!textarea || !highlight) return;
-    highlight.innerHTML = highlightSql(textarea.value) + '\\n';
+    // No-op: CodeMirror handles syntax highlighting natively.
   }
 
   let pendingEdits = new Map();
@@ -1098,11 +1101,10 @@ ${getCtxMenuScript()}
     showLoading();
 
     // If custom query is active, apply sort to it instead of the default table query
-    var customQ = queryInput ? queryInput.value.trim() : '';
+    var customQ = getQueryValue();
     if (customQ) {
       var sorted = applySortToQuery(customQ, sortColumns);
-      queryInput.value = sorted;
-      updateQueryHighlight();
+      setQueryValue(sorted);
       vscode.postMessage({ type: 'runCustomQuery', query: sorted, pageSize: pageSize });
     } else {
       vscode.postMessage({ type: 'reloadWithSort', orderBy: sortColumns, pageSize });
@@ -1575,12 +1577,10 @@ ${getCtxMenuScript()}
   }
   document.getElementById('refreshBtn').addEventListener('click', () => {
     if (IS_TABLE_MODE) {
-      if (queryInput && !queryInput.value.trim()) {
-        // User cleared the SQL bar — restore the default table query so they can keep editing from baseline
-        queryInput.value = ${safeJsonForScript(defaultQuery)};
-        updateQueryHighlight();
+      if (queryEditor && !getQueryValue()) {
+        setQueryValue(${safeJsonForScript(defaultQuery)});
       }
-      if (queryInput && queryInput.value.trim()) {
+      if (queryEditor && getQueryValue()) {
         runCustomQuery();
       } else {
         vscode.postMessage({ type: 'changePage', page: currentPage, pageSize: pageSize, orderBy: sortColumns });
@@ -1617,7 +1617,7 @@ ${getCtxMenuScript()}
 
   // --- Pagination (server-side for table mode) ---
   function activeCustomQuery() {
-    var q = queryInput ? queryInput.value.trim() : '';
+    var q = getQueryValue();
     return q || undefined;
   }
   function goPage(delta) {
@@ -1674,33 +1674,47 @@ ${getCtxMenuScript()}
     if (_phraseInterval) { clearInterval(_phraseInterval); _phraseInterval = null; }
   }
 
-  // Query bar — run custom query
+  // Query bar — run custom query (CodeMirror or textarea fallback)
   var customExportQuery = '';
-  var queryInput = document.getElementById('queryInput');
+  var queryEditorWrap = document.getElementById('queryEditorWrap');
   var queryRunBtn = document.getElementById('queryRun');
-  if (queryInput) {
-    queryInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); runCustomQuery(); }
-    });
-    queryInput.addEventListener('input', updateQueryHighlight);
-    queryInput.addEventListener('scroll', function() {
-      var highlight = document.getElementById('queryHighlight');
-      if (highlight) { highlight.scrollLeft = queryInput.scrollLeft; }
-    });
+  var queryEditor = null; // { getValue, setValue }
+  if (queryEditorWrap) {
+    var defaultQ = queryEditorWrap.getAttribute('data-default-query') || '';
+    if (window.ViewstorSqlEditor) {
+      var cm = window.ViewstorSqlEditor.create({
+        parent: queryEditorWrap,
+        value: defaultQ,
+        dialect: SQL_EDITOR_DIALECT,
+        schema: SQL_EDITOR_SCHEMA,
+        onRun: function() { runCustomQuery(); },
+      });
+      queryEditor = { getValue: function() { return cm.getValue(); }, setValue: function(v) { cm.setValue(v); } };
+    } else {
+      var ta = document.createElement('textarea');
+      ta.className = 'query-editor-textarea';
+      ta.rows = 1;
+      ta.spellcheck = false;
+      ta.value = defaultQ;
+      ta.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); runCustomQuery(); }
+      });
+      queryEditorWrap.appendChild(ta);
+      queryEditor = { getValue: function() { return ta.value; }, setValue: function(v) { ta.value = v; } };
+    }
     queryRunBtn.addEventListener('click', runCustomQuery);
-    updateQueryHighlight();
   }
+  function getQueryValue() { return queryEditor ? queryEditor.getValue().trim() : ''; }
+  function setQueryValue(v) { if (queryEditor) queryEditor.setValue(v); }
   function runCustomQuery() {
-    if (!queryInput) return;
-    var q = queryInput.value.trim();
+    if (!queryEditor) return;
+    var q = getQueryValue();
     if (!q) return;
-    // Parse LIMIT from query to remember for export
     var limitMatch = q.toUpperCase().indexOf('LIMIT') >= 0 ? q.match(/limit[^0-9]*([0-9]+)/i) : null;
     var userLimit = limitMatch ? parseInt(limitMatch[1], 10) : 0;
     if (userLimit > pageSize) {
       customExportQuery = q;
     }
-    // Mirror ORDER BY from user's SQL into header sort icons
     sortColumns = parseOrderByFromQuery(q);
     showLoading();
     vscode.postMessage({ type: 'runCustomQuery', query: q, pageSize: pageSize });
@@ -1732,7 +1746,7 @@ ${getCtxMenuScript()}
       _lastInsertedRows = msg.rows;
     }
     if (msg.type === 'rerunQuery') {
-      if (queryInput && queryInput.value.trim()) {
+      if (queryEditor && getQueryValue()) {
         runCustomQuery();
       } else {
         vscode.postMessage({ type: 'changePage', page: currentPage, pageSize: pageSize, orderBy: sortColumns });
@@ -1837,8 +1851,8 @@ ${getCtxMenuScript()}
   }
 
   // If initial query already has ORDER BY (e.g. via MCP customQuery), sync sort icons
-  if (queryInput && queryInput.value.trim() && sortColumns.length === 0) {
-    sortColumns = parseOrderByFromQuery(queryInput.value.trim());
+  if (queryEditor && getQueryValue() && sortColumns.length === 0) {
+    sortColumns = parseOrderByFromQuery(getQueryValue());
   }
   renderHeader();
   renderPage();

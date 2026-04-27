@@ -336,6 +336,7 @@ export class DiffPanelManager {
     const ctxMenuJsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'context-menu.js'));
     const jsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'diff-panel.js'));
     const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
+    const sqlEditorUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'sql-editor.js'));
     const cspSource = webview.cspSource;
 
     const canEditQueries = !!(state.left.connectionId && state.right.connectionId && this.connectionManager);
@@ -472,18 +473,12 @@ export class DiffPanelManager {
           <div class="diff-query-editor-panes${state.syncMode ? ' synced' : ''}" id="diffQueryPanes">
             <div class="diff-query-editor-pane" data-side="left">
               <div class="diff-query-editor-label" data-role="side-label">${esc(state.left.label)}</div>
-              <div class="diff-query-editor-wrap">
-                <div class="diff-query-editor-highlight" id="diffQueryLeftHighlight" aria-hidden="true"></div>
-                <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryLeft" rows="1" spellcheck="false">${esc(state.leftQuery)}</textarea>
-              </div>
+              <div class="diff-query-editor-wrap" id="diffQueryLeftWrap" data-default-query="${esc(state.leftQuery)}"></div>
               <div class="diff-query-editor-error" id="diffQueryLeftError" hidden></div>
             </div>
             <div class="diff-query-editor-pane" data-side="right">
               <div class="diff-query-editor-label" data-role="side-label">${esc(state.right.label)}</div>
-              <div class="diff-query-editor-wrap">
-                <div class="diff-query-editor-highlight" id="diffQueryRightHighlight" aria-hidden="true"></div>
-                <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryRight" rows="1" spellcheck="false">${esc(state.rightQuery)}</textarea>
-              </div>
+              <div class="diff-query-editor-wrap" id="diffQueryRightWrap" data-default-query="${esc(state.rightQuery)}"></div>
               <div class="diff-query-editor-error" id="diffQueryRightError" hidden></div>
             </div>
           </div>
@@ -597,6 +592,7 @@ export class DiffPanelManager {
   </vscode-tabs>
 
   <script>window.diffData = ${safeJsonForScript(diffData)};</script>
+  ${canEditQueries ? `<script src="${sqlEditorUri}"></script>` : ''}
   ${hasStats ? `<script src="${echartsUri}"></script>` : ''}
   <script src="${jsUri}"></script>
 </body>

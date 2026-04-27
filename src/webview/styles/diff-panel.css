@@ -336,6 +336,10 @@ vscode-tab-panel[hidden] {
 #diffQueryEditor .tk-cmt { color: var(--viewstor-text-dimmed); font-style: italic; }
 #diffQueryEditor .tk-op { color: var(--viewstor-text-dimmed); }
 
+.diff-query-editor-wrap .cm-editor {
+  font: inherit;
+}
+
 .diff-query-editor-error {
   margin-top: 4px;
   padding: 4px 6px;

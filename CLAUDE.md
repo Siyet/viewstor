@@ -140,6 +140,11 @@ Webview: `src/webview/scripts/map-panel.js` (Leaflet init, OpenStreetMap tiles, 
 
 Binary WKB (PostGIS hex) is **not** parsed — drivers should return WKT or GeoJSON when possible. Clustering and "color by value" are not implemented yet.
 
+### Webview SQL Editor
+`src/webview/sql-editor/index.ts` — CodeMirror 6 integration for webview SQL input fields. Bundled as a separate webpack entry → `dist/scripts/sql-editor.js` (target: web). Exposes `window.ViewstorSqlEditor.create(opts)` returning `{ getValue, setValue, setSchema, focus, destroy }`. Uses `@codemirror/lang-sql` with dialect selection (PostgreSQL, SQLite, MySQL, MSSQL, StandardSQL for ClickHouse). VS Code theme integration maps `--vscode-*` CSS vars via `EditorView.theme()` and `HighlightStyle.define()`. Schema-aware autocomplete via `sql({ schema })` compartment, reconfigurable at runtime via `setSchema()`. Inline table-name validation via `@codemirror/lint` (500ms debounce, warning severity). Ctrl/Cmd+Enter triggers `onRun` callback. Separate `tsconfig.json` (`module: ES2020`, `lib: ["ES2022", "DOM"]`) excluded from main tsconfig. Falls back to plain `<textarea>` when the bundle is not loaded (tests).
+
+Used by: Result Panel query bar (`resultPanel.ts`), Diff Panel SQL panes (`diffPanel.ts` + `diff-panel.js`).
+
 ### SQL Autocomplete
 `src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).
 
