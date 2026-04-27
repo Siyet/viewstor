@@ -402,8 +402,8 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   tbody tr:nth-child(even) td { background:var(--viewstor-row-zebra, color-mix(in srgb, var(--vscode-foreground) 4%, transparent)); }
   tbody tr:nth-child(even) .row-num { background:var(--vscode-editor-background); }
   tr.new-row:nth-child(even) td { background:color-mix(in srgb, var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)), var(--vscode-foreground) 6%); }
-  tr:hover td { background:var(--vscode-list-hoverBackground); }
-  tr:hover .row-num { background:var(--vscode-editor-background); }
+  tbody tr:hover td { background:var(--vscode-list-hoverBackground); }
+  tbody tr:hover .row-num { background:var(--vscode-editor-background); }
   /* Selection borders via inset box-shadow so the cell's layout size
      doesn't change when classes toggle (borders would add ~2px each side
      and shift the row). Same pattern as diff-panel.css. */
