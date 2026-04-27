@@ -113,13 +113,14 @@
   let leftEditor = null;
   let rightEditor = null;
 
-  function initDiffEditor(wrap, onChange, onRun) {
+  function initDiffEditor(wrap, onChange, onRun, dialect) {
     if (!wrap) return null;
     const defaultQ = wrap.getAttribute('data-default-query') || '';
     if (window.ViewstorSqlEditor) {
       const cm = window.ViewstorSqlEditor.create({
         parent: wrap,
         value: defaultQ,
+        dialect: dialect,
         onChange: onChange,
         onRun: onRun,
       });
@@ -209,7 +210,7 @@
     }
     clearQueryErrorsOnEdit();
     sendQueryState();
-  }, runDiff);
+  }, runDiff, data.leftDialect);
 
   rightEditor = initDiffEditor(queryRightWrap, function () {
     if (isSyncOn() && !mirroring && leftEditor) {
@@ -219,7 +220,7 @@
     }
     clearQueryErrorsOnEdit();
     sendQueryState();
-  }, runDiff);
+  }, runDiff, data.rightDialect);
 
   if (leftEditor && rightEditor && queryRunEl) {
     if (querySyncEl) {

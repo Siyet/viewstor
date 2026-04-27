@@ -341,6 +341,13 @@ export class DiffPanelManager {
 
     const canEditQueries = !!(state.left.connectionId && state.right.connectionId && this.connectionManager);
 
+    let leftDialect = '';
+    let rightDialect = '';
+    if (canEditQueries && this.connectionManager) {
+      leftDialect = this.connectionManager.get(state.left.connectionId!)?.config.type || '';
+      rightDialect = this.connectionManager.get(state.right.connectionId!)?.config.type || '';
+    }
+
     const diffData = {
       rowDiff: state.rowDiff,
       schemaDiff: state.schemaDiff,
@@ -353,6 +360,8 @@ export class DiffPanelManager {
       rightQuery: state.rightQuery,
       syncMode: state.syncMode,
       canEditQueries,
+      leftDialect,
+      rightDialect,
     };
 
     const summary = state.rowDiff.summary;
