@@ -98,11 +98,9 @@
   if (exportJsonBtn) exportJsonBtn.addEventListener('click', () => vscode.postMessage({ type: 'exportDiff', format: 'json' }));
   if (swapBtn) swapBtn.addEventListener('click', () => vscode.postMessage({ type: 'swapSides' }));
 
-  // ---- Custom query editor ----
-  const queryLeftEl = document.getElementById('diffQueryLeft');
-  const queryRightEl = document.getElementById('diffQueryRight');
-  const queryLeftHlEl = document.getElementById('diffQueryLeftHighlight');
-  const queryRightHlEl = document.getElementById('diffQueryRightHighlight');
+  // ---- Custom query editor (CodeMirror or textarea fallback) ----
+  const queryLeftWrap = document.getElementById('diffQueryLeftWrap');
+  const queryRightWrap = document.getElementById('diffQueryRightWrap');
   const querySyncEl = document.getElementById('diffQuerySync');
   const querySyncIndicator = document.getElementById('diffSyncIndicator');
   const queryPanesEl = document.getElementById('diffQueryPanes');
@@ -112,48 +110,38 @@
   const queryRightErrEl = document.getElementById('diffQueryRightError');
   const queryEditorEl = document.getElementById('diffQueryEditor');
 
-  // SQL token keywords — kept in sync with src/views/resultPanel.ts highlightSql.
-  const SQL_KW = /\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|IS|NULL|AS|ON|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|INDEX|VIEW|DISTINCT|BETWEEN|LIKE|ILIKE|EXISTS|CASE|WHEN|THEN|ELSE|END|UNION|ALL|ASC|DESC|WITH|DEFAULT|CASCADE|PRIMARY|KEY|REFERENCES|FOREIGN|CONSTRAINT|RETURNING|EXPLAIN|ANALYZE|COUNT|SUM|AVG|MIN|MAX|COALESCE|NULLIF|CAST|TRUE|FALSE|BOOLEAN|INTEGER|TEXT|VARCHAR|NUMERIC|SERIAL|BIGSERIAL|TIMESTAMP|TIMESTAMPTZ|DATE|TIME|INTERVAL|JSONB?|UUID|ARRAY|BIGINT|SMALLINT|REAL|DOUBLE|PRECISION|CHAR|DECIMAL|FLOAT)\b/i;
-  function escSql(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-  function highlightSql(text) {
-    const out = [];
-    let rest = text;
-    while (rest.length > 0) {
-      let m;
-      if ((m = rest.match(/^'(?:[^'\\]|\\.)*'|^'(?:[^']|'')*'/))) { out.push('<span class="tk-str">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
-      if ((m = rest.match(/^"[^"]*"/))) { out.push('<span class="tk-id">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
-      if ((m = rest.match(/^--[^\n]*/))) { out.push('<span class="tk-cmt">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
-      if ((m = rest.match(/^-?\d+(?:\.\d+)?(?![a-zA-Z_])/))) { out.push('<span class="tk-num">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
-      if ((m = rest.match(/^[a-zA-Z_][a-zA-Z0-9_]*/))) {
-        const w = m[0];
-        out.push(SQL_KW.test(w) ? '<span class="tk-kw">' + escSql(w) + '</span>' : '<span class="tk-id">' + escSql(w) + '</span>');
-        rest = rest.substring(w.length);
-        continue;
-      }
-      if ((m = rest.match(/^[<>=!]+|^[;,()*.]/))) { out.push('<span class="tk-op">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
-      out.push(escSql(rest[0]));
-      rest = rest.substring(1);
+  let leftEditor = null;
+  let rightEditor = null;
+
+  function initDiffEditor(wrap, onChange, onRun, dialect) {
+    if (!wrap) return null;
+    const defaultQ = wrap.getAttribute('data-default-query') || '';
+    if (window.ViewstorSqlEditor) {
+      const cm = window.ViewstorSqlEditor.create({
+        parent: wrap,
+        value: defaultQ,
+        dialect: dialect,
+        onChange: onChange,
+        onRun: onRun,
+      });
+      return { getValue: function () { return cm.getValue(); }, setValue: function (v) { cm.setValue(v); } };
     }
-    return out.join('');
-  }
-
-  function autoSize(textarea) {
-    if (!textarea) return;
-    if (textarea.offsetParent === null) return;
-    textarea.style.height = 'auto';
-    const h = textarea.scrollHeight;
-    if (h > 0) textarea.style.height = h + 'px';
-  }
-
-  function updateHighlight(textarea, highlight) {
-    if (!textarea || !highlight) return;
-    highlight.innerHTML = highlightSql(textarea.value) + '\n';
-    autoSize(textarea);
-  }
-
-  function refreshAllHighlights() {
-    updateHighlight(queryLeftEl, queryLeftHlEl);
-    updateHighlight(queryRightEl, queryRightHlEl);
+    const ta = document.createElement('textarea');
+    ta.className = 'diff-query-editor-textarea';
+    ta.rows = 1;
+    ta.spellcheck = false;
+    ta.value = defaultQ;
+    if (onChange) ta.addEventListener('input', onChange);
+    if (onRun) {
+      ta.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter')) {
+          e.preventDefault();
+          onRun();
+        }
+      });
+    }
+    wrap.appendChild(ta);
+    return { getValue: function () { return ta.value; }, setValue: function (v) { ta.value = v; } };
   }
 
   function isSyncOn() {
@@ -166,11 +154,6 @@
       if (isSyncOn()) querySyncIndicator.removeAttribute('hidden');
       else querySyncIndicator.setAttribute('hidden', '');
     }
-  }
-
-  // Recompute textarea heights when the collapsible expands (scrollHeight=0 while collapsed).
-  if (queryEditorEl) {
-    queryEditorEl.addEventListener('vsc-collapsible-toggle', refreshAllHighlights);
   }
 
   function setQueryStatus(text) {
@@ -188,17 +171,16 @@
     el.removeAttribute('hidden');
   }
 
-  // Debounce host notifications to avoid postMessage per keystroke.
   let sendQueryStateTimer = null;
   function sendQueryState() {
-    if (!queryLeftEl || !queryRightEl) return;
+    if (!leftEditor || !rightEditor) return;
     if (sendQueryStateTimer !== null) clearTimeout(sendQueryStateTimer);
     sendQueryStateTimer = setTimeout(function () {
       sendQueryStateTimer = null;
       vscode.postMessage({
         type: 'updateQueries',
-        leftQuery: queryLeftEl.value,
-        rightQuery: queryRightEl.value,
+        leftQuery: leftEditor.getValue(),
+        rightQuery: rightEditor.getValue(),
         syncMode: isSyncOn(),
       });
     }, 200);
@@ -214,48 +196,43 @@
     }
   }
 
-  if (queryLeftEl && queryRightEl && queryRunEl) {
-    let mirroring = false;
-    queryLeftEl.addEventListener('input', function () {
-      if (isSyncOn() && !mirroring) {
-        mirroring = true;
-        queryRightEl.value = queryLeftEl.value;
-        updateHighlight(queryRightEl, queryRightHlEl);
-        mirroring = false;
-      }
-      updateHighlight(queryLeftEl, queryLeftHlEl);
-      clearQueryErrorsOnEdit();
-      sendQueryState();
-    });
-    queryRightEl.addEventListener('input', function () {
-      if (isSyncOn() && !mirroring) {
-        mirroring = true;
-        queryLeftEl.value = queryRightEl.value;
-        updateHighlight(queryLeftEl, queryLeftHlEl);
-        mirroring = false;
-      }
-      updateHighlight(queryRightEl, queryRightHlEl);
-      clearQueryErrorsOnEdit();
-      sendQueryState();
-    });
-    queryLeftEl.addEventListener('scroll', function () {
-      if (queryLeftHlEl) queryLeftHlEl.scrollLeft = queryLeftEl.scrollLeft;
-    });
-    queryRightEl.addEventListener('scroll', function () {
-      if (queryRightHlEl) queryRightHlEl.scrollLeft = queryRightEl.scrollLeft;
-    });
+  function runDiff() {
+    if (queryRunEl) queryRunEl.click();
+  }
+
+  let mirroring = false;
+
+  leftEditor = initDiffEditor(queryLeftWrap, function () {
+    if (isSyncOn() && !mirroring && rightEditor) {
+      mirroring = true;
+      rightEditor.setValue(leftEditor.getValue());
+      mirroring = false;
+    }
+    clearQueryErrorsOnEdit();
+    sendQueryState();
+  }, runDiff, data.leftDialect);
+
+  rightEditor = initDiffEditor(queryRightWrap, function () {
+    if (isSyncOn() && !mirroring && leftEditor) {
+      mirroring = true;
+      leftEditor.setValue(rightEditor.getValue());
+      mirroring = false;
+    }
+    clearQueryErrorsOnEdit();
+    sendQueryState();
+  }, runDiff, data.rightDialect);
+
+  if (leftEditor && rightEditor && queryRunEl) {
     if (querySyncEl) {
       querySyncEl.addEventListener('change', function () {
         if (isSyncOn()) {
-          queryRightEl.value = queryLeftEl.value;
+          rightEditor.setValue(leftEditor.getValue());
         }
         applySyncVisibility();
-        refreshAllHighlights();
         sendQueryState();
       });
     }
     applySyncVisibility();
-    refreshAllHighlights();
 
     queryRunEl.addEventListener('click', function () {
       clearQueryErrors();
@@ -263,20 +240,11 @@
       queryRunEl.setAttribute('disabled', '');
       vscode.postMessage({
         type: 'runDiffQuery',
-        leftQuery: queryLeftEl.value,
-        rightQuery: queryRightEl.value,
+        leftQuery: leftEditor.getValue(),
+        rightQuery: rightEditor.getValue(),
         syncMode: isSyncOn(),
       });
     });
-
-    function runOnCtrlEnter(e) {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter')) {
-        e.preventDefault();
-        queryRunEl.click();
-      }
-    }
-    queryLeftEl.addEventListener('keydown', runOnCtrlEnter);
-    queryRightEl.addEventListener('keydown', runOnCtrlEnter);
   }
 
   // ---- Helpers ----

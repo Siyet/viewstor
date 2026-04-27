@@ -73,5 +73,27 @@ module.exports = (_env, argv) => {
       new webpack.BannerPlugin({ banner: '#!/usr/bin/env node', raw: true }),
     ],
   },
+  // CodeMirror SQL editor — bundled for webview (runs in browser, not Node)
+  {
+    target: 'web',
+    resolve: { extensions: ['.ts', '.js'] },
+    module: {
+      rules: [{
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: {
+          loader: 'ts-loader',
+          options: { configFile: path.resolve(__dirname, 'src/webview/sql-editor/tsconfig.json') },
+        },
+      }],
+    },
+    entry: './src/webview/sql-editor/index.ts',
+    output: {
+      path: path.resolve(__dirname, 'dist/scripts'),
+      filename: 'sql-editor.js',
+      library: { name: 'ViewstorSqlEditor', type: 'window' },
+    },
+    devtool: isDev ? 'source-map' : false,
+  },
 ];
 };
