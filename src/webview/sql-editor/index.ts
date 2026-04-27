@@ -245,5 +245,3 @@ export function create(opts: SqlEditorOptions): SqlEditorInstance {
     destroy: () => view.destroy(),
   };
 }
-
-(window as any).ViewstorSqlEditor = { create };
