@@ -234,8 +234,11 @@ export function buildAggregationQuery(
       xExpr = `toStartOfInterval(${q(xColumn)}, INTERVAL ${interval})`;
     } else if (databaseType === 'sqlite') {
       xExpr = buildSqliteCustomBucket(xColumn, timeBucket.timeBucket);
+    } else if (databaseType === 'mysql') {
+      const seconds = parseCustomBucketSeconds(timeBucket.timeBucket);
+      xExpr = `FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(${q(xColumn)}) / ${seconds}) * ${seconds})`;
     } else {
-      // PostgreSQL (date_bin requires PG >= 14) — MySQL falls through here
+      // PostgreSQL (date_bin requires PG >= 14)
       xExpr = `date_bin('${interval}', ${q(xColumn)}, '2000-01-01')`;
     }
   }

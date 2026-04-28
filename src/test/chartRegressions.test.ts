@@ -245,3 +245,39 @@ describe('Regression: config restore must not trigger duplicate events', () => {
     expect(changeCount).toBe(1); // Still 1 — suppressed calls didn't increment
   });
 });
+
+// ============================================================
+// MySQL aggregation query: backtick quoting and time bucketing
+// ============================================================
+
+describe('MySQL aggregation query support', () => {
+  it('uses backtick quoting for MySQL', () => {
+    const sql = buildAggregationQuery(
+      'events', 'mydb', 'created_at', ['id'], 'count', undefined,
+      { function: 'count', timeBucketPreset: 'day' }, 'mysql',
+    );
+    expect(sql).toContain('`mydb`.`events`');
+    expect(sql).toContain('`created_at`');
+    expect(sql).toContain('COUNT(*) AS `count`');
+    expect(sql).not.toContain('"');
+  });
+
+  it('uses DATE_FORMAT for preset time buckets', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['val'], 'sum', undefined,
+      { function: 'sum', timeBucketPreset: 'hour' }, 'mysql',
+    );
+    expect(sql).toContain('DATE_FORMAT(`ts`, \'%Y-%m-%d %H:00:00\')');
+  });
+
+  it('uses UNIX_TIMESTAMP arithmetic for custom time buckets', () => {
+    const sql = buildAggregationQuery(
+      't', undefined, 'ts', ['val'], 'sum', undefined,
+      { function: 'sum', timeBucketPreset: 'custom', timeBucket: '2h' }, 'mysql',
+    );
+    expect(sql).toContain('FROM_UNIXTIME');
+    expect(sql).toContain('UNIX_TIMESTAMP(`ts`)');
+    expect(sql).toContain('7200');
+    expect(sql).not.toContain('date_bin');
+  });
+});
