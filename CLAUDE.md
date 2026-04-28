@@ -175,9 +175,13 @@ All auto-connect. Returns structured JSON or `{ error }`.
 ### Standalone MCP Server
 `src/mcp-server/index.ts` — stdio-based MCP server for CLI agents (Claude Code, etc.). Built as separate webpack entry → `dist/mcp-server.js`. Uses `@modelcontextprotocol/sdk`. Does NOT import `vscode`.
 
-`src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle.
+`src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle. `addProjectScoped()` writes to `.vscode/viewstor.json` with password stripped (used by restricted `add_connection`).
+
+`src/mcp-server/settings.ts` — reads `allowAddConnection` mode (`'off' | 'restricted' | 'unrestricted'`, default `'restricted'`). Sources: env var `VIEWSTOR_ALLOW_ADD_CONNECTION` (highest priority), `~/.viewstor/settings.json` key `allowAddConnection`, then default. Pure `resolveMode()` function is unit-tested separately from fs/env.
 
 9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`.
+
+`add_connection` gated by `allowAddConnection` setting: `off` → tool hidden from `ListTools` and returns error; `restricted` → forces `readonly: true`, `scope: 'project'`, name prefixed `[agent] `, sets `mcpCreated: true`; `unrestricted` → agent-supplied values, warning in response. All modes set `mcpCreated: true`. Tree view shows `[agent]` badge in description for `mcpCreated` connections.
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter. `ConnectionStore.ensureDriverForDatabase()` mirrors `ConnectionManager.getDriverForDatabase()` — caches per `connectionId:database`, reuses host/user/password/ssl. VS Code MCP commands accept `database` as a trailing optional arg.
 
