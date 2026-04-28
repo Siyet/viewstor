@@ -33,6 +33,7 @@ function formatTableDetail(rows: number, bytes: number): string | undefined {
 export class MysqlDriver implements DatabaseDriver {
   private pool: mysql.Pool | undefined;
   private config: ConnectionConfig | undefined;
+  private activeThreadId: number | undefined;
 
   async connect(config: ConnectionConfig): Promise<void> {
     this.config = config;
@@ -65,12 +66,11 @@ export class MysqlDriver implements DatabaseDriver {
   }
 
   async cancelQuery(): Promise<void> {
-    if (!this.pool) return;
+    const id = this.activeThreadId;
+    if (!this.pool || !id) return;
     const conn = await this.pool.getConnection();
     try {
-      const [rows] = await conn.query('SELECT CONNECTION_ID() AS id');
-      const id = (rows as mysql.RowDataPacket[])[0]?.id;
-      if (id) await conn.query(`KILL QUERY ${id}`);
+      await conn.query(`KILL QUERY ${id}`);
     } finally {
       conn.release();
     }
@@ -78,8 +78,10 @@ export class MysqlDriver implements DatabaseDriver {
 
   async execute(query: string): Promise<QueryResult> {
     const start = Date.now();
+    const conn = await this.pool!.getConnection();
     try {
-      const [rawResult, fields] = await this.pool!.query(query);
+      this.activeThreadId = conn.threadId;
+      const [rawResult, fields] = await conn.query(query);
       const executionTimeMs = Date.now() - start;
 
       if (!Array.isArray(rawResult)) {
@@ -116,6 +118,9 @@ export class MysqlDriver implements DatabaseDriver {
         executionTimeMs: Date.now() - start,
         error: wrapError(err),
       };
+    } finally {
+      this.activeThreadId = undefined;
+      conn.release();
     }
   }
 
