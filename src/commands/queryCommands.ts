@@ -160,12 +160,12 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
             : dbType === 'sqlite' ? plan.includes('SCAN TABLE')
             : dbType === 'clickhouse' ? plan.includes('Full') : false;
           const scanMatch = dbType === 'postgresql' ? plan.match(/Seq Scan on (\w+)/)
-            : dbType === 'mysql' ? plan.match(/ALL\b/)
+            : dbType === 'mysql' ? plan.match(/\bALL\b/)
             : dbType === 'sqlite' ? plan.match(/SCAN TABLE (\w+)/)
             : null;
           dbg('safeMode', 'fullScan:', hasFullScan, 'limit:', limitValue, 'mode:', safeMode, 'db:', dbType);
           if (hasFullScan && limitValue > 1000) {
-            const tableName = scanMatch ? scanMatch[1] : 'unknown';
+            const tableName = scanMatch?.[1] ?? 'unknown';
             const scanLabel = dbType === 'mysql' ? 'Full Table Scan' : dbType === 'sqlite' ? 'SCAN TABLE' : dbType === 'clickhouse' ? 'Full Scan' : 'Seq Scan';
             const message = vscode.l10n.t('{0} on "{1}" — may be slow on large tables.', scanLabel, tableName);
 
