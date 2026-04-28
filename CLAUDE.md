@@ -4,7 +4,7 @@ Guidance for Claude Code when working with this repository.
 
 ## What is Viewstor
 
-VS Code extension for database management. Supports PostgreSQL, Redis, ClickHouse, SQLite. Free, open-source (AGPL-3.0) alternative to DBeaver/DataGrip. Follows [ZeroVer](https://0ver.org) — version 0.x until API is stable.
+VS Code extension for database management. Supports PostgreSQL, MySQL/MariaDB, Redis, ClickHouse, SQLite. Free, open-source (AGPL-3.0) alternative to DBeaver/DataGrip. Follows [ZeroVer](https://0ver.org) — version 0.x until API is stable.
 
 ## Commands
 
@@ -31,9 +31,9 @@ F5 in VS Code → Extension Development Host. Reload Window picks up new `dist/`
 
 Required methods: `connect`, `disconnect`, `ping`, `execute`, `getSchema`, `getTableInfo`, `getTableData`.
 
-Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff), `getTableStatistics` (row count, sizes, vacuum info, scan counters — used by stats diff tab; PG uses `pg_table_size`/`pg_indexes_size` + `pg_stat_user_tables`, CH uses `system.tables` + `system.parts`, SQLite uses `COUNT(*)` + optional `dbstat` vtable).
+Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables / information_schema.TABLES.TABLE_ROWS), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, MySQL: KILL QUERY, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index / information_schema.STATISTICS query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff), `getTableStatistics` (row count, sizes, vacuum info, scan counters — used by stats diff tab; PG uses `pg_table_size`/`pg_indexes_size` + `pg_stat_user_tables`, MySQL uses `information_schema.TABLES` (DATA_LENGTH, INDEX_LENGTH, TABLE_ROWS, etc.), CH uses `system.tables` + `system.parts`, SQLite uses `COUNT(*)` + optional `dbstat` vtable).
 
-Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
+Drivers: `postgres.ts` (pg), `mysql.ts` (mysql2/promise), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
 
 ### Connections
 `src/connections/connectionManager.ts` — persists in VS Code `globalState` (keys: `viewstor.connections`, `viewstor.connectionFolders`).
@@ -227,6 +227,7 @@ All commands support `databaseName` parameter for multi-DB connections.
 - DB autocomplete connects to `postgres` DB when main field empty
 - Keyboard shortcuts use `e.code` (KeyF, KeyC) for layout independence
 - PG arrays: `pgArrayToString()` renders `{curly braces}` instead of JSON `[brackets]`
+- MySQL: uses `mysql2/promise` with connection pool (`connectionLimit: 5`). Identifiers quoted with backticks (`` ` ``), not double quotes. Schema via `information_schema` tables. `cancelQuery()` via `KILL QUERY <connId>`. Safe mode detects `ALL` in EXPLAIN output. `getTableStatistics()` from `information_schema.TABLES`. Supports enum/set value suggestions.
 - ClickHouse getSchema uses batch queries to `system.tables` and `system.columns` (not per-table DESCRIBE)
 - ClickHouse execute uses `JSON` format (not `JSONEachRow`) to get column types from response metadata
 - SQLite: file-based connection (`config.database` = file path or `:memory:`), no host/port/auth. Uses `sqlite_master` + `PRAGMA table_info()` for schema. `getEstimatedRowCount()` falls back to exact `COUNT(*)`. WAL journal mode enabled on connect (skipped for readonly). Foreign keys always enabled. Connection form shows file picker instead of host/port fields. `inferTypeFromValue()` detects column types for computed expressions (COUNT→INTEGER, SUM→REAL).

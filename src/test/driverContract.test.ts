@@ -27,7 +27,12 @@ vi.mock('ssh2', () => ({
   Client: class MockSSHClient {},
 }));
 
+vi.mock('mysql2/promise', () => ({
+  default: { createPool: vi.fn() },
+}));
+
 import { PostgresDriver } from '../drivers/postgres';
+import { MysqlDriver } from '../drivers/mysql';
 import { RedisDriver } from '../drivers/redis';
 import { ClickHouseDriver } from '../drivers/clickhouse';
 import { SqliteDriver } from '../drivers/sqlite';
@@ -57,7 +62,7 @@ const OPTIONAL_METHODS: (keyof DatabaseDriver)[] = [
 
 interface DriverSpec {
   name: string;
-  type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
+  type: 'postgresql' | 'mysql' | 'redis' | 'clickhouse' | 'sqlite';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   DriverClass: new (...args: any[]) => DatabaseDriver;
   expectedOptional: (keyof DatabaseDriver)[];
@@ -68,6 +73,21 @@ const DRIVER_SPECS: DriverSpec[] = [
     name: 'PostgresDriver',
     type: 'postgresql',
     DriverClass: PostgresDriver,
+    expectedOptional: [
+      'cancelQuery',
+      'getDDL',
+      'getCompletions',
+      'getIndexedColumns',
+      'getTableRowCount',
+      'getEstimatedRowCount',
+      'getTableObjects',
+      'getTableStatistics',
+    ],
+  },
+  {
+    name: 'MysqlDriver',
+    type: 'mysql',
+    DriverClass: MysqlDriver,
     expectedOptional: [
       'cancelQuery',
       'getDDL',
@@ -125,7 +145,7 @@ describe('DatabaseDriver contract', () => {
     }
 
     it('throws on unsupported database type', () => {
-      expect(() => createDriver('mysql' as never)).toThrow('Unsupported database type: mysql');
+      expect(() => createDriver('oracle' as never)).toThrow('Unsupported database type: oracle');
     });
 
     it('throws on empty string', () => {

@@ -119,6 +119,19 @@ export const TIME_BUCKET_SQLITE: Record<Exclude<TimeBucketPreset, 'custom'>, str
   year: '%Y',
 };
 
+/**
+ * Map time bucket preset to MySQL DATE_FORMAT() format.
+ * MySQL has no date_trunc — use DATE_FORMAT() to truncate timestamps.
+ */
+export const TIME_BUCKET_MYSQL: Record<Exclude<TimeBucketPreset, 'custom'>, string> = {
+  second: '%Y-%m-%d %H:%i:%S',
+  minute: '%Y-%m-%d %H:%i:00',
+  hour: '%Y-%m-%d %H:00:00',
+  day: '%Y-%m-%d',
+  month: '%Y-%m-01',
+  year: '%Y-01-01',
+};
+
 /** How an additional data source is merged into the chart */
 export type DataSourceMergeMode = 'join' | 'separate';
 
@@ -194,32 +207,36 @@ export function buildAggregationQuery(
   databaseType?: string,
   limit?: number,
 ): string {
-  const table = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`;
+  const q = databaseType === 'mysql' ? (n: string) => '`' + n + '`' : (n: string) => `"${n}"`;
+  const table = schema ? `${q(schema)}.${q(tableName)}` : q(tableName);
 
   // Build X expression with time bucketing
-  let xExpr = `"${xColumn}"`;
+  let xExpr = q(xColumn);
   if (timeBucket.timeBucketPreset && timeBucket.timeBucketPreset !== 'custom') {
     if (databaseType === 'clickhouse') {
       const chFunc = TIME_BUCKET_CH[timeBucket.timeBucketPreset];
-      xExpr = `${chFunc}("${xColumn}")`;
+      xExpr = `${chFunc}(${q(xColumn)})`;
+    } else if (databaseType === 'mysql') {
+      const fmt = TIME_BUCKET_MYSQL[timeBucket.timeBucketPreset];
+      xExpr = `DATE_FORMAT(${q(xColumn)}, '${fmt}')`;
     } else if (databaseType === 'sqlite') {
       const fmt = TIME_BUCKET_SQLITE[timeBucket.timeBucketPreset];
-      xExpr = `strftime('${fmt}', "${xColumn}")`;
+      xExpr = `strftime('${fmt}', ${q(xColumn)})`;
     } else {
       // PostgreSQL (default)
       const pgTrunc = TIME_BUCKET_PG[timeBucket.timeBucketPreset];
-      xExpr = `date_trunc('${pgTrunc}', "${xColumn}")`;
+      xExpr = `date_trunc('${pgTrunc}', ${q(xColumn)})`;
     }
   } else if (timeBucket.timeBucketPreset === 'custom' && timeBucket.timeBucket) {
     // Custom bucket: parse '2h' → interval '2 hours'
     const interval = parseCustomBucket(timeBucket.timeBucket);
     if (databaseType === 'clickhouse') {
-      xExpr = `toStartOfInterval("${xColumn}", INTERVAL ${interval})`;
+      xExpr = `toStartOfInterval(${q(xColumn)}, INTERVAL ${interval})`;
     } else if (databaseType === 'sqlite') {
       xExpr = buildSqliteCustomBucket(xColumn, timeBucket.timeBucket);
     } else {
-      // PostgreSQL (date_bin requires PG >= 14)
-      xExpr = `date_bin('${interval}', "${xColumn}", '2000-01-01')`;
+      // PostgreSQL (date_bin requires PG >= 14) — MySQL falls through here
+      xExpr = `date_bin('${interval}', ${q(xColumn)}, '2000-01-01')`;
     }
   }
 
@@ -227,22 +244,22 @@ export function buildAggregationQuery(
   // Aliases preserve original column names so the chart axis mapping stays valid.
   // COUNT produces a single column regardless of how many yColumns are specified
   const yExprs = aggFunction === 'count'
-    ? ['COUNT(*) AS "count"']
+    ? [`COUNT(*) AS ${q('count')}`]
     : yColumns.map(col => {
-      if (aggFunction === 'none') return `"${col}"`;
-      return `${aggFunction.toUpperCase()}("${col}") AS "${col}"`;
+      if (aggFunction === 'none') return q(col);
+      return `${aggFunction.toUpperCase()}(${q(col)}) AS ${q(col)}`;
     });
 
-  const selectParts = [`${xExpr} AS "${xColumn}"`];
+  const selectParts = [`${xExpr} AS ${q(xColumn)}`];
   yExprs.forEach((expr) => selectParts.push(expr));
-  if (groupByColumn) selectParts.push(`"${groupByColumn}"`);
+  if (groupByColumn) selectParts.push(q(groupByColumn));
 
   let sql = `SELECT ${selectParts.join(', ')} FROM ${table}`;
 
   // GROUP BY when aggregating
   if (aggFunction !== 'none') {
     const groupParts = [`${xExpr}`];
-    if (groupByColumn) groupParts.push(`"${groupByColumn}"`);
+    if (groupByColumn) groupParts.push(q(groupByColumn));
     sql += ` GROUP BY ${groupParts.join(', ')}`;
   }
 

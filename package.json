@@ -20,6 +20,7 @@
   "keywords": [
     "database",
     "postgresql",
+    "mysql",
     "redis",
     "clickhouse",
     "sqlite",
@@ -60,6 +61,13 @@
         "default": {
           "fontPath": "resources/viewstor-icons.woff2",
           "fontCharacter": "\\E002"
+        }
+      },
+      "viewstor-mysql": {
+        "description": "MySQL",
+        "default": {
+          "fontPath": "resources/viewstor-icons.woff2",
+          "fontCharacter": "\\E005"
         }
       },
       "viewstor-redis": {
@@ -633,6 +641,7 @@
     "better-sqlite3": "^12.8.0",
     "echarts": "^5.6.0",
     "leaflet": "^1.9.4",
+    "mysql2": "^3.22.3",
     "ssh2": "^1.17.0"
   }
 }
