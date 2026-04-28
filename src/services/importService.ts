@@ -80,6 +80,7 @@ export function parseDBeaver(content: string): ImportResult {
 function mapDBeaverProvider(provider?: string, driver?: string): DatabaseType | null {
   const p = (provider || driver || '').toLowerCase();
   if (p.includes('postgres')) return 'postgresql';
+  if (p.includes('mysql') || p.includes('mariadb')) return 'mysql';
   if (p.includes('redis') || p.includes('iredis')) return 'redis';
   if (p.includes('clickhouse')) return 'clickhouse';
   if (p.includes('sqlite')) return 'sqlite';
@@ -143,6 +144,7 @@ function extractXmlValue(xml: string, tag: string): string | undefined {
 function mapDataGripDriver(driver?: string): DatabaseType | null {
   const d = (driver || '').toLowerCase();
   if (d.includes('postgres')) return 'postgresql';
+  if (d.includes('mysql') || d.includes('mariadb')) return 'mysql';
   if (d.includes('redis')) return 'redis';
   if (d.includes('clickhouse')) return 'clickhouse';
   if (d.includes('sqlite')) return 'sqlite';

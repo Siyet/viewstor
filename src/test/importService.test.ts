@@ -58,10 +58,10 @@ describe('ImportService', () => {
     it('should skip unsupported providers with warning', () => {
       const input = JSON.stringify({
         connections: {
-          'mysql-1': {
-            provider: 'mysql',
-            name: 'MySQL DB',
-            configuration: { host: 'localhost', port: '3306' },
+          'oracle-1': {
+            provider: 'oracle',
+            name: 'Oracle DB',
+            configuration: { host: 'localhost', port: '1521' },
           },
         },
       });
@@ -155,9 +155,9 @@ describe('ImportService', () => {
     it('should skip unsupported drivers', () => {
       const xml = `<application>
   <component name="dataSourceStorage">
-    <data-source source="LOCAL" name="MySQL" uuid="x">
-      <driver-ref>mysql.8</driver-ref>
-      <jdbc-url>jdbc:mysql://localhost:3306/test</jdbc-url>
+    <data-source source="LOCAL" name="Oracle" uuid="x">
+      <driver-ref>oracle.thin</driver-ref>
+      <jdbc-url>jdbc:oracle:thin:@localhost:1521/test</jdbc-url>
     </data-source>
   </component>
 </application>`;

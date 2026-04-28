@@ -612,10 +612,10 @@ describe('Workflow 6: DBeaver import -> connection configs round-trip', () => {
   it('produces warnings for unsupported DB types', () => {
     const dbeaverJson = JSON.stringify({
       connections: {
-        'mysql-prod': {
-          provider: 'mysql',
-          name: 'MySQL Production',
-          configuration: { host: 'mysql.example.com', port: '3306' },
+        'mssql-prod': {
+          provider: 'mssql',
+          name: 'MSSQL Production',
+          configuration: { host: 'mssql.example.com', port: '1433' },
         },
         'oracle-legacy': {
           provider: 'oracle',
@@ -634,7 +634,7 @@ describe('Workflow 6: DBeaver import -> connection configs round-trip', () => {
 
     // Two unsupported providers should produce warnings
     expect(result.warnings).toHaveLength(2);
-    expect(result.warnings[0]).toContain('mysql');
+    expect(result.warnings[0]).toContain('mssql');
     expect(result.warnings[1]).toContain('oracle');
 
     // Only the valid PostgreSQL connection is imported
