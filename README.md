@@ -224,6 +224,8 @@ Or add manually:
 
 9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
 
+**`add_connection` security:** By default (`restricted` mode), agent-created connections are forced to read-only, project-scoped (`.vscode/viewstor.json`), and prefixed `[agent]`. This prevents agents from bypassing access controls by creating unrestricted connections to the same host. Configure via `~/.viewstor/settings.json` (`{ "allowAddConnection": "off" | "restricted" | "unrestricted" }`) or `VIEWSTOR_ALLOW_ADD_CONNECTION` env var.
+
 All MCP interfaces auto-connect and respect read-only mode.
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter — query another database on the same server without creating a new connection or re-entering the password.

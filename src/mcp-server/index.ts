@@ -13,6 +13,7 @@ import { buildGrafanaDashboard } from '../chart/grafanaExport';
 import { wrapError } from '../utils/errors';
 import { isReadOnlyQuery } from '../utils/queryHelpers';
 import { formatExecuteQuery, formatTableData, formatTableInfo, flattenSchema } from '../mcp/mcpFormatters';
+import { getAddConnectionMode } from './settings';
 
 const store = new ConnectionStore();
 
@@ -23,8 +24,34 @@ const server = new Server(
 
 // --- Tool definitions ---
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
+const ADD_CONNECTION_TOOL = {
+  name: 'add_connection',
+  description: 'Add a new database connection. In restricted mode (default), connections are read-only and project-scoped. For SQLite: set type="sqlite", database="/path/to/file.db" (or ":memory:"), host and port are ignored.',
+  inputSchema: {
+    type: 'object' as const,
+    properties: {
+      name: { type: 'string', description: 'Display name' },
+      type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite'], description: 'Database type' },
+      host: { type: 'string', description: 'Host (ignored for SQLite)' },
+      port: { type: 'number', description: 'Port (ignored for SQLite)' },
+      username: { type: 'string', description: 'Username' },
+      password: { type: 'string', description: 'Password' },
+      database: { type: 'string', description: 'Database name, or file path for SQLite (e.g. "/tmp/test.db", ":memory:")' },
+      ssl: { type: 'boolean', description: 'Use SSL' },
+      readonly: { type: 'boolean', description: 'Read-only mode' },
+    },
+    required: ['name', 'type'],
+  },
+};
+
+interface ToolDef {
+  name: string;
+  description: string;
+  inputSchema: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
+}
+
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const tools: ToolDef[] = [
     {
       name: 'list_connections',
       description: 'List all configured database connections with their status. The "databases" field shows additional databases on the same server that can be queried via the "database" parameter of other tools.',
@@ -85,25 +112,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
-      name: 'add_connection',
-      description: 'Add a new database connection. For SQLite: set type="sqlite", database="/path/to/file.db" (or ":memory:"), host and port are ignored.',
-      inputSchema: {
-        type: 'object' as const,
-        properties: {
-          name: { type: 'string', description: 'Display name' },
-          type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite'], description: 'Database type' },
-          host: { type: 'string', description: 'Host (ignored for SQLite)' },
-          port: { type: 'number', description: 'Port (ignored for SQLite)' },
-          username: { type: 'string', description: 'Username' },
-          password: { type: 'string', description: 'Password' },
-          database: { type: 'string', description: 'Database name, or file path for SQLite (e.g. "/tmp/test.db", ":memory:")' },
-          ssl: { type: 'boolean', description: 'Use SSL' },
-          readonly: { type: 'boolean', description: 'Read-only mode' },
-        },
-        required: ['name', 'type'],
-      },
-    },
-    {
       name: 'reload_connections',
       description: 'Reload connections from config files (call after adding connections via VS Code or editing config files)',
       inputSchema: { type: 'object' as const, properties: {} },
@@ -149,8 +157,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['connectionId', 'query', 'chartType'],
       },
     },
-  ],
-}));
+  ];
+
+  if (getAddConnectionMode() !== 'off') {
+    tools.push(ADD_CONNECTION_TOOL);
+  }
+
+  return { tools };
+});
 
 // --- Tool handlers ---
 
@@ -208,16 +222,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'add_connection': {
+        const mode = getAddConnectionMode();
+        if (mode === 'off') {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Tool disabled. Configure allowAddConnection in ~/.viewstor/settings.json or set VIEWSTOR_ALLOW_ADD_CONNECTION env var.', kind: 'tool_disabled' }) }],
+            isError: true,
+          };
+        }
+
         const { name: connName, type, host, port, username, password, database, ssl, readonly } = args as {
-          name: string; type: 'postgresql' | 'redis' | 'clickhouse';
+          name: string; type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
           host: string; port: number;
           username?: string; password?: string; database?: string;
           ssl?: boolean; readonly?: boolean;
         };
         const id = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
-        const config = { id, name: connName, type, host, port, username, password, database, ssl, readonly };
+        const warnings: { kind: string; message: string }[] = [];
+
+        if (mode === 'restricted') {
+          const safeName = connName.startsWith('[agent] ') ? connName : `[agent] ${connName}`;
+          if (readonly === false) {
+            warnings.push({ kind: 'readonly_forced', message: 'readonly: false was ignored; restricted mode forces read-only connections.' });
+          }
+          const config = { id, name: safeName, type, host, port, username, password, database, ssl, readonly: true, mcpCreated: true, scope: 'project' as const };
+          await store.addProjectScoped(config);
+          return jsonResponse({ id, name: safeName, type, host, port, database, readonly: true, scope: 'project', mcpCreated: true, message: 'Connection added (restricted mode)', warnings });
+        }
+
+        // unrestricted
+        const config = { id, name: connName, type, host, port, username, password, database, ssl, readonly, mcpCreated: true };
         await store.add(config);
-        return jsonResponse({ id, name: connName, type, host, port, database, message: 'Connection added' });
+        warnings.push({ kind: 'agent_created_writeable_connection', message: 'Connection created with agent-supplied settings. Review in VS Code.' });
+        return jsonResponse({ id, name: connName, type, host, port, database, readonly, mcpCreated: true, message: 'Connection added', warnings });
       }
 
       case 'reload_connections': {

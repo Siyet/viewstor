@@ -118,6 +118,29 @@ export class ConnectionStore {
     await this.saveUserConfig();
   }
 
+  async addProjectScoped(config: ConnectionConfig): Promise<void> {
+    config.scope = 'project';
+    const { password: _, ...safe } = config as ConnectionConfig & { password?: string };
+    this.connections.set(config.id, config);
+    const projectFile = path.join(process.cwd(), PROJECT_CONFIG_FILE);
+    let data: ConfigData = { connections: [] };
+    try {
+      if (fs.existsSync(projectFile)) {
+        data = JSON.parse(fs.readFileSync(projectFile, 'utf8'));
+      }
+    } catch {
+      // Start fresh if unreadable
+    }
+    const existing = (data.connections || []).filter(c => c.id !== safe.id);
+    existing.push(safe);
+    data.connections = existing;
+    const dir = path.dirname(projectFile);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(projectFile, JSON.stringify(data, null, 2), 'utf8');
+  }
+
   private async saveUserConfig() {
     const userConfigs = Array.from(this.connections.values())
       .filter(c => c.scope !== 'project');

@@ -24,6 +24,8 @@ export interface ConnectionConfig {
   scope?: 'user' | 'project';
   /** Safe mode override per connection: 'off' | 'warn' | 'block' */
   safeMode?: 'off' | 'warn' | 'block';
+  /** Whether this connection was created by an MCP agent */
+  mcpCreated?: boolean;
   /** Proxy/tunnel configuration */
   proxy?: ProxyConfig;
 }
