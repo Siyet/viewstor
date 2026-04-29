@@ -5,12 +5,14 @@ import { quoteIdentifier } from '../utils/queryHelpers';
 import path from 'path';
 import type { TempFileManager } from '../services/tempFileManager';
 
-// Shared context-menu primitive (#94). Loaded lazily on first buildResultHtml
+// Shared webview primitives (#94). Loaded lazily on first buildResultHtml
 // call so module evaluation (and extension activation) stays side-effect-free
 // even if the asset is missing from an unusual layout — e.g. a tsc-compiled
 // test tree where `dist/test/views/` has no sibling `scripts/` or `webview/`.
 let cachedCtxMenuScript: string | null = null;
 let cachedCtxMenuCss: string | null = null;
+let cachedDataGridScript: string | null = null;
+let cachedDataGridCss: string | null = null;
 
 function loadWebviewAsset(relative: string): string {
   const candidates = [
@@ -40,6 +42,14 @@ function getCtxMenuScript(): string {
 function getCtxMenuCss(): string {
   if (cachedCtxMenuCss === null) cachedCtxMenuCss = loadWebviewAsset('styles/context-menu.css');
   return cachedCtxMenuCss;
+}
+function getDataGridScript(): string {
+  if (cachedDataGridScript === null) cachedDataGridScript = loadWebviewAsset('scripts/data-grid.js');
+  return cachedDataGridScript;
+}
+function getDataGridCss(): string {
+  if (cachedDataGridCss === null) cachedDataGridCss = loadWebviewAsset('styles/data-grid.css');
+  return cachedDataGridCss;
 }
 
 export interface ShowOptions {
@@ -418,8 +428,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   td.sel-bottom { --sh-bottom: 0 -2px 0 0 var(--vscode-focusBorder); }
   td.sel-left { --sh-left: 2px 0 0 0 var(--vscode-focusBorder); }
   td.sel-right { --sh-right: -2px 0 0 0 var(--vscode-focusBorder); }
-  /* Context-menu styles come from the shared module (#94). */
+  /* Context-menu + data-grid styles come from shared modules (#94). */
   ${getCtxMenuCss()}
+  ${getDataGridCss()}
   td.has-handle { overflow:visible !important; }
   .resize-handle { position:absolute; bottom:-5px; right:-5px; width:8px; height:8px; background:var(--vscode-focusBorder); cursor:crosshair; z-index:5; border:2px solid var(--vscode-editor-background); border-radius:1px; }
   .null-val { color:var(--vscode-descriptionForeground); font-style:italic; }
@@ -470,6 +481,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
 </style>
 <script>
 ${getCtxMenuScript()}
+${getDataGridScript()}
 </script>
 </head>
 <body>
@@ -965,20 +977,13 @@ ${getCtxMenuScript()}
   function showContextMenu(e) {
     e.preventDefault();
     if (selectedCells.size === 0) return;
-    const items = [
-      { label: 'Copy', onClick: () => copySelection('tsv') },
-      { label: 'Copy as One-row (SQL)', onClick: () => copySelection('onerow-sq') },
-      { label: 'Copy as One-row (JSON)', onClick: () => copySelection('onerow-dq') },
-      { label: 'Copy as CSV', onClick: () => copySelection('csv') },
-      { label: 'Copy as TSV (Slack)', onClick: () => copySelection('tsv-explicit') },
-      { label: 'Copy as Markdown', onClick: () => copySelection('md') },
-      { label: 'Copy as JSON', onClick: () => copySelection('json') },
-    ];
-    if (!IS_READONLY && IS_TABLE_MODE && pkColumns.length > 0) {
-      items.push({ separator: true });
-      items.push({ label: 'Delete Row(s)', destructive: true, onClick: () => sendDeleteRows() });
-    }
-    window.ViewstorContextMenu.open({ x: e.clientX, y: e.clientY, items });
+    var extra = (!IS_READONLY && IS_TABLE_MODE && pkColumns.length > 0)
+      ? [{ label: 'Delete Row(s)', destructive: true, onClick: function() { sendDeleteRows(); } }]
+      : null;
+    var items = window.ViewstorDataGrid.buildCopyMenuItems(function(fmt) {
+      copySelection(fmt === 'tsv-header' ? 'tsv-explicit' : fmt);
+    }, extra);
+    window.ViewstorContextMenu.open({ x: e.clientX, y: e.clientY, items: items });
   }
   document.getElementById('dataBody').addEventListener('contextmenu', showContextMenu);
 
@@ -1021,30 +1026,12 @@ ${getCtxMenuScript()}
     const { colIdxs } = getSelectionData();
     const headers = colIdxs.map(c => columns[c].name);
     const rows = getSelectedValues();
-    let text = '';
-    switch (fmt) {
-      case 'tsv': text = rows.map(r => r.join('\\t')).join('\\n'); break;
-      case 'tsv-explicit': text = headers.join('\\t') + '\\n' + rows.map(r => r.join('\\t')).join('\\n'); break;
-      case 'csv': text = headers.join(',') + '\\n' + rows.map(r => r.map(v => v.includes(',') || v.includes('"') ? '"' + v.replace(/"/g, '""') + '"' : v).join(',')).join('\\n'); break;
-      case 'onerow-sq': text = formatOneRow(rows, colIdxs, "'"); break;
-      case 'onerow-dq': text = formatOneRow(rows, colIdxs, '"'); break;
-      case 'md': {
-        var widths = headers.map(function(h, i) {
-          var max = h.length;
-          rows.forEach(function(r) { if (r[i].length > max) max = r[i].length; });
-          return Math.max(max, 3);
-        });
-        function mdPad(s, w) { return s + ' '.repeat(Math.max(0, w - s.length)); }
-        text = '| ' + headers.map(function(h, i) { return mdPad(h, widths[i]); }).join(' | ') + ' |\\n';
-        text += '|' + widths.map(function(w) { return '-'.repeat(w + 2); }).join('|') + '|\\n';
-        text += rows.map(function(r) { return '| ' + r.map(function(v, i) { return mdPad(v, widths[i]); }).join(' | ') + ' |'; }).join('\\n');
-        break;
-      }
-      case 'json': {
-        const arr = rows.map(r => { const obj = {}; colIdxs.forEach((c, i) => { obj[columns[c].name] = r[i]; }); return obj; });
-        text = JSON.stringify(arr, null, 2);
-        break;
-      }
+    var text;
+    if (fmt === 'onerow-sq' || fmt === 'onerow-dq') {
+      text = formatOneRow(rows, colIdxs, fmt === 'onerow-sq' ? "'" : '"');
+    } else {
+      var sharedFmt = fmt === 'tsv-explicit' ? 'tsv-header' : fmt;
+      text = window.ViewstorDataGrid.copyAsText(headers, rows, sharedFmt);
     }
     navigator.clipboard.writeText(text);
   }
