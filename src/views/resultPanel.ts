@@ -379,7 +379,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
 <style>
   * { box-sizing: border-box; }
   body { font-family: var(--vscode-font-family); padding:0; margin:0; font-size:13px; display:flex; flex-direction:column; height:100vh; }
-  .toolbar { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorder} }
+  .toolbar { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorder} }
+  .toolbar-group { display:flex; align-items:center; gap:8px; }
+  .toolbar-sep { width:1px; height:16px; background:var(--vscode-panel-border); flex-shrink:0; }
   .footer { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:12px; border-top:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorderBottom} }
   .toolbar select, .footer select { background:var(--vscode-dropdown-background); color:var(--vscode-dropdown-foreground); border:1px solid var(--vscode-dropdown-border); padding:2px 6px; font-size:12px; border-radius:2px; }
   .toolbar button, .footer button { background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground); border:none; padding:2px 8px; font-size:12px; cursor:pointer; border-radius:2px; }
@@ -398,7 +400,11 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   th:hover { background:var(--vscode-list-hoverBackground); }
   th small { color:var(--vscode-descriptionForeground); font-weight:normal; }
   th .sort-icon { margin-left:4px; font-size:10px; opacity:0.7; }
-  tr:hover { background:var(--vscode-list-hoverBackground); }
+  tbody tr:nth-child(even) td { background:var(--viewstor-row-zebra, color-mix(in srgb, var(--vscode-foreground) 4%, transparent)); }
+  tbody tr:nth-child(even) .row-num { background:var(--vscode-editor-background); }
+  tr.new-row:nth-child(even) td { background:color-mix(in srgb, var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)), var(--vscode-foreground) 6%); }
+  tbody tr:hover td { background:var(--vscode-list-hoverBackground); }
+  tbody tr:hover .row-num { background:var(--vscode-editor-background); }
   /* Selection borders via inset box-shadow so the cell's layout size
      doesn't change when classes toggle (borders would add ~2px each side
      and shift the row). Same pattern as diff-panel.css. */
@@ -436,7 +442,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   ${LOADING_CSS}
   td.editing input, td.editing select { width:100%; padding:4px 8px; border:2px solid var(--vscode-focusBorder); background:var(--vscode-input-background); color:var(--vscode-input-foreground); font-family:inherit; font-size:inherit; outline:none; }
   td.modified { border-left:3px solid var(--vscode-inputValidation-warningBorder); }
-  tr.new-row { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
+  tr.new-row td { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
   tr.out-of-query-row { opacity:0.4; }
   td.invalid-cell { border-left:3px solid var(--vscode-inputValidation-errorBorder, #f44); background:var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); }
   .default-val { color:var(--vscode-descriptionForeground); font-style:italic; }
@@ -474,24 +480,37 @@ ${getCtxMenuScript()}
 </head>
 <body>
   <div class="toolbar">
-    <span id="statsInfo">${result.executionTimeMs}ms${result.truncated ? ' · truncated' : ''}${result.affectedRows !== undefined ? ' · ' + result.affectedRows + ' affected' : ''}</span>
-    <input type="text" id="searchInput" class="search-input" placeholder="Search..." />
-    <span id="searchCount" class="search-count"></span>
+    <div class="toolbar-group">
+      <span id="statsInfo">${result.executionTimeMs}ms${result.truncated ? ' · truncated' : ''}${result.affectedRows !== undefined ? ' · ' + result.affectedRows + ' affected' : ''}</span>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search..." />
+      <span id="searchCount" class="search-count"></span>
+    </div>
     <span style="flex:1"></span>
-    <button id="exportBtn">Export</button>
-    <button id="visualizeBtn" title="Visualize as chart">📊</button>
-    <button id="mapBtn" title="Show on map">🗺</button>
-    <button id="addRowBtn" class="hidden">+ Row</button>
-    <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
-    <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
-    <button id="refreshBtn" title="Refresh">↻</button>
-    <button id="discardBtn" class="hidden">Discard</button>
-    <button id="prevPage" disabled>&lt;</button>
-    <span id="pageInfo"></span>
-    <button id="nextPage">&gt;</button>
-    <label>Rows per page: <select id="pageSize">
-      ${PAGE_SIZE_OPTIONS.map(n => `<option value="${n}"${n === activePageSize ? ' selected' : ''}>${n}</option>`).join('')}
-    </select></label>
+    <div class="toolbar-group">
+      <button id="exportBtn">Export</button>
+      <button id="visualizeBtn" title="Visualize as chart">📊</button>
+      <button id="mapBtn" title="Show on map">🗺</button>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <button id="addRowBtn" class="hidden">+ Row</button>
+      <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
+      <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
+      <button id="refreshBtn" title="Refresh">↻</button>
+      <button id="discardBtn" class="hidden">Discard</button>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <button id="prevPage" disabled>&lt;</button>
+      <span id="pageInfo"></span>
+      <button id="nextPage">&gt;</button>
+      <label>Rows per page: <select id="pageSize">
+        ${PAGE_SIZE_OPTIONS.map(n => `<option value="${n}"${n === activePageSize ? ' selected' : ''}>${n}</option>`).join('')}
+      </select></label>
+    </div>
   </div>
   ${isTableMode ? `<div class="query-bar">
     <div class="query-editor-wrap">

@@ -87,7 +87,7 @@ Page sizes: [50, 100, 500, 1000], default 100.
 
 Messages: changePage, changePageSize, reloadWithSort, saveEdits, openJsonInTab, exportAllData, refreshCount, cancelQuery, runCustomQuery.
 
-Webview JS features: row numbers (sticky left), column sorting, drag-select with resize handle, unified selection border (sel-top/bottom/left/right), search with Enter navigation, context menu (copy as CSV/TSV/MD/JSON), JSON editor popup, export dialog, loading overlay with cancel button, PG array display with `{curly braces}`.
+Webview JS features: row numbers (sticky left), column sorting, drag-select with resize handle, unified selection border (sel-top/bottom/left/right), search with Enter navigation, context menu (copy as CSV/TSV/MD/JSON), JSON editor popup, export dialog, loading overlay with cancel button, PG array display with `{curly braces}`. Zebra striping via `--viewstor-row-zebra` on even rows (new-row tint and hover override). Toolbar items grouped into logical clusters (status | search | export/visualize | row actions | pagination) with `toolbar-sep` dividers.
 
 Table mode (connectionId + tableName) → server-side pagination + export all from DB.
 Query mode → client-side data + export in-memory rows.
