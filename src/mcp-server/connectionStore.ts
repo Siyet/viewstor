@@ -192,7 +192,7 @@ export class ConnectionStore {
     } catch {
       // invalid — overwrite
     }
-    const nonProject = (existing.connections || []).filter(c => c.scope !== 'project' || !projectConfigs.some(p => p.id === c.id));
+    const nonProject = (existing.connections || []).filter(c => !projectConfigs.some(p => p.id === c.id));
     existing.connections = [...nonProject, ...projectConfigs];
     fs.writeFileSync(projectFile, JSON.stringify(existing, null, 2), 'utf8');
   }

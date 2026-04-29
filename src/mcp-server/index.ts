@@ -233,7 +233,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'add_connection': {
         const addConnMode = getAddConnectionMode();
         if (addConnMode === 'off') {
-          return errorResponse('Tool disabled. Configure standaloneMcp.allowAddConnection in ~/.viewstor/config.json or set VIEWSTOR_ALLOW_ADD_CONNECTION=restricted.');
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Tool disabled. Configure standaloneMcp.allowAddConnection in ~/.viewstor/config.json or set VIEWSTOR_ALLOW_ADD_CONNECTION=restricted.', kind: 'tool_disabled' }) }],
+            isError: true,
+          };
         }
         const { name: connName, type, host, port, username, password, database, ssl, readonly } = args as {
           name: string; type: 'postgresql' | 'redis' | 'clickhouse';

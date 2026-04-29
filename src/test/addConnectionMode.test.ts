@@ -66,7 +66,7 @@ describe('add_connection mode behavior', () => {
 
   function simulateAddConnection(mode: 'off' | 'restricted' | 'unrestricted', args: AddConnArgs) {
     if (mode === 'off') {
-      return { error: 'Tool disabled', isError: true };
+      return { error: 'Tool disabled', kind: 'tool_disabled', isError: true };
     }
 
     const warnings: Array<{ kind: string; message?: string }> = [];
@@ -111,9 +111,10 @@ describe('add_connection mode behavior', () => {
   };
 
   describe('off mode', () => {
-    it('returns error for any call', () => {
+    it('returns error with kind tool_disabled', () => {
       const result = simulateAddConnection('off', baseArgs);
       expect(result).toHaveProperty('error');
+      expect(result).toHaveProperty('kind', 'tool_disabled');
       expect(result.isError).toBe(true);
     });
   });
