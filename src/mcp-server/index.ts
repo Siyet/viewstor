@@ -217,7 +217,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'add_connection': {
-        return handleAddConnection(args as Record<string, unknown>);
+        return await handleAddConnection(args as Record<string, unknown>);
       }
 
       case 'reload_connections': {
