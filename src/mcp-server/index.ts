@@ -6,7 +6,10 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ConnectionStore } from './connectionStore';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { ConnectionStore, getAddConnectionMode } from './connectionStore';
 import { ChartConfig, EChartsChartType, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
@@ -24,7 +27,29 @@ const server = new Server(
 
 // --- Tool definitions ---
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
+const ADD_CONNECTION_TOOL = {
+  name: 'add_connection',
+  description: 'Add a new database connection. For SQLite: set type="sqlite", database="/path/to/file.db" (or ":memory:"), host and port are ignored.',
+  inputSchema: {
+    type: 'object' as const,
+    properties: {
+      name: { type: 'string', description: 'Display name' },
+      type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite'], description: 'Database type' },
+      host: { type: 'string', description: 'Host (ignored for SQLite)' },
+      port: { type: 'number', description: 'Port (ignored for SQLite)' },
+      username: { type: 'string', description: 'Username' },
+      password: { type: 'string', description: 'Password' },
+      database: { type: 'string', description: 'Database name, or file path for SQLite (e.g. "/tmp/test.db", ":memory:")' },
+      ssl: { type: 'boolean', description: 'Use SSL' },
+      readonly: { type: 'boolean', description: 'Read-only mode' },
+    },
+    required: ['name', 'type'],
+  },
+};
+
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const addConnMode = getAddConnectionMode();
+  return {
   tools: [
     {
       name: 'list_connections',
@@ -85,25 +110,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['connectionId', 'tableName'],
       },
     },
-    {
-      name: 'add_connection',
-      description: 'Add a new database connection. For SQLite: set type="sqlite", database="/path/to/file.db" (or ":memory:"), host and port are ignored.',
-      inputSchema: {
-        type: 'object' as const,
-        properties: {
-          name: { type: 'string', description: 'Display name' },
-          type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite'], description: 'Database type' },
-          host: { type: 'string', description: 'Host (ignored for SQLite)' },
-          port: { type: 'number', description: 'Port (ignored for SQLite)' },
-          username: { type: 'string', description: 'Username' },
-          password: { type: 'string', description: 'Password' },
-          database: { type: 'string', description: 'Database name, or file path for SQLite (e.g. "/tmp/test.db", ":memory:")' },
-          ssl: { type: 'boolean', description: 'Use SSL' },
-          readonly: { type: 'boolean', description: 'Read-only mode' },
-        },
-        required: ['name', 'type'],
-      },
-    },
+    ...(addConnMode !== 'off' ? [ADD_CONNECTION_TOOL] : []),
     {
       name: 'reload_connections',
       description: 'Reload connections from config files (call after adding connections via VS Code or editing config files)',
@@ -151,7 +158,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
   ],
-}));
+};
+});
 
 // --- Tool handlers ---
 
@@ -172,6 +180,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           databases: c.databases,
           connected: !!store.getDriver(c.id),
           readonly: c.readonly,
+          agentCreated: c.agentCreated || false,
         }));
         return jsonResponse(result);
       }
@@ -223,16 +232,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'add_connection': {
+        const addConnMode = getAddConnectionMode();
+        if (addConnMode === 'off') {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Tool disabled. Configure standaloneMcp.allowAddConnection in ~/.viewstor/config.json or set VIEWSTOR_ALLOW_ADD_CONNECTION=restricted.', kind: 'tool_disabled' }) }],
+            isError: true,
+          };
+        }
         const { name: connName, type, host, port, username, password, database, ssl, readonly } = args as {
-          name: string; type: 'postgresql' | 'redis' | 'clickhouse';
+          name: string; type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
           host: string; port: number;
           username?: string; password?: string; database?: string;
           ssl?: boolean; readonly?: boolean;
         };
         const id = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
-        const config = { id, name: connName, type, host, port, username, password, database, ssl, readonly };
+        const warnings: Array<{ kind: string; message?: string }> = [];
+
+        if (addConnMode === 'restricted') {
+          const effectiveName = connName.startsWith('[agent] ') ? connName : `[agent] ${connName}`;
+          if (readonly === false) {
+            warnings.push({ kind: 'readonly_forced', message: 'readonly: false was ignored; restricted mode forces readonly: true.' });
+          }
+          const config = {
+            id, name: effectiveName, type, host, port, username, password, database, ssl,
+            readonly: true, scope: 'project' as const, agentCreated: true,
+          };
+          await store.add(config);
+          logAddConnection(addConnMode, config);
+          return jsonResponse({
+            id, name: effectiveName, type, host, port, database,
+            message: 'Connection added (restricted mode: readonly, project-scoped)',
+            warnings: warnings.length > 0 ? warnings : undefined,
+          });
+        }
+
+        // unrestricted mode
+        if (!readonly) {
+          warnings.push({ kind: 'agent_created_writeable_connection' });
+        }
+        const config = { id, name: connName, type, host, port, username, password, database, ssl, readonly, agentCreated: true };
         await store.add(config);
-        return jsonResponse({ id, name: connName, type, host, port, database, message: 'Connection added' });
+        logAddConnection(addConnMode, config);
+        return jsonResponse({
+          id, name: connName, type, host, port, database,
+          message: 'Connection added',
+          warnings: warnings.length > 0 ? warnings : undefined,
+        });
       }
 
       case 'reload_connections': {
@@ -361,6 +406,19 @@ function jsonResponse(data: unknown) {
 
 function errorResponse(message: string) {
   return { content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }], isError: true };
+}
+
+function logAddConnection(mode: string, config: Record<string, unknown>) {
+  try {
+    const logDir = path.join(os.homedir(), '.viewstor');
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const logFile = path.join(logDir, 'audit.log');
+    const { password, ...safe } = config;
+    const entry = JSON.stringify({ timestamp: new Date().toISOString(), action: 'add_connection', mode, config: safe }) + '\n';
+    fs.appendFileSync(logFile, entry, 'utf8');
+  } catch {
+    // audit log is best-effort
+  }
 }
 
 // --- Start server ---

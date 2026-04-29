@@ -244,9 +244,13 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     item.contextValue = connected ? 'connection-connected' : 'connection-disconnected';
     const iconColor = colorToThemeColor(this.connectionManager.getConnectionColor(config.id));
     item.iconPath = new vscode.ThemeIcon(`viewstor-${config.type}`, iconColor);
-    item.description = connected
+    let desc = connected
       ? (config.type === 'sqlite' ? (config.database || ':memory:') : `${config.host}:${config.port}`)
       : '';
+    if (config.agentCreated) {
+      desc = desc ? `${desc} (agent)` : '(agent)';
+    }
+    item.description = desc;
     item.command = { command: 'viewstor._noop', title: '' };
     return item;
   }
