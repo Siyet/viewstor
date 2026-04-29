@@ -87,6 +87,10 @@ Page sizes: [50, 100, 500, 1000], default 100.
 
 Messages: changePage, changePageSize, reloadWithSort, saveEdits, openJsonInTab, exportAllData, refreshCount, cancelQuery, runCustomQuery.
 
+Built on `@vscode-elements/elements` (`vscode-button` / `vscode-textfield` / `vscode-single-select` / `vscode-icon`) + codicons + shared `tokens.css`, matching the connection form, diff panel, and chart panel patterns. Styles in external `src/webview/styles/result-panel.css` loaded via CSP-safe `<link>`. `ResultWebviewUris` interface carries webview URIs for tokens, codicon, result-panel CSS, shell JS, and elements JS. `buildResultHtml()` accepts optional `uris` param — when absent (unit tests), falls back to inline-only styles.
+
+Toolbar grouped into semantic sections (status | search | actions | editing | pagination) separated by subtle 1px dividers. Grid cells use monospace `--viewstor-font-mono` at `--viewstor-font-table-data-size`. Zebra striping via `--viewstor-row-zebra`. NULL → dimmed italic via `--viewstor-text-dimmed`. Column type annotations in `col-type` span at `--viewstor-font-type-annotation-size`. Column width hints via `data-type-class` CSS attribute selectors (numeric ~80-120px, text ~150-250px, uuid ~290px, timestamp ~180px, boolean ~60px). Row-number column fixed 40px with `--viewstor-font-meta-size`.
+
 Webview JS features: row numbers (sticky left), column sorting, drag-select with resize handle, unified selection border (sel-top/bottom/left/right), search with Enter navigation, context menu (copy as CSV/TSV/MD/JSON), JSON editor popup, export dialog, loading overlay with cancel button, PG array display with `{curly braces}`.
 
 Table mode (connectionId + tableName) → server-side pagination + export all from DB.
