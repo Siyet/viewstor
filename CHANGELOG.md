@@ -4,6 +4,9 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ## [Unreleased]
 
+### Fixed
+- **Standalone MCP `add_connection` bypasses access/write gates** — agents could self-issue writeable connections to the same host, circumventing `readonly`, `agentAccess`, and `agentWriteApproval` settings. New `viewstor.standaloneMcp.allowAddConnection` setting (`off` / `restricted` / `unrestricted`, default `restricted`): in restricted mode agent-created connections are forced read-only, project-scoped (`.vscode/viewstor.json`, passwords stripped), and name-prefixed `[agent] `; in off mode the tool is removed from the tool list entirely. Audit log entry written to `~/.viewstor/audit.log` on every call. Tree view shows `(agent)` badge on agent-created connections. Configurable via `~/.viewstor/config.json` or `VIEWSTOR_ALLOW_ADD_CONNECTION` env var ([#119](https://github.com/Siyet/viewstor/issues/119))
+
 ## [0.4.0] — 2026-04-29
 
 ### Fixed

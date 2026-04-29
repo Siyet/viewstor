@@ -573,6 +573,21 @@
           "minimum": 100,
           "maximum": 100000,
           "description": "%config.diffRowLimit.description%"
+        },
+        "viewstor.standaloneMcp.allowAddConnection": {
+          "type": "string",
+          "default": "restricted",
+          "enum": [
+            "off",
+            "restricted",
+            "unrestricted"
+          ],
+          "enumDescriptions": [
+            "%config.standaloneMcp.allowAddConnection.off%",
+            "%config.standaloneMcp.allowAddConnection.restricted%",
+            "%config.standaloneMcp.allowAddConnection.unrestricted%"
+          ],
+          "description": "%config.standaloneMcp.allowAddConnection.description%"
         }
       }
     },

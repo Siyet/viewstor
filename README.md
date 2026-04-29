@@ -226,6 +226,8 @@ Or add manually:
 
 All MCP interfaces auto-connect and respect read-only mode.
 
+**Agent connection safety:** the `add_connection` tool is gated by `viewstor.standaloneMcp.allowAddConnection` (`off` / `restricted` / `unrestricted`, default `restricted`). In restricted mode, agent-created connections are forced to read-only, project-scoped, and name-prefixed `[agent]` — preventing privilege escalation around existing access controls. Configure via `~/.viewstor/config.json` or env var `VIEWSTOR_ALLOW_ADD_CONNECTION`. Every `add_connection` call is audit-logged to `~/.viewstor/audit.log`.
+
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter — query another database on the same server without creating a new connection or re-entering the password.
 
 ### Other

@@ -34,6 +34,8 @@ export interface ConnectionConfig {
   agentAnonymization?: 'off' | 'heuristic' | 'strict';
   /** How masked cells are transformed. Inherited from folder when unset. */
   agentAnonymizationStrategy?: 'hash' | 'shape' | 'null' | 'redacted';
+  /** True when the connection was created by an MCP agent via add_connection. */
+  agentCreated?: boolean;
 }
 
 export type ProxyType = 'none' | 'ssh' | 'socks5' | 'http';

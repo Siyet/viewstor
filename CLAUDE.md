@@ -175,9 +175,16 @@ All auto-connect. Returns structured JSON or `{ error }`.
 ### Standalone MCP Server
 `src/mcp-server/index.ts` — stdio-based MCP server for CLI agents (Claude Code, etc.). Built as separate webpack entry → `dist/mcp-server.js`. Uses `@modelcontextprotocol/sdk`. Does NOT import `vscode`.
 
-`src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle.
+`src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle. `getAddConnectionMode()` reads `viewstor.standaloneMcp.allowAddConnection` from env var `VIEWSTOR_ALLOW_ADD_CONNECTION` or `~/.viewstor/config.json` (`standaloneMcp.allowAddConnection`), defaulting to `'restricted'`.
 
-9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`.
+9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection` (gated by mode), `reload_connections`, `build_chart`, `export_grafana_dashboard`.
+
+`add_connection` mode (`'off' | 'restricted' | 'unrestricted'`, default `'restricted'`):
+- `off` → tool removed from `ListToolsRequestSchema`; calling returns `{ error: 'Tool disabled' }`.
+- `restricted` → connection forced to `readonly: true`, `scope: 'project'`, name prefixed `[agent] `, `agentCreated: true`. Agent-supplied `readonly: false` is silently overridden with a warning in the response.
+- `unrestricted` → today's behavior + `warnings: [{ kind: 'agent_created_writeable_connection' }]` when the connection is writeable.
+
+Every `add_connection` call writes an audit log entry to `~/.viewstor/audit.log` with timestamp, mode, and the resolved config (password stripped).
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter. `ConnectionStore.ensureDriverForDatabase()` mirrors `ConnectionManager.getDriverForDatabase()` — caches per `connectionId:database`, reuses host/user/password/ssl. VS Code MCP commands accept `database` as a trailing optional arg.
 
