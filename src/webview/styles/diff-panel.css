@@ -690,3 +690,71 @@ vscode-tab-panel[hidden] {
 .diff-schema-table td.sel-right { --sh-right: -2px 0 0 0 var(--vscode-focusBorder); }
 
 /* Context-menu styles live in src/webview/styles/context-menu.css (#94). */
+
+/* ---- Pending (panel-first) placeholder panes ---- */
+.diff-pending-container {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 24px;
+  flex: 1;
+  padding: 48px 32px;
+}
+
+.diff-pending-pane {
+  flex: 1;
+  max-width: 400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--viewstor-border-subtle, var(--vscode-panel-border, rgba(128,128,128,0.35)));
+  border-radius: 8px;
+  min-height: 200px;
+}
+
+.diff-pending-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: none;
+  border: none;
+  color: var(--viewstor-text-dimmed);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 24px;
+}
+
+.diff-pending-pick .codicon {
+  font-size: 32px;
+}
+
+.diff-pending-pick:hover {
+  color: var(--vscode-foreground);
+}
+
+.diff-pending-filled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--vscode-foreground);
+  font-size: 14px;
+  padding: 16px;
+}
+
+.diff-pending-divider {
+  display: flex;
+  align-items: center;
+  color: var(--viewstor-text-dimmed);
+  font-size: 20px;
+}
+
+.diff-pending-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--viewstor-text-dimmed);
+  font-size: 14px;
+}
