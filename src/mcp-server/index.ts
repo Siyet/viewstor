@@ -180,6 +180,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           databases: c.databases,
           connected: !!store.getDriver(c.id),
           readonly: c.readonly,
+          agentCreated: c.agentCreated || false,
         }));
         return jsonResponse(result);
       }
@@ -239,7 +240,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
         const { name: connName, type, host, port, username, password, database, ssl, readonly } = args as {
-          name: string; type: 'postgresql' | 'redis' | 'clickhouse';
+          name: string; type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
           host: string; port: number;
           username?: string; password?: string; database?: string;
           ssl?: boolean; readonly?: boolean;
