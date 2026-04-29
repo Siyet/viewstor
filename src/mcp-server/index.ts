@@ -10,6 +10,7 @@ import { ConnectionStore } from './connectionStore';
 import { ChartConfig, EChartsChartType, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { anonymizeRows, scrubErrorMessage } from '../mcp/anonymizer';
 import { wrapError } from '../utils/errors';
 import { isReadOnlyQuery } from '../utils/queryHelpers';
 import { formatExecuteQuery, formatTableData, formatTableInfo, flattenSchema } from '../mcp/mcpFormatters';
@@ -187,24 +188,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (config?.readonly && !isReadOnlyQuery(query)) {
           return errorResponse('Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.');
         }
+        const policy = store.getAnonymizationPolicy(connectionId);
         const driver = await resolveDriver(connectionId, database);
-        return jsonResponse(formatExecuteQuery(await driver.execute(query)));
+        const result = await driver.execute(query);
+        const payload = formatExecuteQuery(result);
+        payload.rows = anonymizeRows(result.columns, result.rows, policy);
+        if (payload.error) payload.error = scrubErrorMessage(payload.error, policy);
+        return jsonResponse(payload);
       }
 
       case 'get_table_data': {
         const { connectionId, tableName, schema, limit, database } = args as {
           connectionId: string; tableName: string; schema?: string; limit?: number; database?: string;
         };
+        const policy = store.getAnonymizationPolicy(connectionId);
         const driver = await resolveDriver(connectionId, database);
-        return jsonResponse(formatTableData(await driver.getTableData(tableName, schema, limit || 100)));
+        const result = await driver.getTableData(tableName, schema, limit || 100);
+        const payload = formatTableData(result);
+        payload.rows = anonymizeRows(result.columns, result.rows, policy);
+        return jsonResponse(payload);
       }
 
       case 'get_table_info': {
         const { connectionId, tableName, schema, database } = args as {
           connectionId: string; tableName: string; schema?: string; database?: string;
         };
+        const policy = store.getAnonymizationPolicy(connectionId);
         const driver = await resolveDriver(connectionId, database);
-        return jsonResponse(formatTableInfo(await driver.getTableInfo(tableName, schema)));
+        const payload = formatTableInfo(await driver.getTableInfo(tableName, schema));
+        for (const col of payload.columns) {
+          if (col.defaultValue) col.defaultValue = scrubErrorMessage(col.defaultValue, policy);
+        }
+        return jsonResponse(payload);
       }
 
       case 'add_connection': {
@@ -263,8 +278,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const chartDriver = await resolveDriver(connectionId, chartDatabase);
+        const chartPolicy = store.getAnonymizationPolicy(connectionId);
         const chartResult = await chartDriver.execute(effectiveQuery);
-        if (chartResult.error) return errorResponse(chartResult.error);
+        if (chartResult.error) return errorResponse(scrubErrorMessage(chartResult.error, chartPolicy));
+        chartResult.rows = anonymizeRows(chartResult.columns, chartResult.rows, chartPolicy);
 
         const suggested = suggestChartConfig(chartResult);
         const config: ChartConfig = {
@@ -321,7 +338,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return errorResponse(`Unknown tool: ${name}`);
     }
   } catch (err) {
-    return errorResponse(wrapError(err));
+    // Scrub PII from thrown driver errors (e.g. `duplicate key (alice@example.com)`).
+    // The per-case handlers already scrub `result.error`, but exceptions bubble here
+    // — without scrubbing, a raw card number or email in an error message would leak
+    // via the outer catch for tools like execute_query / get_table_data / build_chart.
+    const connectionId = (args as { connectionId?: string } | undefined)?.connectionId;
+    const policy = connectionId
+      ? store.getAnonymizationPolicy(connectionId)
+      : { mode: 'off' as const, strategy: 'hash' as const };
+    return errorResponse(scrubErrorMessage(wrapError(err), policy));
   }
 });
 

@@ -34,6 +34,8 @@
         color: colorPicker.getValue(),
         readonly: readonlyMode.checked ? 'true' : 'false',
         scope: scopeEl.value,
+        agentAnonymization: $('agentAnonymization').value,
+        agentAnonymizationStrategy: $('agentAnonymizationStrategy').value,
       },
     });
   });
@@ -49,6 +51,8 @@
       folderName.value = f.name || '';
       colorPicker.setValue(f.color || '');
       readonlyMode.checked = !!f.readonly;
+      $('agentAnonymization').value = f.agentAnonymization || '';
+      $('agentAnonymizationStrategy').value = f.agentAnonymizationStrategy || '';
     }
   });
 })();

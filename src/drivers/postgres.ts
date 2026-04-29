@@ -370,9 +370,15 @@ export class PostgresDriver implements DatabaseDriver {
           ORDER BY ku.ordinal_position
         `, [schema, name]);
 
-        const pkColumns = new Set(pkRes.rows.map((r: any) => r.column_name));
+        const pkColumns = new Set(pkRes.rows.map((r: { column_name: string }) => r.column_name));
 
-        const colDefs = colsRes.rows.map((r: any) => {
+        const colDefs = colsRes.rows.map((r: {
+          column_name: string;
+          data_type: string;
+          is_nullable: string;
+          column_default: string | null;
+          character_maximum_length: number | null;
+        }) => {
           let def = `  "${r.column_name}" ${r.data_type}`;
           if (r.character_maximum_length) def += `(${r.character_maximum_length})`;
           if (r.column_default) def += ` DEFAULT ${r.column_default}`;
@@ -635,7 +641,14 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY i.relname
     `, [schema, name]);
 
-    const indexes: IndexInfo[] = indexesRes.rows.map((row: any) => {
+    const indexes: IndexInfo[] = indexesRes.rows.map((row: {
+      index_name: string;
+      all_columns: unknown;
+      nkey_atts: string | number;
+      is_unique: boolean;
+      index_type: string;
+      predicate: string | null;
+    }) => {
       const allCols = toStringArray(row.all_columns);
       const nkey = parseInt(String(row.nkey_atts), 10) || allCols.length;
       const included = allCols.slice(nkey);
@@ -674,11 +687,20 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY tc.constraint_type, tc.constraint_name
     `, [schema, name]);
 
-    const constraints: ConstraintInfo[] = constraintsRes.rows.map((row: any) => ({
+    const constraints: ConstraintInfo[] = constraintsRes.rows.map((row: {
+      constraint_name: string;
+      constraint_type: string;
+      columns: unknown;
+      ref_table: string | null;
+      ref_columns: unknown;
+      delete_rule: string | null;
+      update_rule: string | null;
+      check_clause: string | null;
+    }) => ({
       name: row.constraint_name,
       type: row.constraint_type as ConstraintInfo['type'],
       columns: toStringArray(row.columns),
-      referencedTable: row.constraint_type === 'FOREIGN KEY' ? row.ref_table : undefined,
+      referencedTable: row.constraint_type === 'FOREIGN KEY' ? (row.ref_table ?? undefined) : undefined,
       referencedColumns: row.constraint_type === 'FOREIGN KEY'
         ? toStringArray(row.ref_columns) : undefined,
       onDelete: row.delete_rule ?? undefined,
@@ -707,7 +729,12 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY t.tgname
     `, [schema, name]);
 
-    const triggers: TriggerInfo[] = triggersRes.rows.map((row: any) => ({
+    const triggers: TriggerInfo[] = triggersRes.rows.map((row: {
+      trigger_name: string;
+      timing: string;
+      events: string;
+      function_name: string;
+    }) => ({
       name: row.trigger_name,
       timing: row.timing,
       events: row.events,
@@ -728,7 +755,14 @@ export class PostgresDriver implements DatabaseDriver {
       ORDER BY s.relname
     `, [schema, name]);
 
-    const sequences: SequenceInfo[] = sequencesRes.rows.map((row: any) => ({
+    const sequences: SequenceInfo[] = sequencesRes.rows.map((row: {
+      seq_name: string;
+      data_type: string | null;
+      start_value: string | number | bigint | null;
+      increment_by: string | number | bigint | null;
+      min_value: string | number | bigint | null;
+      max_value: string | number | bigint | null;
+    }) => ({
       name: row.seq_name,
       dataType: row.data_type ?? undefined,
       startValue: row.start_value != null ? Number(row.start_value) : undefined,

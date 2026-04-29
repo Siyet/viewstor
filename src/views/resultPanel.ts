@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import { QueryResult, QueryColumn } from '../types/query';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import path from 'path';
+import type { TempFileManager } from '../services/tempFileManager';
 
 // Shared context-menu primitive (#94). Loaded lazily on first buildResultHtml
 // call so module evaluation (and extension activation) stays side-effect-free
@@ -98,12 +99,12 @@ const LOADING_CSS = `
 export class ResultPanelManager {
   private panels = new Map<string, vscode.WebviewPanel>();
   private messageDisposables = new Map<string, vscode.Disposable>();
-  private _tempFileManager: any = null;
+  private _tempFileManager: TempFileManager | null = null;
   private _chartNotifier: ((panelKey: string, columns: QueryColumn[], rows: Record<string, unknown>[], query?: string) => void) | null = null;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
-  setTempFileManager(t: any) { this._tempFileManager = t; }
+  setTempFileManager(t: TempFileManager) { this._tempFileManager = t; }
 
   /** Set callback to notify chart panel of data changes */
   setChartNotifier(fn: (panelKey: string, columns: QueryColumn[], rows: Record<string, unknown>[], query?: string) => void) {
