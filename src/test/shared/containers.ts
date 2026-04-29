@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import { GenericContainer, StartedTestContainer, Wait } from 'testcontainers';
 
@@ -41,7 +42,25 @@ export interface StackOptions {
   kafka?: boolean;
 }
 
-const SEED_ROOT = path.resolve(__dirname, '..', '..', '..', 'tests', 'seed');
+// Walk up from __dirname until we find the repo root (the directory carrying
+// package.json + tests/seed/). Source layout has containers.ts at src/test/shared/...
+// while tsc-compiled tests run from dist/test/test/shared/..., one level deeper.
+// Hard-coded relative path was wrong for one of the two — discovery covers both.
+function findSeedRoot(): string {
+  let dir = __dirname;
+  for (let i = 0; i < 10; i++) {
+    const candidate = path.join(dir, 'tests', 'seed');
+    if (fs.existsSync(candidate) && fs.existsSync(path.join(dir, 'package.json'))) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(`tests/seed not found walking up from ${__dirname}`);
+}
+
+const SEED_ROOT = findSeedRoot();
 
 // testcontainers exposes reuse only when the env flag is set — it's an opt-in feature
 // that requires a cooperating Docker daemon (Docker Desktop + Testcontainers Cloud or
@@ -208,7 +227,7 @@ export async function startTestStack(options: StackOptions = {}): Promise<TestSt
   const stack: TestStack = { _containers: [] };
   for (const r of results) {
     stack._containers.push(r.container);
-    (stack as Record<string, unknown>)[r.key] = r.info;
+    (stack as unknown as Record<string, unknown>)[r.key] = r.info;
   }
   return stack;
 }

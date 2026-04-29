@@ -213,8 +213,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { connectionId, tableName, schema, database } = args as {
           connectionId: string; tableName: string; schema?: string; database?: string;
         };
+        const policy = store.getAnonymizationPolicy(connectionId);
         const driver = await resolveDriver(connectionId, database);
-        return jsonResponse(formatTableInfo(await driver.getTableInfo(tableName, schema)));
+        const payload = formatTableInfo(await driver.getTableInfo(tableName, schema));
+        for (const col of payload.columns) {
+          if (col.defaultValue) col.defaultValue = scrubErrorMessage(col.defaultValue, policy);
+        }
+        return jsonResponse(payload);
       }
 
       case 'add_connection': {

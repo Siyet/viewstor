@@ -79,11 +79,18 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.getTableInfo', async (connectionId: string, tableName: string, schema?: string, database?: string) => {
+      const policy = connectionManager.getAnonymizationPolicy(connectionId);
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
-        return formatTableInfo(await driver.getTableInfo(tableName, schema));
+        const payload = formatTableInfo(await driver.getTableInfo(tableName, schema));
+        // defaultValue can carry PII embedded in DDL literals (e.g. `'admin@acme.com'::varchar`).
+        // scrubErrorMessage shorts on mode=off, so the off-path stays raw.
+        for (const col of payload.columns) {
+          if (col.defaultValue) col.defaultValue = scrubErrorMessage(col.defaultValue, policy);
+        }
+        return payload;
       } catch (err) {
-        return { error: wrapError(err) };
+        return { error: scrubErrorMessage(wrapError(err), policy) };
       }
     }),
     vscode.commands.registerCommand('viewstor.mcp.visualize', async (
