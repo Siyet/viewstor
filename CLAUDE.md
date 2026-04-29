@@ -175,9 +175,11 @@ All auto-connect. Returns structured JSON or `{ error }`.
 ### Standalone MCP Server
 `src/mcp-server/index.ts` — stdio-based MCP server for CLI agents (Claude Code, etc.). Built as separate webpack entry → `dist/mcp-server.js`. Uses `@modelcontextprotocol/sdk`. Does NOT import `vscode`.
 
-`src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle.
+`src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle. Also reads settings from `~/.viewstor/settings.json` and writes audit entries to `~/.viewstor/audit.log`.
 
 9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`.
+
+`add_connection` is gated by `getAddConnectionMode()`: env var `VIEWSTOR_MCP_ADD_CONNECTION` > `~/.viewstor/settings.json` key `standaloneMcp.allowAddConnection` > default `'restricted'`. Three modes: `'off'` (tool hidden from ListTools, calls error), `'restricted'` (forced `readonly: true`, `scope: 'project'`, name prefixed `[agent] `, `agentCreated: true`), `'unrestricted'` (today's behavior + warning). Every call audited regardless of mode. VS Code setting: `viewstor.standaloneMcp.allowAddConnection`.
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter. `ConnectionStore.ensureDriverForDatabase()` mirrors `ConnectionManager.getDriverForDatabase()` — caches per `connectionId:database`, reuses host/user/password/ssl. VS Code MCP commands accept `database` as a trailing optional arg.
 

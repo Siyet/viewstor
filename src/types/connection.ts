@@ -26,6 +26,8 @@ export interface ConnectionConfig {
   safeMode?: 'off' | 'warn' | 'block';
   /** Proxy/tunnel configuration */
   proxy?: ProxyConfig;
+  /** Connection was created by an MCP agent (standalone MCP `add_connection`) */
+  agentCreated?: boolean;
 }
 
 export type ProxyType = 'none' | 'ssh' | 'socks5' | 'http';
