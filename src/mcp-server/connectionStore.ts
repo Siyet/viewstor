@@ -10,9 +10,14 @@ const USER_CONFIG_DIR = path.join(os.homedir(), '.viewstor');
 const USER_CONFIG_FILE = path.join(USER_CONFIG_DIR, 'connections.json');
 const PROJECT_CONFIG_FILE = '.vscode/viewstor.json';
 
+export interface StandaloneMcpSettings {
+  allowAddConnection?: 'off' | 'restricted' | 'unrestricted';
+}
+
 interface ConfigData {
   connections: ConnectionConfig[];
   folders?: ConnectionFolder[];
+  settings?: StandaloneMcpSettings;
 }
 
 export class ConnectionStore {
@@ -21,6 +26,7 @@ export class ConnectionStore {
   private drivers = new Map<string, DatabaseDriver>();
   private dbDrivers = new Map<string, DatabaseDriver>();
   private dbDriverLocks = new Map<string, Promise<DatabaseDriver>>();
+  private settings: StandaloneMcpSettings = {};
 
   constructor() {
     this.reload();
@@ -29,12 +35,17 @@ export class ConnectionStore {
   reload() {
     this.connections.clear();
     this.folders.clear();
+    this.settings = {};
     // Load user-level config
     this.loadFile(USER_CONFIG_FILE, 'user');
 
     // Load project-level config
     const projectFile = path.join(process.cwd(), PROJECT_CONFIG_FILE);
     this.loadFile(projectFile, 'project');
+  }
+
+  getSettings(): StandaloneMcpSettings {
+    return this.settings;
   }
 
   private loadFile(filePath: string, scope: 'user' | 'project') {
@@ -49,6 +60,9 @@ export class ConnectionStore {
       for (const folder of data.folders || []) {
         folder.scope = scope;
         this.folders.set(folder.id, folder);
+      }
+      if (data.settings) {
+        Object.assign(this.settings, data.settings);
       }
     } catch {
       // File doesn't exist or invalid JSON — skip silently
@@ -133,7 +147,11 @@ export class ConnectionStore {
 
   async add(config: ConnectionConfig): Promise<void> {
     this.connections.set(config.id, config);
-    await this.saveUserConfig();
+    if (config.scope === 'project') {
+      await this.saveProjectConfig();
+    } else {
+      await this.saveUserConfig();
+    }
   }
 
   private async saveUserConfig() {
@@ -144,8 +162,47 @@ export class ConnectionStore {
       fs.mkdirSync(USER_CONFIG_DIR, { recursive: true });
     }
 
-    const data: ConfigData = { connections: userConfigs };
-    fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(data, null, 2), 'utf8');
+    let existing: ConfigData = { connections: [] };
+    try {
+      if (fs.existsSync(USER_CONFIG_FILE)) {
+        existing = JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8'));
+      }
+    } catch {
+      // invalid JSON — overwrite
+    }
+
+    existing.connections = userConfigs;
+    fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(existing, null, 2), 'utf8');
+  }
+
+  private async saveProjectConfig() {
+    const projectFile = path.join(process.cwd(), PROJECT_CONFIG_FILE);
+    const projectConfigs = Array.from(this.connections.values())
+      .filter(c => c.scope === 'project')
+      .map(c => {
+        const { password, ...rest } = c;
+        return rest;
+      });
+
+    const dir = path.dirname(projectFile);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    let existing: ConfigData = { connections: [] };
+    try {
+      if (fs.existsSync(projectFile)) {
+        existing = JSON.parse(fs.readFileSync(projectFile, 'utf8'));
+      }
+    } catch {
+      // invalid JSON — overwrite
+    }
+
+    const existingNonProject = (existing.connections || []).filter(
+      c => !projectConfigs.some(pc => pc.id === c.id),
+    );
+    existing.connections = [...existingNonProject, ...projectConfigs];
+    fs.writeFileSync(projectFile, JSON.stringify(existing, null, 2), 'utf8');
   }
 
   async disconnectAll() {
