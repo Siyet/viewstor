@@ -162,8 +162,17 @@ export class ConnectionStore {
       fs.mkdirSync(USER_CONFIG_DIR, { recursive: true });
     }
 
-    const data: ConfigData = { connections: userConfigs };
-    fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(data, null, 2), 'utf8');
+    let existing: ConfigData = { connections: [] };
+    try {
+      if (fs.existsSync(USER_CONFIG_FILE)) {
+        existing = JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8'));
+      }
+    } catch {
+      // invalid JSON — overwrite
+    }
+
+    existing.connections = userConfigs;
+    fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(existing, null, 2), 'utf8');
   }
 
   private async saveProjectConfig() {

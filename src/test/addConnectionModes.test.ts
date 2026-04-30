@@ -68,9 +68,9 @@ describe('add_connection modes', () => {
     expect(store.getSettings().allowAddConnection).toBe('unrestricted');
   });
 
-  // --- Restricted mode (default) ---
+  // --- Store: project-scoped persistence ---
 
-  it('restricted mode: forces readonly=true when agent passes readonly=false', async () => {
+  it('project-scoped save persists readonly flag', async () => {
     writeUserConfig({ connections: [] });
     const store = await loadStore();
     await store.add({
@@ -81,7 +81,7 @@ describe('add_connection modes', () => {
     expect(saved?.readonly).toBe(true);
   });
 
-  it('restricted mode: forces scope=project', async () => {
+  it('project-scoped save persists scope', async () => {
     writeUserConfig({ connections: [] });
     const store = await loadStore();
     await store.add({
@@ -92,7 +92,7 @@ describe('add_connection modes', () => {
     expect(saved?.scope).toBe('project');
   });
 
-  it('restricted mode: project-scoped save strips password', async () => {
+  it('project-scoped save strips password', async () => {
     writeUserConfig({ connections: [] });
     const store = await loadStore();
     await store.add({
@@ -107,7 +107,7 @@ describe('add_connection modes', () => {
     expect(conn.password).toBeUndefined();
   });
 
-  it('restricted mode: prefixes name with [agent]', async () => {
+  it('project-scoped save preserves name', async () => {
     writeUserConfig({ connections: [] });
     const store = await loadStore();
     await store.add({
@@ -116,6 +116,22 @@ describe('add_connection modes', () => {
     });
     const saved = store.get('test-prefix');
     expect(saved?.name).toBe('[agent] My DB');
+  });
+
+  it('user-scoped save preserves settings and folders', async () => {
+    writeUserConfig({
+      connections: [],
+      settings: { allowAddConnection: 'unrestricted' },
+      folders: [{ id: 'f1', name: 'Folder' }],
+    });
+    const store = await loadStore();
+    await store.add({
+      id: 'test-preserve', name: 'Preserve', type: 'postgresql', host: 'localhost', port: 5432,
+      agentCreated: true,
+    });
+    const userData = JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8'));
+    expect(userData.settings).toEqual({ allowAddConnection: 'unrestricted' });
+    expect(userData.folders).toEqual([{ id: 'f1', name: 'Folder' }]);
   });
 
   // --- Unrestricted mode ---

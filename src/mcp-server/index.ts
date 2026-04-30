@@ -242,7 +242,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'add_connection': {
         const mode = getAllowAddConnection();
         if (mode === 'off') {
-          return errorResponse('Tool disabled. Configure allowAddConnection in ~/.viewstor/connections.json settings.');
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Tool disabled. Configure allowAddConnection in ~/.viewstor/connections.json settings.', kind: 'tool_disabled' }) }],
+            isError: true,
+          };
         }
 
         const { name: connName, type, host, port, username, password, database, ssl, readonly } = args as {
