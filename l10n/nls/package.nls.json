@@ -52,5 +52,9 @@
   "command.compareWith": "Compare With...",
   "command.compareData": "Compare Data",
   "config.diffRowLimit.description": "Maximum number of rows to compare per table. Larger values use more memory.",
-  "command.showOnMap": "Show on Map"
+  "command.showOnMap": "Show on Map",
+  "config.standaloneMcp.allowAddConnection.description": "Controls whether CLI agents can create database connections via the standalone MCP add_connection tool. 'restricted' forces read-only, project-scoped connections; 'off' disables the tool entirely.",
+  "config.standaloneMcp.allowAddConnection.off": "Tool removed — agents cannot create connections",
+  "config.standaloneMcp.allowAddConnection.restricted": "Agent-created connections are forced read-only, project-scoped, and prefixed [agent] (default)",
+  "config.standaloneMcp.allowAddConnection.unrestricted": "No restrictions — agents can create writeable connections (use with caution)"
 }

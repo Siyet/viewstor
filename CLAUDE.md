@@ -175,9 +175,11 @@ All auto-connect. Returns structured JSON or `{ error }`.
 ### Standalone MCP Server
 `src/mcp-server/index.ts` — stdio-based MCP server for CLI agents (Claude Code, etc.). Built as separate webpack entry → `dist/mcp-server.js`. Uses `@modelcontextprotocol/sdk`. Does NOT import `vscode`.
 
-`src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle.
+`src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle. Also reads `settings` from the user config: `StandaloneMcpSettings` with `allowAddConnection` (`'off' | 'restricted' | 'unrestricted'`, default `'restricted'`). `saveProjectConfig()` writes project-scoped connections to `.vscode/viewstor.json` with passwords stripped.
 
 9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`.
+
+`add_connection` is gated by `allowAddConnection` setting: `'off'` removes the tool from `ListToolsRequestSchema` and returns an error; `'restricted'` (default) forces `readonly: true`, `scope: 'project'`, name prefix `[agent] `, and sets `agentCreated: true`; `'unrestricted'` preserves today's behavior with a warning. `ConnectionConfig.agentCreated` marks agent-created connections; the tree view shows an `agent` badge on them.
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter. `ConnectionStore.ensureDriverForDatabase()` mirrors `ConnectionManager.getDriverForDatabase()` — caches per `connectionId:database`, reuses host/user/password/ssl. VS Code MCP commands accept `database` as a trailing optional arg.
 

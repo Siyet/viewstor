@@ -222,9 +222,14 @@ Or add manually:
 }
 ```
 
-9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
+9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
 
 All MCP interfaces auto-connect and respect read-only mode.
+
+**`add_connection` safety modes** — controlled by `settings.allowAddConnection` in `~/.viewstor/connections.json`:
+- `"restricted"` (default): agent-created connections are forced read-only, project-scoped (password stripped), and prefixed `[agent] `.
+- `"off"`: tool removed entirely — agents cannot create connections.
+- `"unrestricted"`: no restrictions (opt-in only).
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter — query another database on the same server without creating a new connection or re-entering the password.
 

@@ -4,6 +4,9 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ## [Unreleased]
 
+### Changed
+- **Standalone MCP: restrict `add_connection` tool** — agents can no longer silently create writeable connections that bypass `readonly`, `agentAccess`, and `agentWriteApproval` gates. New `allowAddConnection` setting in `~/.viewstor/connections.json` (`'off' | 'restricted' | 'unrestricted'`, default `'restricted'`). In restricted mode, agent-created connections are forced `readonly: true`, `scope: 'project'` (passwords stripped), and name-prefixed `[agent] `. In off mode the tool is removed entirely. Tree view shows an `agent` badge on agent-created connections. ([#119](https://github.com/Siyet/viewstor/issues/119))
+
 ## [0.4.0] — 2026-04-29
 
 ### Fixed
