@@ -27,13 +27,24 @@ describe('ER diagram transitions', () => {
     expect(script).toMatch(/stateAnimation:\s*\{[^}]*duration:\s*HOVER_TRANSITION_MS[^}]*easing:\s*'cubicOut'/s);
   });
 
-  it('interpolates compact cards into scalable detailed cards', () => {
+  it('switches LOD only at hysteretic semantic thresholds and couples all visual metrics', () => {
     const script = readScript();
-    expect(script).toContain('smoothstep(detailProgress)');
-    expect(script).toContain('mix(overviewWidth, detailWidth, transition)');
-    expect(script).toContain('Math.sqrt(Math.max(1, zoomRatio))');
-    expect(script).toContain('fontSize: scaled(12, textScale)');
-    expect(script).toContain('lineHeight: scaled(18, textScale)');
+    expect(script).toContain('detailZoom * DETAIL_ENTER_RATIO');
+    expect(script).toContain('detailZoom * DETAIL_EXIT_RATIO');
+    expect(script).toContain('if (!force && !modeChanged && !scaleChanged)');
+    expect(script).toContain('nodeScaleRatio: 0');
+    expect(script).toContain('DETAIL_WIDTH * visualScale');
+    expect(script).toContain('const textScale = visualScale');
+    expect(script).toContain('const VISUAL_SCALE_STEP = 1.1');
+    expect(script).not.toContain('detailProgress');
+  });
+
+  it('reveals detail text after the card opening transition', () => {
+    const script = readScript();
+    expect(script).toContain('const enteringDetails = nextMode === \'details\'');
+    expect(script).toContain('showingDetails = nextMode === \'details\' && !enteringDetails');
+    expect(script).toContain('semanticTransitionTimer = window.setTimeout');
+    expect(script).toContain('}, SEMANTIC_TRANSITION_MS)');
   });
 
   it('defines emphasis and blur styles for tables, labels, and relationships', () => {
@@ -67,11 +78,21 @@ describe('ER diagram interactions', () => {
   it('bridges wheel zoom over the entire canvas and synchronizes graph roam state', () => {
     const script = readScript();
     expect(script).toContain('chartEl.addEventListener(\'wheel\', zoomCanvas');
-    expect(script).toContain('group.scaleX *= appliedScale');
+    expect(script).toContain('graphView._controller.trigger(\'zoom\'');
     expect(script).toContain('type: \'graphRoam\'');
     expect(script).toContain('zoom: appliedScale');
     expect(script).toContain('window.requestAnimationFrame(animateCanvasZoom)');
-    expect(script).toContain('const eased = 1 - Math.pow(1 - progress, 3)');
+    expect(script).toContain('Math.pow(0.5, elapsed / ZOOM_HALF_LIFE_MS)');
+  });
+
+  it('keeps steady zoom patches free of graph data and links', () => {
+    const script = readScript();
+    const visualPatch = script.slice(
+      script.indexOf('function semanticVisualPatch()'),
+      script.indexOf('function modeForZoom'),
+    );
+    expect(visualPatch).not.toMatch(/\bdata:/);
+    expect(visualPatch).not.toMatch(/\blinks:/);
   });
 
   it('renders PK, FK, and indexed column markers', () => {

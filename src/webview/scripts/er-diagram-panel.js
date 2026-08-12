@@ -19,11 +19,13 @@
   const MIN_OVERVIEW_SCALE = 0.12;
   const LABEL_OVERVIEW_SCALE = 0.48;
   const HOVER_TRANSITION_MS = 150;
-  const ZOOM_TRANSITION_MS = 130;
+  const ZOOM_HALF_LIFE_MS = 28;
   const SEMANTIC_TRANSITION_MS = 140;
-  const DETAIL_TRANSITION_START = 0.82;
-  const DETAIL_TRANSITION_END = 1.08;
-  const MAX_DETAIL_SCALE = 1.65;
+  const VISUAL_SCALE_STEP = 1.1;
+  const MAX_VISUAL_SCALE = 2.5;
+  const DETAIL_EXIT_RATIO = 0.92;
+  const DETAIL_ENTER_RATIO = 1.02;
+  const MODE_HYSTERESIS = 0.08;
   const ROLE_COLOR_ALPHA = 0.78;
   const TABLE_PREVIEW_DELAY_MS = 3000;
 
@@ -35,12 +37,13 @@
   let overviewZoom = 1;
   let farZoom = 0.5;
   let detailZoom = MIN_DETAIL_ZOOM;
+  let semanticMode = 'names';
   let showingDetails = false;
-  let detailProgress = 0;
-  let detailScale = 1;
-  let overviewScale = 1;
+  let visualScale = 1;
+  let semanticTransitionTimer;
   let zoomAnimation;
   let zoomAnimationFrame;
+  let statusTimer;
   let panPointer;
   let relationshipsVisible = true;
   let isolatedTableId;
@@ -79,15 +82,6 @@
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
-  }
-
-  function mix(from, to, progress) {
-    return from + (to - from) * progress;
-  }
-
-  function smoothstep(progress) {
-    const value = clamp(progress, 0, 1);
-    return value * value * (3 - 2 * value);
   }
 
   function scaled(value, scale) {
@@ -156,8 +150,7 @@
           : theme('--vscode-focusBorder', '#3794ff'),
         borderType: isView ? 'dashed' : 'solid',
         borderWidth: isView ? 1.5 : 1,
-        shadowBlur: 4,
-        shadowColor: 'rgba(0, 0, 0, .2)',
+        shadowBlur: 0,
       },
     };
   }
@@ -195,21 +188,13 @@
     };
   }
 
-  function displayNode(node) {
-    if (node.anchor) return node;
-    const transition = smoothstep(detailProgress);
-    const overviewWidth = OVERVIEW_WIDTH * overviewScale;
-    const overviewHeight = OVERVIEW_HEIGHT * overviewScale;
-    const detailWidth = DETAIL_WIDTH * detailScale;
-    const detailHeight = node.detailHeight * detailScale;
-    return {
-      ...node,
-      renderedDetailScale: detailScale,
-      symbolSize: [
-        mix(overviewWidth, detailWidth, transition),
-        mix(overviewHeight, detailHeight, transition),
-      ],
-    };
+  function nodeSymbolSize(_value, params) {
+    const node = params && params.data;
+    if (!node || node.anchor) return 0;
+    const details = semanticMode === 'details';
+    return details
+      ? [DETAIL_WIDTH * visualScale, node.detailHeight * visualScale]
+      : [OVERVIEW_WIDTH * visualScale, OVERVIEW_HEIGHT * visualScale];
   }
 
   function labelOptions() {
@@ -218,17 +203,20 @@
     const primary = mutedRoleColor('--vscode-terminal-ansiYellow', '#b8a66c');
     const foreign = mutedRoleColor('--vscode-terminal-ansiMagenta', '#a979a7');
     const indexed = mutedRoleColor('--vscode-charts-blue', '#4f89bd');
-    const overviewLabelsVisible = overviewScale >= LABEL_OVERVIEW_SCALE;
-    const textScale = showingDetails ? detailScale : Math.max(0.72, overviewScale);
+    const detailsVisible = semanticMode === 'details' && showingDetails;
+    const namesVisible = semanticMode === 'names' || (semanticMode === 'details' && !showingDetails);
+    // Rich labels are screen-space in ECharts. Apply the exact same visual
+    // scale to every frame and text metric so their proportions stay fixed.
+    const textScale = visualScale;
     return {
-      show: showingDetails || overviewLabelsVisible,
+      show: detailsVisible || namesVisible,
       position: 'inside',
       align: 'center',
       verticalAlign: 'middle',
-      padding: showingDetails
+      padding: detailsVisible
         ? [scaled(7, textScale), scaled(12, textScale)]
         : [scaled(4, textScale), scaled(10, textScale)],
-      formatter: params => showingDetails ? params.data.detailLabelText : params.data.overviewLabelText,
+      formatter: params => detailsVisible ? params.data.detailLabelText : params.data.overviewLabelText,
       rich: {
         overviewTitle: {
           width: scaled(OVERVIEW_WIDTH - 24, textScale),
@@ -344,25 +332,25 @@
     };
   }
 
-  function semanticSeriesPatch() {
+  function semanticVisualPatch() {
+    const details = semanticMode === 'details';
     return {
       id: 'erGraph',
-      data: positionedNodes.map(displayNode),
-      links: relationshipsVisible ? links : [],
+      symbolSize: nodeSymbolSize,
       label: labelOptions(),
-      edgeSymbol: ['none', showingDetails ? 'arrow' : 'none'],
-      edgeSymbolSize: [0, showingDetails ? 8 : 0],
+      edgeSymbol: ['none', details ? 'arrow' : 'none'],
+      edgeSymbolSize: [0, details ? 8 : 0],
       lineStyle: {
         color: theme('--vscode-charts-blue', '#3794ff'),
-        opacity: showingDetails ? 0.5 : 0.04 + overviewScale * 0.14,
-        width: showingDetails ? 1.4 : 1,
-        curveness: 0.06,
+        opacity: details ? 0.5 : semanticMode === 'names' ? 0.18 : 0.055,
+        width: details ? 1.4 : 1,
+        curveness: details ? 0.06 : 0,
       },
       emphasis: {
         focus: 'adjacency',
         scale: 1.02,
-        label: { show: showingDetails || overviewScale >= LABEL_OVERVIEW_SCALE },
-        itemStyle: { opacity: 1, borderWidth: 2 },
+        label: { show: details ? true : semanticMode === 'names' },
+        itemStyle: { opacity: 1, borderWidth: 2, shadowBlur: 4, shadowColor: 'rgba(0, 0, 0, .2)' },
         lineStyle: { width: 3, opacity: 1 },
       },
       blur: {
@@ -373,36 +361,60 @@
     };
   }
 
+  function modeForZoom(zoom, currentMode = semanticMode) {
+    const nameThreshold = overviewZoom * LABEL_OVERVIEW_SCALE;
+    if (currentMode === 'details' && zoom >= detailZoom * DETAIL_EXIT_RATIO) return 'details';
+    if (currentMode !== 'details' && zoom >= detailZoom * DETAIL_ENTER_RATIO) return 'details';
+    if (currentMode === 'names' && zoom >= nameThreshold * (1 - MODE_HYSTERESIS)) return 'names';
+    if (currentMode === 'map' && zoom < nameThreshold * (1 + MODE_HYSTERESIS)) return 'map';
+    if (zoom >= nameThreshold) return 'names';
+    return 'map';
+  }
+
+  function scaleForMode(mode) {
+    const referenceZoom = mode === 'details' ? detailZoom : overviewZoom;
+    const rawScale = clamp(currentZoom / referenceZoom, MIN_OVERVIEW_SCALE, MAX_VISUAL_SCALE);
+    const bucket = Math.round(Math.log(rawScale) / Math.log(VISUAL_SCALE_STEP));
+    return clamp(Math.pow(VISUAL_SCALE_STEP, bucket), MIN_OVERVIEW_SCALE, MAX_VISUAL_SCALE);
+  }
+
+  function clearSemanticTransition() {
+    if (semanticTransitionTimer !== undefined) window.clearTimeout(semanticTransitionTimer);
+    semanticTransitionTimer = undefined;
+  }
+
   function updateSemanticDisplay(force) {
     if (!chart || positionedNodes.length === 0) return;
-    const zoomRatio = currentZoom / detailZoom;
-    const nextDetailProgress = clamp(
-      (zoomRatio - DETAIL_TRANSITION_START) / (DETAIL_TRANSITION_END - DETAIL_TRANSITION_START),
-      0,
-      1,
-    );
-    const nextShowingDetails = nextDetailProgress >= 0.5;
-    const nextDetailScale = nextShowingDetails
-      ? clamp(Math.sqrt(Math.max(1, zoomRatio)), 1, MAX_DETAIL_SCALE)
-      : 1;
-    const nextOverviewScale = nextShowingDetails
-      ? 1
-      : Math.max(MIN_OVERVIEW_SCALE, Math.min(1, currentZoom / overviewZoom));
-    if (!force
-      && nextShowingDetails === showingDetails
-      && Math.abs(nextDetailProgress - detailProgress) < 0.02
-      && Math.abs(nextDetailScale - detailScale) < 0.02
-      && Math.abs(nextOverviewScale - overviewScale) < 0.025) {
+    const nextMode = modeForZoom(currentZoom);
+    const nextScale = scaleForMode(nextMode);
+    const modeChanged = nextMode !== semanticMode;
+    const scaleChanged = Math.abs(nextScale - visualScale) > 0.001;
+    if (!force && !modeChanged && !scaleChanged) {
       setStatus();
       return;
     }
-    showingDetails = nextShowingDetails;
-    detailProgress = nextDetailProgress;
-    detailScale = nextDetailScale;
-    overviewScale = nextOverviewScale;
-    chart.setOption({ series: [semanticSeriesPatch()] });
+    if (modeChanged) clearSemanticTransition();
+    const enteringDetails = nextMode === 'details' && modeChanged;
+    semanticMode = nextMode;
+    visualScale = nextScale;
+    if (modeChanged) showingDetails = nextMode === 'details' && !enteringDetails;
+    chart.setOption({ series: [semanticVisualPatch()] });
     hideHoverTooltip();
     setStatus();
+
+    if (enteringDetails) {
+      semanticTransitionTimer = window.setTimeout(() => {
+        semanticTransitionTimer = undefined;
+        if (semanticMode !== 'details') return;
+        showingDetails = true;
+        chart.setOption({ series: [{
+          id: 'erGraph',
+          label: labelOptions(),
+          emphasis: { label: { show: true } },
+        }] });
+        setStatus();
+      }, SEMANTIC_TRANSITION_MS);
+    }
   }
 
   function startPan(event) {
@@ -456,12 +468,14 @@
     if (dx || dy) {
       const series = chart.getModel().getSeriesByIndex(0);
       const graphView = series && chart.getViewOfSeriesModel(series);
-      if (graphView && graphView.group) {
+      if (graphView && graphView._controller && typeof graphView._controller.trigger === 'function') {
+        graphView._controller.trigger('pan', { dx, dy });
+      } else if (graphView && graphView.group) {
         graphView.group.x += dx;
         graphView.group.y += dy;
         graphView.group.dirty();
+        chart.dispatchAction({ type: 'graphRoam', seriesId: 'erGraph', dx, dy });
       }
-      chart.dispatchAction({ type: 'graphRoam', seriesId: 'erGraph', dx, dy });
     }
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -483,6 +497,14 @@
 
     const series = chart.getModel().getSeriesByIndex(0);
     const graphView = series && chart.getViewOfSeriesModel(series);
+    if (graphView && graphView._controller && typeof graphView._controller.trigger === 'function') {
+      graphView._controller.trigger('zoom', {
+        scale: appliedScale,
+        originX,
+        originY,
+      });
+      return;
+    }
     const group = graphView && graphView.group;
     if (group) {
       group.x -= (originX - group.x) * (appliedScale - 1);
@@ -505,11 +527,14 @@
       zoomAnimationFrame = undefined;
       return;
     }
-    const progress = clamp((timestamp - zoomAnimation.startedAt) / ZOOM_TRANSITION_MS, 0, 1);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    const nextZoom = zoomAnimation.from * Math.pow(zoomAnimation.to / zoomAnimation.from, eased);
+    const elapsed = Math.max(1, Math.min(64, timestamp - zoomAnimation.lastTimestamp));
+    zoomAnimation.lastTimestamp = timestamp;
+    const blend = 1 - Math.pow(0.5, elapsed / ZOOM_HALF_LIFE_MS);
+    let nextZoom = currentZoom * Math.pow(zoomAnimation.to / currentZoom, blend);
+    const settled = Math.abs(Math.log(zoomAnimation.to / nextZoom)) < 0.001;
+    if (settled) nextZoom = zoomAnimation.to;
     applyCanvasZoom(nextZoom, zoomAnimation.originX, zoomAnimation.originY);
-    if (progress < 1) {
+    if (!settled) {
       zoomAnimationFrame = window.requestAnimationFrame(animateCanvasZoom);
     } else {
       zoomAnimation = undefined;
@@ -526,13 +551,18 @@
     const baseZoom = zoomAnimation ? zoomAnimation.to : currentZoom;
     const requestedScale = Math.exp(clamp(-delta * 0.002, -0.24, 0.24));
     const targetZoom = clamp(baseZoom * requestedScale, farZoom, MAX_ZOOM);
-    zoomAnimation = {
-      from: currentZoom,
-      to: targetZoom,
-      originX: event.clientX - rect.left,
-      originY: event.clientY - rect.top,
-      startedAt: performance.now(),
-    };
+    if (zoomAnimation) {
+      zoomAnimation.to = targetZoom;
+      zoomAnimation.originX = event.clientX - rect.left;
+      zoomAnimation.originY = event.clientY - rect.top;
+    } else {
+      zoomAnimation = {
+        to: targetZoom,
+        originX: event.clientX - rect.left,
+        originY: event.clientY - rect.top,
+        lastTimestamp: performance.now(),
+      };
+    }
     if (zoomAnimationFrame === undefined) {
       zoomAnimationFrame = window.requestAnimationFrame(animateCanvasZoom);
     }
@@ -652,10 +682,10 @@
     );
     calculateZoomLevels(bounds);
     currentZoom = overviewZoom;
+    semanticMode = modeForZoom(currentZoom);
     showingDetails = false;
-    detailProgress = 0;
-    detailScale = 1;
-    overviewScale = 1;
+    visualScale = scaleForMode(semanticMode);
+    clearSemanticTransition();
     zoomAnimation = undefined;
     if (zoomAnimationFrame !== undefined) window.cancelAnimationFrame(zoomAnimationFrame);
     zoomAnimationFrame = undefined;
@@ -673,14 +703,17 @@
       },
       tooltip: { show: false },
       series: [{
-        ...semanticSeriesPatch(),
+        ...semanticVisualPatch(),
         type: 'graph',
         layout: 'none',
+        data: positionedNodes,
+        links: relationshipsVisible ? links : [],
         roam: true,
         draggable: false,
         cursor: 'grab',
         zoom: overviewZoom,
         scaleLimit: { min: farZoom, max: MAX_ZOOM },
+        // Camera zoom only moves nodes; visualScale owns frame and text size.
         nodeScaleRatio: 0,
       }],
     }, true);
@@ -725,7 +758,7 @@
     }
 
     const pointerY = params.event.offsetY;
-    const renderedScale = params.data.renderedDetailScale || 1;
+    const renderedScale = visualScale;
     const firstColumnTop = center[1] - params.data.detailContentHeight * renderedScale / 2 + 24 * renderedScale;
     const columnIndex = Math.floor((pointerY - firstColumnTop) / (18 * renderedScale));
     const column = params.data.columns[columnIndex];
@@ -844,14 +877,29 @@
     }
   }
 
-  function setStatus() {
+  function setStatus(immediate = false) {
+    if (!immediate) {
+      if (statusTimer === undefined) {
+        statusTimer = window.setTimeout(() => {
+          statusTimer = undefined;
+          renderStatus();
+        }, 80);
+      }
+      return;
+    }
+    if (statusTimer !== undefined) window.clearTimeout(statusTimer);
+    statusTimer = undefined;
+    renderStatus();
+  }
+
+  function renderStatus() {
     const support = data.foreignKeysUnsupported ? ' · relationships unsupported by driver' : '';
     const zoom = positionedNodes.length > 0 ? ` · ${currentZoom.toFixed(1)}×` : '';
-    const densityMode = showingDetails
-      ? 'columns'
-      : overviewScale >= LABEL_OVERVIEW_SCALE ? 'names' : 'map';
+    const densityMode = semanticMode === 'details'
+      ? showingDetails ? 'columns' : 'opening'
+      : semanticMode;
     const density = positionedNodes.length > 0 ? ` · ${densityMode}` : '';
-    const visibleTables = positionedNodes.filter(node => !node.anchor).length;
+    const visibleTables = Math.max(0, positionedNodes.length - 4);
     const tableCount = isolatedTableId ? `${visibleTables}/${data.tables.length}` : String(data.tables.length);
     const focus = isolatedTableId ? ` · focused: ${isolatedTableId}` : '';
     const hidden = relationshipsVisible ? '' : ' (hidden)';
@@ -864,8 +912,10 @@
     relationshipsBtn.setAttribute('aria-pressed', String(relationshipsVisible));
     cancelTablePreview();
     hideHoverTooltip();
-    if (chart && positionedNodes.length > 0) chart.setOption({ series: [semanticSeriesPatch()] });
-    setStatus();
+    if (chart && positionedNodes.length > 0) {
+      chart.setOption({ series: [{ id: 'erGraph', links: relationshipsVisible ? links : [] }] });
+    }
+    setStatus(true);
   }
 
   function exitFocusedGraph() {

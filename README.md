@@ -103,9 +103,9 @@ Right-click a connected connection, database, or schema → **Show ER Diagram**:
 
 - Tables and views share one continuous canvas: the far overview becomes a compact relationship map, then named square rectangles appear as you zoom in; views use a dashed purple border
 - Foreign-key arrows include column mappings and `ON DELETE` / `ON UPDATE` details
-- Scroll anywhere on the canvas to zoom, including empty space beyond the graph; zoom settles through a fast 130 ms easing and rectangles smoothly unfold into detailed cards once there is enough room
+- Scroll anywhere on the canvas to zoom, including empty space beyond the graph; target-based easing stays responsive to trackpads and rectangles smoothly unfold before their detailed text appears
 - Detailed cards highlight and mark primary keys as `PK`, source foreign-key columns as `FK`, and indexed columns as `IDX`. Combined roles are preserved, such as `FK, IDX`
-- Continuing to zoom enlarges the detailed card, its text, row spacing, and padding together; role colors are intentionally muted to keep dense schemas readable
+- Continuing to zoom enlarges the detailed card, its text, row spacing, and padding through one shared visual scale, preserving their proportions at every level; role colors are intentionally muted to keep dense schemas readable
 - Hover a column to see its database comment, foreign-key role, and index names when available
 - Hover a table or relationship to keep its adjacent graph visible while unrelated objects fade smoothly over a fast 150 ms transition
 - At name-only zoom, hold the pointer still over a table for three seconds to preview its complete column card
