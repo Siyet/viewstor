@@ -105,6 +105,7 @@ Right-click a connected connection, database, or schema → **Show ER Diagram**:
 - Foreign-key arrows include column mappings and `ON DELETE` / `ON UPDATE` details
 - Scroll to zoom; rectangles expand automatically to show left-aligned columns and data types once there is enough room. Primary keys are highlighted and marked inline as `PK`
 - Hover a column to see its database comment when PostgreSQL or ClickHouse exposes one
+- Hover a table or relationship to keep its adjacent graph visible while unrelated objects fade smoothly over a fast 150 ms transition
 - Drag anywhere with the left mouse button, or hold the middle mouse button, to pan horizontally and vertically. **Overview** resets the viewport
 - PostgreSQL and SQLite relationships are detected natively. ClickHouse still shows its tables and columns with a clear note that the driver has no FK metadata; Redis has no relational tables to diagram
 

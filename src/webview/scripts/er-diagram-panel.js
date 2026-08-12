@@ -18,6 +18,7 @@
   const MAX_ZOOM = 24;
   const MIN_OVERVIEW_SCALE = 0.12;
   const LABEL_OVERVIEW_SCALE = 0.48;
+  const HOVER_TRANSITION_MS = 150;
 
   let chart;
   let data = { tables: [], foreignKeys: [] };
@@ -248,7 +249,13 @@
         focus: 'adjacency',
         scale: 1.02,
         label: { show: showingDetails || overviewScale >= LABEL_OVERVIEW_SCALE },
+        itemStyle: { opacity: 1, borderWidth: 2 },
         lineStyle: { width: 3, opacity: 1 },
+      },
+      blur: {
+        itemStyle: { opacity: 0.18 },
+        label: { opacity: 0.18 },
+        lineStyle: { opacity: 0.025 },
       },
     };
   }
@@ -388,7 +395,15 @@
     overviewScale = 1;
 
     chart.setOption({
-      animation: false,
+      // Keep layout/zoom updates immediate, but ease hover emphasis and blur states.
+      animation: true,
+      animationDuration: 0,
+      animationDurationUpdate: 0,
+      animationThreshold: 5000,
+      stateAnimation: {
+        duration: HOVER_TRANSITION_MS,
+        easing: 'cubicOut',
+      },
       tooltip: { show: false },
       series: [{
         ...semanticSeriesPatch(),
