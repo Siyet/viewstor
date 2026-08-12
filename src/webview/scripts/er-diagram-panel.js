@@ -29,6 +29,8 @@
   const MODE_HYSTERESIS = 0.08;
   const ROLE_COLOR_ALPHA = 0.78;
   const MAP_RELATIONSHIP_OPACITY = 0.14;
+  const CARD_FRAME_Z = 200;
+  const CARD_TEXT_Z = 201;
   const TABLE_PREVIEW_DELAY_MS = 3000;
 
   let chart;
@@ -503,6 +505,7 @@
       group.__viewstorCardId = node.id;
 
       const rect = new echarts.graphic.Rect({
+        z2: CARD_FRAME_Z,
         shape: cardShape(node, details),
         culling: true,
         style: {
@@ -515,6 +518,7 @@
         cursor: 'pointer',
       });
       const text = new echarts.graphic.Text({
+        z2: CARD_TEXT_Z,
         style: cardTextStyle(node, details && showingDetails),
         culling: true,
         cursor: 'pointer',

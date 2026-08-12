@@ -77,6 +77,14 @@ describe('ER diagram transitions', () => {
     expect(script).toContain('const MAP_RELATIONSHIP_OPACITY = 0.14');
     expect(script).toContain('semanticMode === \'names\' ? 0.18 : MAP_RELATIONSHIP_OPACITY');
   });
+
+  it('keeps cards above relationships on the first focused-graph frame', () => {
+    const script = readScript();
+    expect(script).toContain('const CARD_FRAME_Z = 200');
+    expect(script).toContain('const CARD_TEXT_Z = 201');
+    expect(script).toMatch(/new echarts\.graphic\.Rect\(\{\s*z2: CARD_FRAME_Z,/);
+    expect(script).toMatch(/new echarts\.graphic\.Text\(\{\s*z2: CARD_TEXT_Z,/);
+  });
 });
 
 describe('ER diagram interactions', () => {
