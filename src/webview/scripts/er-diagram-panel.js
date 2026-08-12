@@ -13,7 +13,7 @@
   const OVERVIEW_WIDTH = 196;
   const OVERVIEW_HEIGHT = 44;
   const DETAIL_WIDTH = 326;
-  const DETAIL_REVEAL_RATIO = 1.48;
+  const DETAIL_REVEAL_RATIO = 1.25;
   const MAX_CARD_COLUMNS = 24;
   const MIN_DETAIL_ZOOM = 2.2;
   const MAX_ZOOM = 24;

@@ -43,7 +43,7 @@ describe('ER diagram transitions', () => {
     expect(script).toContain('function rebaseCardLayer()');
     expect(script).toContain('window.addEventListener(\'resize\', resizeChart)');
     expect(script).toContain('cardTextStyleCache.has(cacheKey)');
-    expect(script).toContain('const DETAIL_REVEAL_RATIO = 1.48');
+    expect(script).toContain('const DETAIL_REVEAL_RATIO = 1.25');
     expect(script).toContain('overviewZoom * DETAIL_REVEAL_RATIO');
     expect(script).not.toContain('visualScale');
     expect(script).not.toContain('detailProgress');
