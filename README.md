@@ -103,12 +103,13 @@ Right-click a connected connection, database, or schema → **Show ER Diagram**:
 
 - Tables and views share one continuous canvas: the far overview becomes a compact relationship map, then named square rectangles appear as you zoom in; views use a dashed purple border
 - Foreign-key arrows include column mappings and `ON DELETE` / `ON UPDATE` details
-- Scroll to zoom; rectangles expand automatically to show left-aligned columns and data types once there is enough room. Primary keys are highlighted and marked inline as `PK`
-- Hover a column to see its database comment when PostgreSQL or ClickHouse exposes one
+- Scroll anywhere on the canvas to zoom, including empty space beyond the graph; rectangles expand automatically once there is enough room
+- Detailed cards highlight and mark primary keys as `PK`, source foreign-key columns as `FK`, and indexed columns as `IDX`. Combined roles are preserved, such as `FK, IDX`
+- Hover a column to see its database comment, foreign-key role, and index names when available
 - Hover a table or relationship to keep its adjacent graph visible while unrelated objects fade smoothly over a fast 150 ms transition
 - At name-only zoom, hold the pointer still over a table for three seconds to preview its complete column card
 - Double-click a table to isolate it in the centre with its directly related tables; double-click the centre again or press `Esc` to return
-- Use **Hide relationships** / **Show relationships** to toggle edges; the canvas legend explains tables, views, relationships, primary keys, and required columns
+- Use **Hide relationships** / **Show relationships** to toggle edges; the canvas legend explains tables, views, relationships, primary keys, foreign keys, indexes, and required columns
 - Start a left-button drag even on empty canvas beyond the outermost tables, or hold the middle mouse button, to pan horizontally and vertically
 - PostgreSQL and SQLite relationships are detected natively. ClickHouse still shows its tables and columns with a clear note that the driver has no FK metadata; Redis has no relational tables to diagram
 

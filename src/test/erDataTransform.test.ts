@@ -17,6 +17,7 @@ const schema: SchemaObject[] = [
             type: 'column',
             detail: 'character varying(255)',
             notNullable: true,
+            indexNames: ['users_email_idx'],
             comment: 'Primary contact address',
           },
           { name: 'Indexes', type: 'group', children: [{ name: 'users_pkey', type: 'index' }] },
@@ -85,14 +86,23 @@ describe('ER diagram data transform', () => {
       'public.users',
     ]);
     expect(result.tables.find(table => table.id === 'public.users')?.columns).toEqual([
-      { name: 'id', dataType: 'integer', primaryKey: true, notNullable: true, comment: undefined },
+      {
+        name: 'id', dataType: 'integer', primaryKey: true, foreignKey: false,
+        notNullable: true, indexNames: undefined, comment: undefined,
+      },
       {
         name: 'email',
         dataType: 'character varying(255)',
         primaryKey: false,
+        foreignKey: false,
         notNullable: true,
+        indexNames: ['users_email_idx'],
         comment: 'Primary contact address',
       },
+    ]);
+    expect(result.tables.find(table => table.id === 'public.orders')?.columns).toEqual([
+      expect.objectContaining({ name: 'id', primaryKey: true, foreignKey: false }),
+      expect.objectContaining({ name: 'user_id', primaryKey: false, foreignKey: true }),
     ]);
     expect(result.tables.find(table => table.id === 'public.user_summary')?.kind).toBe('view');
     expect(result.foreignKeys.map(foreignKey => foreignKey.name)).toEqual([

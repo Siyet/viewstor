@@ -50,13 +50,30 @@ describe('ER diagram interactions', () => {
     expect(script).toContain('event.key === \'Escape\'');
   });
 
+  it('bridges wheel zoom over the entire canvas and synchronizes graph roam state', () => {
+    const script = readScript();
+    expect(script).toContain('chartEl.addEventListener(\'wheel\', zoomCanvas');
+    expect(script).toContain('group.scaleX *= appliedScale');
+    expect(script).toContain('type: \'graphRoam\'');
+    expect(script).toContain('zoom: appliedScale');
+  });
+
+  it('renders PK, FK, and indexed column markers', () => {
+    const script = readScript();
+    expect(script).toContain('markers.push(\'PK\')');
+    expect(script).toContain('markers.push(\'FK\')');
+    expect(script).toContain('markers.push(\'IDX\')');
+    expect(script).toContain('return \'fk\'');
+    expect(script).toContain('return \'indexed\'');
+  });
+
   it('removes Overview and renders the relationship toggle plus legend', () => {
     const panel = fs.readFileSync(PANEL_PATH, 'utf-8');
     expect(panel).not.toContain('id="fitBtn"');
     expect(panel).not.toContain('>Overview</vscode-button>');
     expect(panel).toContain('id="relationshipsBtn"');
     expect(panel).toContain('aria-label="ER diagram legend"');
-    for (const label of ['Table', 'View', 'Relationship', 'Primary key', 'Required']) {
+    for (const label of ['Table', 'View', 'Relationship', 'Primary key', 'Foreign key', 'Indexed', 'Required']) {
       expect(panel).toContain(label);
     }
   });

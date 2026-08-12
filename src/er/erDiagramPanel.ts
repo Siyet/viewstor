@@ -113,6 +113,8 @@ export class ErDiagramPanelManager {
         <span><i class="legend-box view"></i>View</span>
         <span><i class="legend-line"></i>Relationship</span>
         <span><i class="legend-pk">PK</i>Primary key</span>
+        <span><i class="legend-fk">FK</i>Foreign key</span>
+        <span><i class="legend-indexed">IDX</i>Indexed</span>
         <span><i class="legend-required">*</i>Required</span>
       </div>
       <div id="hoverTooltip" class="hover-tooltip hidden" role="tooltip"></div>

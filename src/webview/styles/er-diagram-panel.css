@@ -75,12 +75,18 @@ body {
 }
 
 .legend-pk,
+.legend-fk,
+.legend-indexed,
 .legend-required {
-  color: var(--vscode-terminal-ansiYellow, #d7ba7d);
   font-family: var(--viewstor-font-mono);
   font-style: normal;
   font-weight: 700;
 }
+
+.legend-pk,
+.legend-required { color: var(--vscode-terminal-ansiYellow, #d7ba7d); }
+.legend-fk { color: var(--vscode-terminal-ansiMagenta, #c586c0); }
+.legend-indexed { color: var(--vscode-charts-blue, #3794ff); }
 
 main {
   min-height: 0;
@@ -157,6 +163,18 @@ main {
 .hover-tooltip-type.pk {
   color: var(--vscode-terminal-ansiYellow, #d7ba7d);
   font-weight: 700;
+}
+
+.hover-tooltip-column.fk,
+.hover-tooltip-type.fk {
+  color: var(--vscode-terminal-ansiMagenta, #c586c0);
+  font-weight: 700;
+}
+
+.hover-tooltip-column.indexed,
+.hover-tooltip-type.indexed {
+  color: var(--vscode-charts-blue, #3794ff);
+  font-weight: 600;
 }
 
 .empty-state {

@@ -69,10 +69,26 @@
 
   function columnLine(column) {
     const required = column.notNullable && !column.primaryKey ? '*' : '';
-    const columnStyle = column.primaryKey ? 'pkColumn' : 'column';
-    const typeStyle = column.primaryKey ? 'pkType' : 'type';
-    const type = `${column.dataType}${column.primaryKey ? ', PK' : ''}`;
+    const role = columnVisualRole(column);
+    const columnStyle = role === 'normal' ? 'column' : `${role}Column`;
+    const typeStyle = role === 'normal' ? 'type' : `${role}Type`;
+    const type = `${column.dataType}${columnMarkers(column)}`;
     return `{${columnStyle}|${safeRichText(column.name)}${required}}{${typeStyle}|${safeRichText(type)}}`;
+  }
+
+  function columnVisualRole(column) {
+    if (column.primaryKey) return 'pk';
+    if (column.foreignKey) return 'fk';
+    if (Array.isArray(column.indexNames) && column.indexNames.length > 0) return 'indexed';
+    return 'normal';
+  }
+
+  function columnMarkers(column) {
+    const markers = [];
+    if (column.primaryKey) markers.push('PK');
+    if (column.foreignKey) markers.push('FK');
+    if (Array.isArray(column.indexNames) && column.indexNames.length > 0) markers.push('IDX');
+    return markers.length > 0 ? `, ${markers.join(', ')}` : '';
   }
 
   function cardFor(entity) {
@@ -159,6 +175,8 @@
     const foreground = theme('--vscode-foreground', '#cccccc');
     const dimmed = theme('--vscode-descriptionForeground', '#999999');
     const primary = theme('--vscode-terminal-ansiYellow', '#d7ba7d');
+    const foreign = theme('--vscode-terminal-ansiMagenta', '#c586c0');
+    const indexed = theme('--vscode-charts-blue', '#3794ff');
     const overviewLabelsVisible = overviewScale >= LABEL_OVERVIEW_SCALE;
     return {
       show: showingDetails || overviewLabelsVisible,
@@ -224,6 +242,48 @@
           overflow: 'truncate',
           ellipsis: '…',
           color: primary,
+          fontFamily: theme('--vscode-editor-font-family', 'monospace'),
+          fontSize: 9,
+          lineHeight: 18,
+          align: 'left',
+        },
+        fkColumn: {
+          width: 174,
+          overflow: 'truncate',
+          ellipsis: '…',
+          color: foreign,
+          fontFamily: theme('--vscode-editor-font-family', 'monospace'),
+          fontWeight: 700,
+          fontSize: 10,
+          lineHeight: 18,
+          align: 'left',
+        },
+        fkType: {
+          width: 116,
+          overflow: 'truncate',
+          ellipsis: '…',
+          color: foreign,
+          fontFamily: theme('--vscode-editor-font-family', 'monospace'),
+          fontSize: 9,
+          lineHeight: 18,
+          align: 'left',
+        },
+        indexedColumn: {
+          width: 174,
+          overflow: 'truncate',
+          ellipsis: '…',
+          color: indexed,
+          fontFamily: theme('--vscode-editor-font-family', 'monospace'),
+          fontWeight: 600,
+          fontSize: 10,
+          lineHeight: 18,
+          align: 'left',
+        },
+        indexedType: {
+          width: 116,
+          overflow: 'truncate',
+          ellipsis: '…',
+          color: indexed,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontSize: 9,
           lineHeight: 18,
@@ -358,8 +418,49 @@
     event.stopImmediatePropagation();
   }
 
+  function zoomCanvas(event) {
+    if (!chart || positionedNodes.length === 0) return;
+    const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
+    if (!delta) return;
+
+    const magnitude = Math.abs(delta);
+    const step = magnitude > 120 ? 1.4 : magnitude > 30 ? 1.2 : 1.1;
+    const requestedScale = delta < 0 ? step : 1 / step;
+    const nextZoom = Math.max(farZoom, Math.min(MAX_ZOOM, currentZoom * requestedScale));
+    const appliedScale = nextZoom / currentZoom;
+    if (Math.abs(appliedScale - 1) < 0.0001) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    const series = chart.getModel().getSeriesByIndex(0);
+    const graphView = series && chart.getViewOfSeriesModel(series);
+    const group = graphView && graphView.group;
+    const rect = chartEl.getBoundingClientRect();
+    const originX = event.clientX - rect.left;
+    const originY = event.clientY - rect.top;
+    if (group) {
+      group.x -= (originX - group.x) * (appliedScale - 1);
+      group.y -= (originY - group.y) * (appliedScale - 1);
+      group.scaleX *= appliedScale;
+      group.scaleY *= appliedScale;
+      group.dirty();
+    }
+    chart.dispatchAction({
+      type: 'graphRoam',
+      seriesId: 'erGraph',
+      zoom: appliedScale,
+      originX,
+      originY,
+    });
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
   function installPanHandlers() {
     chartEl.addEventListener('mousedown', startPan, true);
+    chartEl.addEventListener('wheel', zoomCanvas, { capture: true, passive: false });
     window.addEventListener('mousemove', movePan, true);
     window.addEventListener('mouseup', stopPan, true);
     window.addEventListener('blur', () => {
@@ -536,11 +637,21 @@
     const firstColumnTop = center[1] - params.data.detailContentHeight / 2 + 24;
     const columnIndex = Math.floor((pointerY - firstColumnTop) / 18);
     const column = params.data.columns[columnIndex];
-    if (!column || !column.comment) {
+    if (!column) {
       hideHoverTooltip();
       return;
     }
-    showHoverTooltip(column.name, column.comment, params.event);
+    const details = [];
+    if (column.comment) details.push(column.comment);
+    if (column.foreignKey) details.push('Foreign key');
+    if (Array.isArray(column.indexNames) && column.indexNames.length > 0) {
+      details.push(`Indexed by: ${column.indexNames.join(', ')}`);
+    }
+    if (details.length === 0) {
+      hideHoverTooltip();
+      return;
+    }
+    showHoverTooltip(column.name, details.join('\n'), params.event);
   }
 
   function scheduleTablePreview(table, event) {
@@ -593,11 +704,12 @@
     columnsEl.className = 'hover-tooltip-columns';
     for (const column of table.allColumns) {
       const nameEl = document.createElement('span');
-      nameEl.className = `hover-tooltip-column${column.primaryKey ? ' pk' : ''}`;
+      const role = columnVisualRole(column);
+      nameEl.className = `hover-tooltip-column${role === 'normal' ? '' : ` ${role}`}`;
       nameEl.textContent = `${column.name}${column.notNullable && !column.primaryKey ? '*' : ''}`;
       const typeEl = document.createElement('span');
-      typeEl.className = `hover-tooltip-type${column.primaryKey ? ' pk' : ''}`;
-      typeEl.textContent = `${column.dataType}${column.primaryKey ? ', PK' : ''}`;
+      typeEl.className = `hover-tooltip-type${role === 'normal' ? '' : ` ${role}`}`;
+      typeEl.textContent = `${column.dataType}${columnMarkers(column)}`;
       columnsEl.append(nameEl, typeEl);
     }
     hoverTooltipEl.replaceChildren(titleEl, columnsEl);

@@ -4,7 +4,9 @@ export interface ErColumn {
   name: string;
   dataType: string;
   primaryKey: boolean;
+  foreignKey: boolean;
   notNullable: boolean;
+  indexNames?: string[];
   comment?: string;
 }
 
@@ -57,7 +59,9 @@ export function buildErDiagramData(
             name: child.name,
             dataType: columnDataType(child.detail),
             primaryKey: /\(\s*PK(?:\s*[,)]|\s*$)/i.test(child.detail ?? ''),
+            foreignKey: false,
             notNullable: Boolean(child.notNullable) || /\(\s*PK(?:\s*[,)]|\s*$)/i.test(child.detail ?? ''),
+            indexNames: child.indexNames,
             comment: child.comment,
           }));
         tables.push({
@@ -84,6 +88,15 @@ export function buildErDiagramData(
     const target = erTableId(foreignKey.targetSchema, foreignKey.targetTable);
     return tableIds.has(source) && tableIds.has(target);
   });
+
+  const tableById = new Map(tables.map(table => [table.id, table]));
+  for (const foreignKey of visibleForeignKeys) {
+    const source = tableById.get(erTableId(foreignKey.sourceSchema, foreignKey.sourceTable));
+    const sourceColumns = new Set(foreignKey.sourceColumns);
+    for (const column of source?.columns ?? []) {
+      if (sourceColumns.has(column.name)) column.foreignKey = true;
+    }
+  }
 
   return {
     tables,
