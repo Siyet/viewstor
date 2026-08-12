@@ -53,6 +53,30 @@ main {
 
 #chart.panning { cursor: grabbing; }
 
+.hover-tooltip {
+  position: absolute;
+  z-index: 10;
+  max-width: 360px;
+  padding: 7px 9px;
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--viewstor-border-subtle));
+  border-radius: 2px;
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .28);
+  font-size: var(--viewstor-font-meta-size);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+
+.hover-tooltip-title {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--vscode-foreground);
+  font-family: var(--viewstor-font-mono);
+  font-weight: 600;
+}
+
 .empty-state {
   position: absolute;
   inset: 50% auto auto 50%;

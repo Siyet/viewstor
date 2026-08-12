@@ -108,6 +108,7 @@ export class ErDiagramPanelManager {
   <main>
     <section class="canvas-wrap">
       <div id="chart"></div>
+      <div id="hoverTooltip" class="hover-tooltip hidden" role="tooltip"></div>
       <div id="emptyState" class="empty-state">Loading schema…</div>
     </section>
   </main>

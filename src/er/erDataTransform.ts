@@ -5,6 +5,7 @@ export interface ErColumn {
   dataType: string;
   primaryKey: boolean;
   notNullable: boolean;
+  comment?: string;
 }
 
 export interface ErTable {
@@ -57,6 +58,7 @@ export function buildErDiagramData(
             dataType: columnDataType(child.detail),
             primaryKey: /\(\s*PK(?:\s*[,)]|\s*$)/i.test(child.detail ?? ''),
             notNullable: Boolean(child.notNullable) || /\(\s*PK(?:\s*[,)]|\s*$)/i.test(child.detail ?? ''),
+            comment: child.comment,
           }));
         tables.push({
           id: erTableId(currentSchema, object.name),

@@ -169,6 +169,10 @@ export class PostgresDriver implements DatabaseDriver {
     const columnsRes = await this.client!.query(`
       SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.udt_name, c.is_nullable,
              c.column_default,
+             col_description(
+               (quote_ident(c.table_schema) || '.' || quote_ident(c.table_name))::regclass::oid,
+               c.ordinal_position::int
+             ) AS comment,
              CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk
       FROM information_schema.columns c
       LEFT JOIN (
@@ -240,6 +244,7 @@ export class PostgresDriver implements DatabaseDriver {
         type: 'column',
         schema: row.table_schema,
         detail,
+        comment: row.comment ?? undefined,
         indexNames: indexNames && indexNames.length > 0 ? indexNames : undefined,
         notNullable: notNullable || undefined,
       });

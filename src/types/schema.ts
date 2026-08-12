@@ -5,6 +5,8 @@ export interface SchemaObject {
   children?: SchemaObject[];
   /** Displayed as gray description text in the tree */
   detail?: string;
+  /** Database comment for a column or relation, when the driver exposes one. */
+  comment?: string;
   /** Mark as inaccessible (no permissions) — renders with error color */
   inaccessible?: boolean;
   /** For column nodes: names of indexes that cover this column. Used for blue

@@ -101,9 +101,10 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 
 Right-click a connected connection, database, or schema → **Show ER Diagram**:
 
-- Tables and views share one continuous canvas: the overview shows named rectangles, with views distinguished by a dashed purple border
+- Tables and views share one continuous canvas: the far overview becomes a compact relationship map, then named square rectangles appear as you zoom in; views use a dashed purple border
 - Foreign-key arrows include column mappings and `ON DELETE` / `ON UPDATE` details
-- Scroll to zoom; rectangles expand automatically to show columns, data types, and highlighted primary keys once there is enough room
+- Scroll to zoom; rectangles expand automatically to show left-aligned columns and data types once there is enough room. Primary keys are highlighted and marked inline as `PK`
+- Hover a column to see its database comment when PostgreSQL or ClickHouse exposes one
 - Drag anywhere with the left mouse button, or hold the middle mouse button, to pan horizontally and vertically. **Overview** resets the viewport
 - PostgreSQL and SQLite relationships are detected natively. ClickHouse still shows its tables and columns with a clear note that the driver has no FK metadata; Redis has no relational tables to diagram
 

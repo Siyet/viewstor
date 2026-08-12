@@ -4,6 +4,7 @@
 
   const vscode = acquireVsCodeApi();
   const chartEl = document.getElementById('chart');
+  const hoverTooltipEl = document.getElementById('hoverTooltip');
   const emptyEl = document.getElementById('emptyState');
   const statusEl = document.getElementById('status');
   const fitBtn = document.getElementById('fitBtn');
@@ -15,6 +16,8 @@
   const MAX_CARD_COLUMNS = 24;
   const MIN_DETAIL_ZOOM = 2.2;
   const MAX_ZOOM = 24;
+  const MIN_OVERVIEW_SCALE = 0.12;
+  const LABEL_OVERVIEW_SCALE = 0.48;
 
   let chart;
   let data = { tables: [], foreignKeys: [] };
@@ -22,8 +25,10 @@
   let links = [];
   let currentZoom = 1;
   let overviewZoom = 1;
+  let farZoom = 0.5;
   let detailZoom = MIN_DETAIL_ZOOM;
   let showingDetails = false;
+  let overviewScale = 1;
   let panPointer;
 
   function theme(name, fallback) {
@@ -55,9 +60,11 @@
   }
 
   function columnLine(column) {
-    const pk = column.primaryKey ? '{pk|PK}' : '{pk|  }';
     const required = column.notNullable && !column.primaryKey ? '*' : '';
-    return `${pk}{column|${safeRichText(column.name)}${required}}{type|${safeRichText(column.dataType)}}`;
+    const columnStyle = column.primaryKey ? 'pkColumn' : 'column';
+    const typeStyle = column.primaryKey ? 'pkType' : 'type';
+    const type = `${column.dataType}${column.primaryKey ? ', PK' : ''}`;
+    return `{${columnStyle}|${safeRichText(column.name)}${required}}{${typeStyle}|${safeRichText(type)}}`;
   }
 
   function cardFor(entity) {
@@ -77,7 +84,9 @@
       width: DETAIL_WIDTH,
       height: detailHeight,
       detailHeight,
-      symbol: 'roundRect',
+      detailContentHeight: 24 + contentRows * 18,
+      columns: shownColumns,
+      symbol: 'rect',
       overviewLabelText: `{overviewTitle|${safeRichText(truncateText(title, 30))}}`,
       detailLabelText: detailLines.join('\n'),
       columnCount: entity.columns.length,
@@ -133,15 +142,17 @@
       ...node,
       symbolSize: showingDetails
         ? [DETAIL_WIDTH, node.detailHeight]
-        : [OVERVIEW_WIDTH, OVERVIEW_HEIGHT],
+        : [OVERVIEW_WIDTH * overviewScale, OVERVIEW_HEIGHT * overviewScale],
     };
   }
 
   function labelOptions() {
     const foreground = theme('--vscode-foreground', '#cccccc');
     const dimmed = theme('--vscode-descriptionForeground', '#999999');
+    const primary = theme('--vscode-terminal-ansiYellow', '#d7ba7d');
+    const overviewLabelsVisible = overviewScale >= LABEL_OVERVIEW_SCALE;
     return {
-      show: true,
+      show: showingDetails || overviewLabelsVisible,
       position: 'inside',
       align: 'center',
       verticalAlign: 'middle',
@@ -156,6 +167,7 @@
           fontWeight: 600,
           fontSize: 11,
           lineHeight: 22,
+          align: 'center',
         },
         title: {
           width: DETAIL_WIDTH - 30,
@@ -165,38 +177,55 @@
           fontWeight: 600,
           fontSize: 12,
           lineHeight: 24,
-        },
-        pk: {
-          width: 24,
-          color: theme('--vscode-terminal-ansiYellow', '#d7ba7d'),
-          fontWeight: 700,
-          fontSize: 9,
-          lineHeight: 18,
+          align: 'center',
         },
         column: {
-          width: 164,
+          width: 174,
           overflow: 'truncate',
           ellipsis: '…',
           color: foreground,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontSize: 10,
           lineHeight: 18,
+          align: 'left',
+        },
+        pkColumn: {
+          width: 174,
+          overflow: 'truncate',
+          ellipsis: '…',
+          color: primary,
+          fontFamily: theme('--vscode-editor-font-family', 'monospace'),
+          fontWeight: 700,
+          fontSize: 10,
+          lineHeight: 18,
+          align: 'left',
         },
         type: {
-          width: 102,
+          width: 116,
           overflow: 'truncate',
           ellipsis: '…',
           color: dimmed,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontSize: 9,
           lineHeight: 18,
+          align: 'left',
+        },
+        pkType: {
+          width: 116,
+          overflow: 'truncate',
+          ellipsis: '…',
+          color: primary,
+          fontFamily: theme('--vscode-editor-font-family', 'monospace'),
+          fontSize: 9,
+          lineHeight: 18,
+          align: 'left',
         },
         more: {
-          padding: [0, 0, 0, 24],
           color: dimmed,
           fontStyle: 'italic',
           fontSize: 10,
           lineHeight: 18,
+          align: 'left',
         },
       },
     };
@@ -211,9 +240,15 @@
       edgeSymbolSize: [0, showingDetails ? 8 : 0],
       lineStyle: {
         color: theme('--vscode-charts-blue', '#3794ff'),
-        opacity: showingDetails ? 0.5 : 0.18,
+        opacity: showingDetails ? 0.5 : 0.04 + overviewScale * 0.14,
         width: showingDetails ? 1.4 : 1,
         curveness: 0.06,
+      },
+      emphasis: {
+        focus: 'adjacency',
+        scale: 1.02,
+        label: { show: showingDetails || overviewScale >= LABEL_OVERVIEW_SCALE },
+        lineStyle: { width: 3, opacity: 1 },
       },
     };
   }
@@ -221,12 +256,19 @@
   function updateSemanticDisplay(force) {
     if (!chart || positionedNodes.length === 0) return;
     const nextShowingDetails = currentZoom >= detailZoom;
-    if (!force && nextShowingDetails === showingDetails) {
+    const nextOverviewScale = nextShowingDetails
+      ? 1
+      : Math.max(MIN_OVERVIEW_SCALE, Math.min(1, currentZoom / overviewZoom));
+    if (!force
+      && nextShowingDetails === showingDetails
+      && Math.abs(nextOverviewScale - overviewScale) < 0.025) {
       setStatus();
       return;
     }
     showingDetails = nextShowingDetails;
+    overviewScale = nextOverviewScale;
     chart.setOption({ series: [semanticSeriesPatch()] });
+    hideHoverTooltip();
     setStatus();
   }
 
@@ -239,6 +281,7 @@
       y: event.clientY,
     };
     chartEl.classList.add('panning');
+    hideHoverTooltip();
     event.preventDefault();
   }
 
@@ -278,11 +321,14 @@
     if (chart || typeof echarts === 'undefined') return;
     chart = echarts.init(chartEl);
     chart.on('graphRoam', event => {
+      hideHoverTooltip();
       if (typeof event.zoom === 'number') {
-        currentZoom = Math.max(overviewZoom, Math.min(MAX_ZOOM, currentZoom * event.zoom));
+        currentZoom = Math.max(farZoom, Math.min(MAX_ZOOM, currentZoom * event.zoom));
         updateSemanticDisplay();
       }
     });
+    chart.on('mousemove', handleChartHover);
+    chart.on('mouseout', hideHoverTooltip);
     installPanHandlers();
   }
 
@@ -295,6 +341,7 @@
       detailWidth: DETAIL_WIDTH,
     });
     overviewZoom = levels.overview;
+    farZoom = Math.max(0.5, overviewZoom * MIN_OVERVIEW_SCALE);
     detailZoom = levels.detail;
   }
 
@@ -338,32 +385,11 @@
     calculateZoomLevels(bounds);
     currentZoom = overviewZoom;
     showingDetails = false;
-    const foreground = theme('--vscode-foreground', '#cccccc');
+    overviewScale = 1;
 
     chart.setOption({
       animation: false,
-      tooltip: {
-        trigger: 'item',
-        confine: true,
-        backgroundColor: theme('--vscode-editorHoverWidget-background', '#252526'),
-        borderColor: theme('--vscode-editorHoverWidget-border', '#454545'),
-        textStyle: {
-          color: foreground,
-          fontFamily: theme('--vscode-font-family', 'sans-serif'),
-          fontSize: 11,
-        },
-        formatter(params) {
-          if (params.dataType === 'edge') {
-            const bits = [`<strong>${escapeHtml(params.data.name)}</strong>`];
-            if (params.data.mapping) bits.push(escapeHtml(params.data.mapping));
-            if (params.data.onDelete) bits.push(`ON DELETE ${escapeHtml(params.data.onDelete)}`);
-            if (params.data.onUpdate) bits.push(`ON UPDATE ${escapeHtml(params.data.onUpdate)}`);
-            return bits.join('<br>');
-          }
-          const kind = params.data.kind === 'view' ? 'View' : 'Table';
-          return `<strong>${escapeHtml(params.data.id)}</strong><br>${kind} · ${params.data.columnCount} columns`;
-        },
-      },
+      tooltip: { show: false },
       series: [{
         ...semanticSeriesPatch(),
         type: 'graph',
@@ -373,36 +399,92 @@
         cursor: 'grab',
         links,
         zoom: overviewZoom,
-        scaleLimit: { min: overviewZoom, max: MAX_ZOOM },
+        scaleLimit: { min: farZoom, max: MAX_ZOOM },
         nodeScaleRatio: 0,
-        emphasis: {
-          focus: 'adjacency',
-          scale: 1.02,
-          lineStyle: { width: 3, opacity: 1 },
-        },
       }],
     }, true);
     setStatus();
   }
 
+  function handleChartHover(params) {
+    if (!params || !params.data || !params.event || panPointer) {
+      hideHoverTooltip();
+      return;
+    }
+
+    if (params.dataType === 'edge') {
+      const lines = [];
+      if (params.data.mapping) lines.push(params.data.mapping);
+      if (params.data.onDelete) lines.push(`ON DELETE ${params.data.onDelete}`);
+      if (params.data.onUpdate) lines.push(`ON UPDATE ${params.data.onUpdate}`);
+      showHoverTooltip(params.data.name || 'Relationship', lines.join('\n'), params.event);
+      return;
+    }
+
+    if (!showingDetails || params.data.anchor || !Array.isArray(params.data.columns)) {
+      hideHoverTooltip();
+      return;
+    }
+
+    const seriesModel = chart.getModel().getSeriesByIndex(params.seriesIndex);
+    const itemEl = seriesModel && seriesModel.getData().getItemGraphicEl(params.dataIndex);
+    const center = itemEl && itemEl.transformCoordToGlobal(0, 0);
+    if (!Array.isArray(center) || center.length < 2) {
+      hideHoverTooltip();
+      return;
+    }
+
+    const pointerY = params.event.offsetY;
+    const firstColumnTop = center[1] - params.data.detailContentHeight / 2 + 24;
+    const columnIndex = Math.floor((pointerY - firstColumnTop) / 18);
+    const column = params.data.columns[columnIndex];
+    if (!column || !column.comment) {
+      hideHoverTooltip();
+      return;
+    }
+    showHoverTooltip(column.name, column.comment, params.event);
+  }
+
+  function showHoverTooltip(title, body, event) {
+    if (!hoverTooltipEl || !body) {
+      hideHoverTooltip();
+      return;
+    }
+    const titleEl = document.createElement('span');
+    titleEl.className = 'hover-tooltip-title';
+    titleEl.textContent = title;
+    hoverTooltipEl.replaceChildren(titleEl, document.createTextNode(body));
+    hoverTooltipEl.classList.remove('hidden');
+
+    const pointerX = event.offsetX;
+    const pointerY = event.offsetY;
+    const width = hoverTooltipEl.offsetWidth;
+    const height = hoverTooltipEl.offsetHeight;
+    let left = pointerX + 14;
+    let top = pointerY + 14;
+    if (left + width > chartEl.clientWidth - 8) left = pointerX - width - 14;
+    if (top + height > chartEl.clientHeight - 8) top = pointerY - height - 14;
+    hoverTooltipEl.style.left = `${Math.max(8, left)}px`;
+    hoverTooltipEl.style.top = `${Math.max(8, top)}px`;
+  }
+
+  function hideHoverTooltip() {
+    if (hoverTooltipEl) hoverTooltipEl.classList.add('hidden');
+  }
+
   function setStatus() {
     const support = data.foreignKeysUnsupported ? ' · relationships unsupported by driver' : '';
     const zoom = positionedNodes.length > 0 ? ` · ${currentZoom.toFixed(1)}×` : '';
-    const density = positionedNodes.length > 0 ? ` · ${showingDetails ? 'columns' : 'names'}` : '';
+    const densityMode = showingDetails
+      ? 'columns'
+      : overviewScale >= LABEL_OVERVIEW_SCALE ? 'names' : 'map';
+    const density = positionedNodes.length > 0 ? ` · ${densityMode}` : '';
     statusEl.textContent = `${data.tables.length} tables/views · ${links.length} relationships${zoom}${density}${support}`;
   }
 
   function setEmpty(message) {
     emptyEl.textContent = message;
     emptyEl.classList.remove('hidden');
-  }
-
-  function escapeHtml(value) {
-    return String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
   }
 
   fitBtn.addEventListener('click', renderChart);
