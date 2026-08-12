@@ -21,8 +21,6 @@
   const HOVER_TRANSITION_MS = 150;
   const ZOOM_HALF_LIFE_MS = 28;
   const SEMANTIC_TRANSITION_MS = 140;
-  const VISUAL_SCALE_STEP = 1.1;
-  const MAX_VISUAL_SCALE = 2.5;
   const DETAIL_EXIT_RATIO = 0.92;
   const DETAIL_ENTER_RATIO = 1.02;
   const MODE_HYSTERESIS = 0.08;
@@ -39,7 +37,6 @@
   let detailZoom = MIN_DETAIL_ZOOM;
   let semanticMode = 'names';
   let showingDetails = false;
-  let visualScale = 1;
   let semanticTransitionTimer;
   let zoomAnimation;
   let zoomAnimationFrame;
@@ -51,6 +48,12 @@
   let tablePreviewTarget;
   let tablePreviewPoint;
   let tablePreviewHideTimer;
+  let cardLayer;
+  let cardRecords = new Map();
+  let adjacency = new Map();
+  let activeFocusKey;
+  let cardOutTimer;
+  let resizeTimer;
 
   function theme(name, fallback) {
     return getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
@@ -84,7 +87,7 @@
     return Math.max(min, Math.min(max, value));
   }
 
-  function scaled(value, scale) {
+  function scaled(value, scale = 1) {
     return Math.round(value * scale * 10) / 10;
   }
 
@@ -143,15 +146,18 @@
       overviewLabelText: `{overviewTitle|${safeRichText(truncateText(title, 30))}}`,
       detailLabelText: detailLines.join('\n'),
       columnCount: entity.columns.length,
-      itemStyle: {
-        color: theme('--vscode-editorWidget-background', theme('--vscode-editor-background', '#1e1e1e')),
-        borderColor: isView
+      cardStyle: {
+        fill: theme('--vscode-editorWidget-background', theme('--vscode-editor-background', '#1e1e1e')),
+        stroke: isView
           ? theme('--vscode-charts-purple', '#b180d7')
           : theme('--vscode-focusBorder', '#3794ff'),
-        borderType: isView ? 'dashed' : 'solid',
-        borderWidth: isView ? 1.5 : 1,
-        shadowBlur: 0,
+        lineDash: isView ? [6, 4] : undefined,
+        lineWidth: isView ? 1.5 : 1,
       },
+      // ECharts keeps transparent symbols solely as graph anchors and edge
+      // endpoints. The visible card is one local Rect + Text group below.
+      itemStyle: { opacity: 0, borderWidth: 0 },
+      label: { show: false },
     };
   }
 
@@ -193,36 +199,30 @@
     if (!node || node.anchor) return 0;
     const details = semanticMode === 'details';
     return details
-      ? [DETAIL_WIDTH * visualScale, node.detailHeight * visualScale]
-      : [OVERVIEW_WIDTH * visualScale, OVERVIEW_HEIGHT * visualScale];
+      ? [DETAIL_WIDTH / detailZoom, node.detailHeight / detailZoom]
+      : [OVERVIEW_WIDTH / overviewZoom, OVERVIEW_HEIGHT / overviewZoom];
   }
 
-  function labelOptions() {
+  function cardTextStyles(details) {
     const foreground = theme('--vscode-foreground', '#cccccc');
     const dimmed = theme('--vscode-descriptionForeground', '#999999');
     const primary = mutedRoleColor('--vscode-terminal-ansiYellow', '#b8a66c');
     const foreign = mutedRoleColor('--vscode-terminal-ansiMagenta', '#a979a7');
     const indexed = mutedRoleColor('--vscode-charts-blue', '#4f89bd');
-    const detailsVisible = semanticMode === 'details' && showingDetails;
-    const namesVisible = semanticMode === 'names' || (semanticMode === 'details' && !showingDetails);
-    // Rich labels are screen-space in ECharts. Apply the exact same visual
-    // scale to every frame and text metric so their proportions stay fixed.
-    const textScale = visualScale;
+    // The card content group is normalized to overviewZoom. Detail metrics are
+    // normalized to detailZoom inside that same group. Camera zoom then applies
+    // one inherited transform to the rectangle and every glyph together.
+    const textScale = details ? overviewZoom / detailZoom : 1;
     return {
-      show: detailsVisible || namesVisible,
-      position: 'inside',
-      align: 'center',
-      verticalAlign: 'middle',
-      padding: detailsVisible
+      padding: details
         ? [scaled(7, textScale), scaled(12, textScale)]
         : [scaled(4, textScale), scaled(10, textScale)],
-      formatter: params => detailsVisible ? params.data.detailLabelText : params.data.overviewLabelText,
       rich: {
         overviewTitle: {
           width: scaled(OVERVIEW_WIDTH - 24, textScale),
           overflow: 'truncate',
           ellipsis: '…',
-          color: foreground,
+          fill: foreground,
           fontWeight: 600,
           fontSize: scaled(11, textScale),
           lineHeight: scaled(22, textScale),
@@ -232,7 +232,7 @@
           width: scaled(DETAIL_WIDTH - 30, textScale),
           overflow: 'truncate',
           ellipsis: '…',
-          color: foreground,
+          fill: foreground,
           fontWeight: 600,
           fontSize: scaled(12, textScale),
           lineHeight: scaled(24, textScale),
@@ -242,7 +242,7 @@
           width: scaled(174, textScale),
           overflow: 'truncate',
           ellipsis: '…',
-          color: foreground,
+          fill: foreground,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontSize: scaled(10, textScale),
           lineHeight: scaled(18, textScale),
@@ -252,7 +252,7 @@
           width: scaled(174, textScale),
           overflow: 'truncate',
           ellipsis: '…',
-          color: primary,
+          fill: primary,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontWeight: 700,
           fontSize: scaled(10, textScale),
@@ -263,7 +263,7 @@
           width: scaled(116, textScale),
           overflow: 'truncate',
           ellipsis: '…',
-          color: dimmed,
+          fill: dimmed,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontSize: scaled(9, textScale),
           lineHeight: scaled(18, textScale),
@@ -273,7 +273,7 @@
           width: scaled(116, textScale),
           overflow: 'truncate',
           ellipsis: '…',
-          color: primary,
+          fill: primary,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontSize: scaled(9, textScale),
           lineHeight: scaled(18, textScale),
@@ -283,7 +283,7 @@
           width: scaled(174, textScale),
           overflow: 'truncate',
           ellipsis: '…',
-          color: foreign,
+          fill: foreign,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontWeight: 700,
           fontSize: scaled(10, textScale),
@@ -294,7 +294,7 @@
           width: scaled(116, textScale),
           overflow: 'truncate',
           ellipsis: '…',
-          color: foreign,
+          fill: foreign,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontSize: scaled(9, textScale),
           lineHeight: scaled(18, textScale),
@@ -304,7 +304,7 @@
           width: scaled(174, textScale),
           overflow: 'truncate',
           ellipsis: '…',
-          color: indexed,
+          fill: indexed,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontWeight: 600,
           fontSize: scaled(10, textScale),
@@ -315,14 +315,14 @@
           width: scaled(116, textScale),
           overflow: 'truncate',
           ellipsis: '…',
-          color: indexed,
+          fill: indexed,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontSize: scaled(9, textScale),
           lineHeight: scaled(18, textScale),
           align: 'left',
         },
         more: {
-          color: dimmed,
+          fill: dimmed,
           fontStyle: 'italic',
           fontSize: scaled(10, textScale),
           lineHeight: scaled(18, textScale),
@@ -332,12 +332,34 @@
     };
   }
 
+  function cardTextStyle(node, details) {
+    const metrics = cardTextStyles(details);
+    return {
+      text: details ? node.detailLabelText : node.overviewLabelText,
+      x: 0,
+      y: 0,
+      align: 'center',
+      verticalAlign: 'middle',
+      padding: metrics.padding,
+      rich: metrics.rich,
+      opacity: semanticMode === 'map' ? 0 : 1,
+    };
+  }
+
+  function cardShape(node, details) {
+    const scale = details ? overviewZoom / detailZoom : 1;
+    const width = (details ? DETAIL_WIDTH : OVERVIEW_WIDTH) * scale;
+    const height = (details ? node.detailHeight : OVERVIEW_HEIGHT) * scale;
+    return { x: -width / 2, y: -height / 2, width, height, r: 0 };
+  }
+
   function semanticVisualPatch() {
     const details = semanticMode === 'details';
     return {
       id: 'erGraph',
       symbolSize: nodeSymbolSize,
-      label: labelOptions(),
+      label: { show: false },
+      itemStyle: { opacity: 0, borderWidth: 0 },
       edgeSymbol: ['none', details ? 'arrow' : 'none'],
       edgeSymbolSize: [0, details ? 8 : 0],
       lineStyle: {
@@ -348,14 +370,14 @@
       },
       emphasis: {
         focus: 'adjacency',
-        scale: 1.02,
-        label: { show: details ? true : semanticMode === 'names' },
-        itemStyle: { opacity: 1, borderWidth: 2, shadowBlur: 4, shadowColor: 'rgba(0, 0, 0, .2)' },
+        scale: false,
+        label: { show: false },
+        itemStyle: { opacity: 0, borderWidth: 0 },
         lineStyle: { width: 3, opacity: 1 },
       },
       blur: {
-        itemStyle: { opacity: 0.18 },
-        label: { opacity: 0.18 },
+        itemStyle: { opacity: 0 },
+        label: { show: false },
         lineStyle: { opacity: 0.025 },
       },
     };
@@ -371,13 +393,6 @@
     return 'map';
   }
 
-  function scaleForMode(mode) {
-    const referenceZoom = mode === 'details' ? detailZoom : overviewZoom;
-    const rawScale = clamp(currentZoom / referenceZoom, MIN_OVERVIEW_SCALE, MAX_VISUAL_SCALE);
-    const bucket = Math.round(Math.log(rawScale) / Math.log(VISUAL_SCALE_STEP));
-    return clamp(Math.pow(VISUAL_SCALE_STEP, bucket), MIN_OVERVIEW_SCALE, MAX_VISUAL_SCALE);
-  }
-
   function clearSemanticTransition() {
     if (semanticTransitionTimer !== undefined) window.clearTimeout(semanticTransitionTimer);
     semanticTransitionTimer = undefined;
@@ -386,19 +401,18 @@
   function updateSemanticDisplay(force) {
     if (!chart || positionedNodes.length === 0) return;
     const nextMode = modeForZoom(currentZoom);
-    const nextScale = scaleForMode(nextMode);
     const modeChanged = nextMode !== semanticMode;
-    const scaleChanged = Math.abs(nextScale - visualScale) > 0.001;
-    if (!force && !modeChanged && !scaleChanged) {
+    if (!force && !modeChanged) {
       setStatus();
       return;
     }
     if (modeChanged) clearSemanticTransition();
+    if (modeChanged) resetCardFocus();
     const enteringDetails = nextMode === 'details' && modeChanged;
     semanticMode = nextMode;
-    visualScale = nextScale;
     if (modeChanged) showingDetails = nextMode === 'details' && !enteringDetails;
     chart.setOption({ series: [semanticVisualPatch()] });
+    transitionCards(nextMode, enteringDetails);
     hideHoverTooltip();
     setStatus();
 
@@ -407,14 +421,217 @@
         semanticTransitionTimer = undefined;
         if (semanticMode !== 'details') return;
         showingDetails = true;
-        chart.setOption({ series: [{
-          id: 'erGraph',
-          label: labelOptions(),
-          emphasis: { label: { show: true } },
-        }] });
+        showDetailCardText();
         setStatus();
       }, SEMANTIC_TRANSITION_MS);
     }
+  }
+
+  function removeCardLayer() {
+    if (cardLayer && cardLayer.parent) cardLayer.parent.remove(cardLayer);
+    cardLayer = undefined;
+    cardRecords = new Map();
+    adjacency = new Map();
+    activeFocusKey = undefined;
+    if (cardOutTimer !== undefined) window.clearTimeout(cardOutTimer);
+    cardOutTimer = undefined;
+  }
+
+  function buildAdjacency() {
+    adjacency = new Map();
+    for (const node of positionedNodes) {
+      if (!node.anchor) adjacency.set(node.id, new Set([node.id]));
+    }
+    for (const link of links) {
+      if (adjacency.has(link.source) && adjacency.has(link.target)) {
+        adjacency.get(link.source).add(link.target);
+        adjacency.get(link.target).add(link.source);
+      }
+    }
+  }
+
+  function installCardLayer() {
+    removeCardLayer();
+    if (!chart || !echarts.graphic) return;
+    const series = chart.getModel().getSeriesByIndex(0);
+    const graphView = series && chart.getViewOfSeriesModel(series);
+    const seriesData = series && series.getData();
+    if (!graphView || !graphView.group || !seriesData) return;
+
+    cardLayer = new echarts.graphic.Group({ name: 'viewstor-er-cards' });
+    buildAdjacency();
+    const details = semanticMode === 'details';
+    // ECharts' view group also contains its initial fit transform. Cancel that
+    // once at the reference zoom, then let every later camera transform flow
+    // through the whole card group unchanged.
+    const cardScaleX = 1 / Math.max(0.0001, Math.abs(graphView.group.scaleX || 1));
+    const cardScaleY = 1 / Math.max(0.0001, Math.abs(graphView.group.scaleY || 1));
+
+    for (let index = 0; index < seriesData.count(); index += 1) {
+      const node = positionedNodes[index];
+      if (!node || node.anchor) continue;
+      const anchor = seriesData.getItemGraphicEl(index);
+      const group = new echarts.graphic.Group({
+        x: anchor ? anchor.x : node.x,
+        y: anchor ? anchor.y : node.y,
+        scaleX: cardScaleX,
+        scaleY: cardScaleY,
+      });
+      group.__viewstorCardId = node.id;
+
+      const rect = new echarts.graphic.Rect({
+        shape: cardShape(node, details),
+        culling: true,
+        style: {
+          fill: node.cardStyle.fill,
+          stroke: node.cardStyle.stroke,
+          lineWidth: node.cardStyle.lineWidth,
+          lineDash: node.cardStyle.lineDash,
+          opacity: 1,
+        },
+        cursor: 'pointer',
+      });
+      const text = new echarts.graphic.Text({
+        style: cardTextStyle(node, details && showingDetails),
+        culling: true,
+        cursor: 'pointer',
+      });
+      rect.__viewstorCardId = node.id;
+      text.__viewstorCardId = node.id;
+      group.add(rect);
+      group.add(text);
+      const record = { node, index, group, rect, text };
+      cardRecords.set(node.id, record);
+      group.on('mousemove', event => handleCardHover(record, event));
+      group.on('mouseout', handleCardOut);
+      group.on('dblclick', event => {
+        event.cancelBubble = true;
+        isolatedTableId = isolatedTableId === node.id ? undefined : node.id;
+        renderChart();
+      });
+      cardLayer.add(group);
+    }
+    graphView.group.add(cardLayer);
+  }
+
+  function rebaseCardLayer() {
+    if (!chart || !cardLayer || cardRecords.size === 0) return;
+    const series = chart.getModel().getSeriesByIndex(0);
+    const graphView = series && chart.getViewOfSeriesModel(series);
+    if (!graphView || !graphView.group) return;
+    const zoomRatio = currentZoom / overviewZoom;
+    const cardScaleX = zoomRatio / Math.max(0.0001, Math.abs(graphView.group.scaleX || 1));
+    const cardScaleY = zoomRatio / Math.max(0.0001, Math.abs(graphView.group.scaleY || 1));
+    for (const record of cardRecords.values()) {
+      record.group.attr({ scaleX: cardScaleX, scaleY: cardScaleY });
+    }
+  }
+
+  function transitionCards(nextMode, enteringDetails) {
+    const details = nextMode === 'details';
+    for (const record of cardRecords.values()) {
+      const { node, rect, text } = record;
+      if (!enteringDetails) {
+        const currentOpacity = typeof text.style.opacity === 'number' ? text.style.opacity : 1;
+        text.stopAnimation();
+        text.attr({ style: { ...cardTextStyle(node, false), opacity: currentOpacity } });
+      }
+      rect.stopAnimation();
+      rect.animateTo({ shape: cardShape(node, details) }, {
+        duration: SEMANTIC_TRANSITION_MS,
+        easing: 'cubicOut',
+      });
+      if (nextMode === 'map') {
+        text.animateTo({ style: { opacity: 0 } }, {
+          duration: SEMANTIC_TRANSITION_MS,
+          easing: 'cubicOut',
+        });
+      } else if (!details) {
+        text.animateTo({ style: { opacity: 1 } }, {
+          duration: SEMANTIC_TRANSITION_MS,
+          easing: 'cubicOut',
+        });
+      }
+    }
+  }
+
+  function showDetailCardText() {
+    for (const record of cardRecords.values()) {
+      record.text.stopAnimation();
+      record.text.attr({ style: { ...cardTextStyle(record.node, true), opacity: 0 } });
+      record.text.animateTo({ style: { opacity: 1 } }, {
+        duration: SEMANTIC_TRANSITION_MS,
+        easing: 'cubicOut',
+      });
+    }
+  }
+
+  function animateCardOpacity(record, opacity) {
+    record.rect.animateTo({ style: { opacity } }, {
+      duration: HOVER_TRANSITION_MS,
+      easing: 'cubicOut',
+    });
+    record.text.animateTo({ style: { opacity: semanticMode === 'map' ? 0 : opacity } }, {
+      duration: HOVER_TRANSITION_MS,
+      easing: 'cubicOut',
+    });
+  }
+
+  function focusCards(ids, graphDataIndex) {
+    const focusKey = `${graphDataIndex ?? 'edge'}\u0001${Array.from(ids).sort().join('\u0000')}`;
+    if (focusKey === activeFocusKey) return;
+    activeFocusKey = focusKey;
+    for (const record of cardRecords.values()) {
+      animateCardOpacity(record, ids.has(record.node.id) ? 1 : 0.18);
+    }
+    if (chart && graphDataIndex !== undefined) {
+      chart.dispatchAction({ type: 'downplay', seriesId: 'erGraph' });
+      chart.dispatchAction({ type: 'highlight', seriesId: 'erGraph', dataIndex: graphDataIndex });
+    }
+  }
+
+  function resetCardFocus() {
+    if (activeFocusKey === undefined) return;
+    activeFocusKey = undefined;
+    for (const record of cardRecords.values()) animateCardOpacity(record, 1);
+    if (chart) chart.dispatchAction({ type: 'downplay', seriesId: 'erGraph' });
+  }
+
+  function handleCardHover(record, event) {
+    if (panPointer) return;
+    if (cardOutTimer !== undefined) window.clearTimeout(cardOutTimer);
+    cardOutTimer = undefined;
+    focusCards(adjacency.get(record.node.id) || new Set([record.node.id]), record.index);
+    if (!showingDetails) {
+      scheduleTablePreview(record.node, event);
+      return;
+    }
+    cancelTablePreview();
+    const local = record.group.transformCoordToLocal(event.offsetX, event.offsetY);
+    const detailScale = overviewZoom / detailZoom;
+    const firstColumnTop = -record.node.detailContentHeight * detailScale / 2 + 24 * detailScale;
+    const columnIndex = Math.floor((local[1] - firstColumnTop) / (18 * detailScale));
+    const column = record.node.columns[columnIndex];
+    if (!column) {
+      hideHoverTooltip();
+      return;
+    }
+    const details = [];
+    if (column.comment) details.push(column.comment);
+    if (column.foreignKey) details.push('Foreign key');
+    if (Array.isArray(column.indexNames) && column.indexNames.length > 0) {
+      details.push(`Indexed by: ${column.indexNames.join(', ')}`);
+    }
+    if (details.length > 0) showHoverTooltip(column.name, details.join('\n'), event);
+    else hideHoverTooltip();
+  }
+
+  function handleCardOut() {
+    if (cardOutTimer !== undefined) window.clearTimeout(cardOutTimer);
+    cardOutTimer = window.setTimeout(() => {
+      cardOutTimer = undefined;
+      handleChartOut();
+    }, 0);
   }
 
   function startPan(event) {
@@ -443,16 +660,21 @@
 
   function isTableGraphicTarget(target) {
     if (!target || !chart) return false;
+    let current = target;
+    while (current) {
+      if (current.__viewstorCardId) return true;
+      current = current.parent || current.__hostTarget;
+    }
     const series = chart.getModel().getSeriesByIndex(0);
     const seriesData = series && series.getData();
     if (!seriesData) return false;
     for (let index = 0; index < seriesData.count(); index += 1) {
       const itemEl = seriesData.getItemGraphicEl(index);
       if (!itemEl) continue;
-      let current = target;
-      while (current) {
-        if (current === itemEl) return true;
-        current = current.parent || current.__hostTarget;
+      let itemTarget = target;
+      while (itemTarget) {
+        if (itemTarget === itemEl) return true;
+        itemTarget = itemTarget.parent || itemTarget.__hostTarget;
       }
       if (itemEl.getTextContent && itemEl.getTextContent() === target) return true;
     }
@@ -598,7 +820,10 @@
       }
     });
     chart.on('mousemove', handleChartHover);
-    chart.on('mouseout', handleChartOut);
+    chart.on('mouseout', params => {
+      if (params && params.dataType === 'edge') handleChartOut();
+    });
+    chart.on('globalout', handleChartOut);
     chart.on('dblclick', handleChartDoubleClick);
     installPanHandlers();
   }
@@ -651,6 +876,7 @@
     ensureChart();
 
     if (data.tables.length === 0) {
+      removeCardLayer();
       chart.clear();
       positionedNodes = [];
       setEmpty('No tables or views found in this scope.');
@@ -684,14 +910,15 @@
     currentZoom = overviewZoom;
     semanticMode = modeForZoom(currentZoom);
     showingDetails = false;
-    visualScale = scaleForMode(semanticMode);
     clearSemanticTransition();
     zoomAnimation = undefined;
     if (zoomAnimationFrame !== undefined) window.cancelAnimationFrame(zoomAnimationFrame);
     zoomAnimationFrame = undefined;
 
     chart.setOption({
-      // Keep zoom responsive while smoothing semantic card changes and hover states.
+      // Camera zoom is the only continuous scale. Visible cards are local
+      // Rect + Text groups parented to the graph view, so every pixel inherits
+      // one transform and frame/text can never drift apart.
       animation: true,
       animationDuration: 0,
       animationDurationUpdate: SEMANTIC_TRANSITION_MS,
@@ -710,13 +937,13 @@
         links: relationshipsVisible ? links : [],
         roam: true,
         draggable: false,
-        cursor: 'grab',
+        cursor: 'default',
         zoom: overviewZoom,
         scaleLimit: { min: farZoom, max: MAX_ZOOM },
-        // Camera zoom only moves nodes; visualScale owns frame and text size.
-        nodeScaleRatio: 0,
+        nodeScaleRatio: 1,
       }],
     }, true);
+    installCardLayer();
     setStatus();
   }
 
@@ -729,6 +956,8 @@
 
     if (params.dataType === 'edge') {
       cancelTablePreview();
+      const related = new Set([params.data.source, params.data.target]);
+      focusCards(related);
       const lines = [];
       if (params.data.mapping) lines.push(params.data.mapping);
       if (params.data.onDelete) lines.push(`ON DELETE ${params.data.onDelete}`);
@@ -737,46 +966,8 @@
       return;
     }
 
-    if (params.data.anchor || !Array.isArray(params.data.allColumns)) {
-      cancelTablePreview();
-      hideHoverTooltip();
-      return;
-    }
-
-    if (!showingDetails) {
-      scheduleTablePreview(params.data, params.event);
-      return;
-    }
     cancelTablePreview();
-
-    const seriesModel = chart.getModel().getSeriesByIndex(params.seriesIndex);
-    const itemEl = seriesModel && seriesModel.getData().getItemGraphicEl(params.dataIndex);
-    const center = itemEl && itemEl.transformCoordToGlobal(0, 0);
-    if (!Array.isArray(center) || center.length < 2) {
-      hideHoverTooltip();
-      return;
-    }
-
-    const pointerY = params.event.offsetY;
-    const renderedScale = visualScale;
-    const firstColumnTop = center[1] - params.data.detailContentHeight * renderedScale / 2 + 24 * renderedScale;
-    const columnIndex = Math.floor((pointerY - firstColumnTop) / (18 * renderedScale));
-    const column = params.data.columns[columnIndex];
-    if (!column) {
-      hideHoverTooltip();
-      return;
-    }
-    const details = [];
-    if (column.comment) details.push(column.comment);
-    if (column.foreignKey) details.push('Foreign key');
-    if (Array.isArray(column.indexNames) && column.indexNames.length > 0) {
-      details.push(`Indexed by: ${column.indexNames.join(', ')}`);
-    }
-    if (details.length === 0) {
-      hideHoverTooltip();
-      return;
-    }
-    showHoverTooltip(column.name, details.join('\n'), params.event);
+    hideHoverTooltip();
   }
 
   function scheduleTablePreview(table, event) {
@@ -805,6 +996,7 @@
 
   function handleChartOut() {
     cancelTablePreview();
+    resetCardFocus();
     if (hoverTooltipEl.classList.contains('table-preview')) {
       tablePreviewHideTimer = window.setTimeout(hideHoverTooltip, 120);
     } else {
@@ -924,6 +1116,18 @@
     renderChart();
   }
 
+  function resizeChart() {
+    if (!chart) return;
+    chart.resize();
+    rebaseCardLayer();
+    if (resizeTimer !== undefined) window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => {
+      resizeTimer = undefined;
+      chart.resize();
+      rebaseCardLayer();
+    }, SEMANTIC_TRANSITION_MS);
+  }
+
   function setEmpty(message) {
     emptyEl.textContent = message;
     emptyEl.classList.remove('hidden');
@@ -944,7 +1148,7 @@
       exitFocusedGraph();
     }
   });
-  window.addEventListener('resize', () => chart && chart.resize());
+  window.addEventListener('resize', resizeChart);
   window.addEventListener('message', event => {
     const message = event.data;
     if (message.type === 'loading') {

@@ -27,15 +27,22 @@ describe('ER diagram transitions', () => {
     expect(script).toMatch(/stateAnimation:\s*\{[^}]*duration:\s*HOVER_TRANSITION_MS[^}]*easing:\s*'cubicOut'/s);
   });
 
-  it('switches LOD only at hysteretic semantic thresholds and couples all visual metrics', () => {
+  it('switches LOD only at hysteretic thresholds and scales each card as one local group', () => {
     const script = readScript();
     expect(script).toContain('detailZoom * DETAIL_ENTER_RATIO');
     expect(script).toContain('detailZoom * DETAIL_EXIT_RATIO');
-    expect(script).toContain('if (!force && !modeChanged && !scaleChanged)');
-    expect(script).toContain('nodeScaleRatio: 0');
-    expect(script).toContain('DETAIL_WIDTH * visualScale');
-    expect(script).toContain('const textScale = visualScale');
-    expect(script).toContain('const VISUAL_SCALE_STEP = 1.1');
+    expect(script).toContain('if (!force && !modeChanged)');
+    expect(script).toContain('new echarts.graphic.Group');
+    expect(script).toContain('new echarts.graphic.Rect');
+    expect(script).toContain('new echarts.graphic.Text');
+    expect(script).toContain('graphView.group.add(cardLayer)');
+    expect(script).toContain('scaleX: cardScaleX');
+    expect(script).toContain('graphView.group.scaleX');
+    expect(script).toContain('nodeScaleRatio: 1');
+    expect(script).toContain('culling: true');
+    expect(script).toContain('function rebaseCardLayer()');
+    expect(script).toContain('window.addEventListener(\'resize\', resizeChart)');
+    expect(script).not.toContain('visualScale');
     expect(script).not.toContain('detailProgress');
   });
 
@@ -47,13 +54,12 @@ describe('ER diagram transitions', () => {
     expect(script).toContain('}, SEMANTIC_TRANSITION_MS)');
   });
 
-  it('defines emphasis and blur styles for tables, labels, and relationships', () => {
+  it('fades custom cards and native relationships with fast state animations', () => {
     const script = readScript();
 
     expect(script).toMatch(/emphasis:\s*\{[^}]*focus:\s*'adjacency'/s);
-    expect(script).toMatch(
-      /blur:\s*\{[\s\S]*?itemStyle:\s*\{\s*opacity:[\s\S]*?label:\s*\{\s*opacity:[\s\S]*?lineStyle:\s*\{\s*opacity:/,
-    );
+    expect(script).toContain('animateCardOpacity(record, ids.has(record.node.id) ? 1 : 0.18)');
+    expect(script).toMatch(/blur:\s*\{[\s\S]*?lineStyle:\s*\{\s*opacity:/);
   });
 });
 
@@ -68,7 +74,7 @@ describe('ER diagram interactions', () => {
   it('supports relationship visibility, focused graphs, and blank-canvas primary pan', () => {
     const script = readScript();
     expect(script).toContain('links: relationshipsVisible ? links : []');
-    expect(script).toContain('chart.on(\'dblclick\', handleChartDoubleClick)');
+    expect(script).toContain('group.on(\'dblclick\'');
     expect(script).toContain('ViewstorErLayout.focusLayout(cards, isolatedTableId');
     expect(script).toContain('event.button === 0 && canStartCanvasPan(event)');
     expect(script).toContain('graphView.group.x += dx');
@@ -85,7 +91,7 @@ describe('ER diagram interactions', () => {
     expect(script).toContain('Math.pow(0.5, elapsed / ZOOM_HALF_LIFE_MS)');
   });
 
-  it('keeps steady zoom patches free of graph data and links', () => {
+  it('keeps steady zoom free of card style patches and graph data rebuilds', () => {
     const script = readScript();
     const visualPatch = script.slice(
       script.indexOf('function semanticVisualPatch()'),
@@ -93,6 +99,12 @@ describe('ER diagram interactions', () => {
     );
     expect(visualPatch).not.toMatch(/\bdata:/);
     expect(visualPatch).not.toMatch(/\blinks:/);
+    const semanticUpdate = script.slice(
+      script.indexOf('function updateSemanticDisplay'),
+      script.indexOf('function removeCardLayer'),
+    );
+    expect(semanticUpdate).toContain('if (!force && !modeChanged)');
+    expect(semanticUpdate).not.toContain('scaleChanged');
   });
 
   it('renders PK, FK, and indexed column markers', () => {
