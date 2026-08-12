@@ -144,7 +144,9 @@ Binary WKB (PostGIS hex) is **not** parsed — drivers should return WKT or GeoJ
 ### ER Diagram
 `src/er/erDataTransform.ts` — pure transformation from nested `SchemaObject[]` + `ForeignKeyInfo[]` to flat graph tables. Extracts direct column children, preserves schema-qualified ids, recognizes `(PK)` badges, and removes relationships whose endpoints are outside the selected schema scope.
 
-`src/er/erDiagramPanel.ts` — `ErDiagramPanelManager`, an ECharts graph webview built on shared `tokens.css`, `@vscode-elements/elements`, and codicons. One panel/cache per connection + database + schema scope. The webview supports zoom, pan, draggable table cards, refresh, fit/reset, search, and All/Connected/None table selection.
+`src/er/erDiagramPanel.ts` — `ErDiagramPanelManager`, an ECharts graph webview built on shared `tokens.css`, `@vscode-elements/elements`, and codicons. One panel/cache per connection + database + schema scope. The webview supports zoom, pan, draggable table cards, refresh, fit/reset, search, and All/Core/Connected/None table selection. Large schemas start with the 42 most-connected tables; display adapts from full column cards to compact cards and then to a zoomable relationship map. Clicking a sidebar table focuses it with up to five directly related tables.
+
+`src/webview/scripts/er-diagram-layout.js` — deterministic, relationship-aware ordering plus a collision-free serpentine shelf layout for variable-size nodes. It also ranks core tables by relationship degree. The layout is shared with Node-side regression tests through a CommonJS export.
 
 `src/commands/erDiagramCommands.ts` — `viewstor.showErDiagram`, available on connected connection, database, and schema tree nodes. PostgreSQL and SQLite provide FK edges; other drivers render table structure with an unsupported-relations status.
 

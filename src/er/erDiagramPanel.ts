@@ -77,6 +77,7 @@ export class ErDiagramPanelManager {
   private buildHtml(webview: vscode.Webview, options?: ErDiagramShowOptions): string {
     const distUri = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
     const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
+    const layoutUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'er-diagram-layout.js'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'er-diagram-panel.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'er-diagram-panel.css'));
     const tokensUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'tokens.css'));
@@ -101,7 +102,7 @@ export class ErDiagramPanelManager {
   <div class="toolbar" style="${esc(accentBorder)}">
     <vscode-button id="fitBtn" secondary icon="screen-full">Fit</vscode-button>
     <vscode-button id="refreshBtn" secondary icon="refresh">Refresh</vscode-button>
-    <span class="toolbar-help">Drag tables to rearrange · scroll to zoom · drag canvas to pan</span>
+    <span class="toolbar-help">Drag tables · scroll to zoom · click a table name to focus</span>
     <span id="status" class="status"></span>
   </div>
   <main>
@@ -109,6 +110,7 @@ export class ErDiagramPanelManager {
       <vscode-textfield id="filterInput" placeholder="Filter tables..." style="width:100%"></vscode-textfield>
       <div class="selection-actions">
         <vscode-button id="allBtn" secondary>All</vscode-button>
+        <vscode-button id="coreBtn" secondary>Core</vscode-button>
         <vscode-button id="connectedBtn" secondary>Connected</vscode-button>
         <vscode-button id="noneBtn" secondary>None</vscode-button>
       </div>
@@ -120,6 +122,7 @@ export class ErDiagramPanelManager {
     </section>
   </main>
   <script src="${echartsUri}"></script>
+  <script src="${layoutUri}"></script>
   <script src="${scriptUri}"></script>
 </body>
 </html>`;
