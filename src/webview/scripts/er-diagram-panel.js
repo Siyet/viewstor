@@ -28,6 +28,7 @@
   const DETAIL_ENTER_RATIO = 1.02;
   const MODE_HYSTERESIS = 0.08;
   const ROLE_COLOR_ALPHA = 0.78;
+  const MAP_RELATIONSHIP_OPACITY = 0.14;
   const TABLE_PREVIEW_DELAY_MS = 3000;
 
   let chart;
@@ -376,7 +377,7 @@
       edgeSymbolSize: [0, details ? 8 : 0],
       lineStyle: {
         color: theme('--vscode-charts-blue', '#3794ff'),
-        opacity: details ? 0.5 : semanticMode === 'names' ? 0.18 : 0.055,
+        opacity: details ? 0.5 : semanticMode === 'names' ? 0.18 : MAP_RELATIONSHIP_OPACITY,
         width: details ? 1.4 : 1,
         curveness: details ? 0.06 : 0,
       },

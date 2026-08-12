@@ -71,6 +71,12 @@ describe('ER diagram transitions', () => {
     expect(script).toContain('animateCardOpacity(record, ids.has(record.node.id) ? 1 : 0.18)');
     expect(script).toMatch(/blur:\s*\{[\s\S]*?lineStyle:\s*\{\s*opacity:/);
   });
+
+  it('keeps relationships readable after far zoom hides table names', () => {
+    const script = readScript();
+    expect(script).toContain('const MAP_RELATIONSHIP_OPACITY = 0.14');
+    expect(script).toContain('semanticMode === \'names\' ? 0.18 : MAP_RELATIONSHIP_OPACITY');
+  });
 });
 
 describe('ER diagram interactions', () => {
