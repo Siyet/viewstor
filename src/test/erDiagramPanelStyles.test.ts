@@ -43,7 +43,8 @@ describe('ER diagram transitions', () => {
     expect(script).toContain('function rebaseCardLayer()');
     expect(script).toContain('window.addEventListener(\'resize\', resizeChart)');
     expect(script).toContain('cardTextStyleCache.has(cacheKey)');
-    expect(script).toContain('overviewZoom * DETAIL_TO_OVERVIEW_RATIO');
+    expect(script).toContain('const DETAIL_REVEAL_RATIO = 1.48');
+    expect(script).toContain('overviewZoom * DETAIL_REVEAL_RATIO');
     expect(script).not.toContain('visualScale');
     expect(script).not.toContain('detailProgress');
   });
@@ -78,6 +79,9 @@ describe('ER diagram interactions', () => {
     expect(script).toContain('links: relationshipsVisible ? links : []');
     expect(script).toContain('group.on(\'dblclick\'');
     expect(script).toContain('ViewstorErLayout.focusLayout(cards, isolatedTableId');
+    expect(script).toContain('x: node.x');
+    expect(script).toContain('new echarts.graphic.Group({ name: \'viewstor-er-regions\'');
+    expect(script).toContain('regions = isolatedTableId ? []');
     expect(script).toContain('event.button === 0 && canStartCanvasPan(event)');
     expect(script).toContain('graphView.group.x += dx');
     expect(script).toContain('event.key === \'Escape\'');
@@ -125,7 +129,7 @@ describe('ER diagram interactions', () => {
     expect(panel).not.toContain('>Overview</vscode-button>');
     expect(panel).toContain('id="relationshipsBtn"');
     expect(panel).toContain('aria-label="ER diagram legend"');
-    for (const label of ['Table', 'View', 'Relationship', 'Primary key', 'Foreign key', 'Indexed', 'Required']) {
+    for (const label of ['Table', 'View', 'Schema / database', 'Relationship', 'Primary key', 'Foreign key', 'Indexed', 'Required']) {
       expect(panel).toContain(label);
     }
   });

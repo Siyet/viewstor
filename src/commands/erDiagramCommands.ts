@@ -31,6 +31,7 @@ export function registerErDiagramCommands(context: vscode.ExtensionContext, ctx:
         ]);
         return buildErDiagramData(schema, foreignKeys, {
           schema: schemaName,
+          namespaceKind: state.config.type === 'clickhouse' ? 'database' : 'schema',
           foreignKeysUnsupported: !driver.getForeignKeys,
         });
       };

@@ -13,7 +13,7 @@
   const OVERVIEW_WIDTH = 196;
   const OVERVIEW_HEIGHT = 44;
   const DETAIL_WIDTH = 326;
-  const DETAIL_TO_OVERVIEW_RATIO = DETAIL_WIDTH / OVERVIEW_WIDTH;
+  const DETAIL_REVEAL_RATIO = 1.48;
   const MAX_CARD_COLUMNS = 24;
   const MIN_DETAIL_ZOOM = 2.2;
   const MAX_ZOOM = 24;
@@ -50,6 +50,9 @@
   let tablePreviewPoint;
   let tablePreviewHideTimer;
   let cardLayer;
+  let regionLayer;
+  let regionPresentationRecords = [];
+  let regions = [];
   let cardRecords = new Map();
   let adjacency = new Map();
   let activeFocusKey;
@@ -137,6 +140,7 @@
     return {
       id: entity.id,
       name: entity.id,
+      schema: entity.schema,
       kind: entity.kind || 'table',
       width: DETAIL_WIDTH,
       height: detailHeight,
@@ -435,7 +439,10 @@
 
   function removeCardLayer() {
     if (cardLayer && cardLayer.parent) cardLayer.parent.remove(cardLayer);
+    if (regionLayer && regionLayer.parent) regionLayer.parent.remove(regionLayer);
     cardLayer = undefined;
+    regionLayer = undefined;
+    regionPresentationRecords = [];
     cardRecords = new Map();
     adjacency = new Map();
     activeFocusKey = undefined;
@@ -472,14 +479,16 @@
     // through the whole card group unchanged.
     const cardScaleX = 1 / Math.max(0.0001, Math.abs(graphView.group.scaleX || 1));
     const cardScaleY = 1 / Math.max(0.0001, Math.abs(graphView.group.scaleY || 1));
+    installRegionLayer(graphView);
 
     for (let index = 0; index < seriesData.count(); index += 1) {
       const node = positionedNodes[index];
       if (!node || node.anchor) continue;
-      const anchor = seriesData.getItemGraphicEl(index);
       const group = new echarts.graphic.Group({
-        x: anchor ? anchor.x : node.x,
-        y: anchor ? anchor.y : node.y,
+        // Use the current layout coordinates directly. Reading animated native
+        // symbols here could reuse their previous positions after isolation.
+        x: node.x,
+        y: node.y,
         scaleX: cardScaleX,
         scaleY: cardScaleY,
       });
@@ -518,6 +527,70 @@
       cardLayer.add(group);
     }
     graphView.group.add(cardLayer);
+  }
+
+  function installRegionLayer(graphView) {
+    if (!graphView || !graphView.group || regions.length === 0) return;
+    regionLayer = new echarts.graphic.Group({ name: 'viewstor-er-regions', silent: true });
+    const palette = [
+      theme('--vscode-charts-blue', '#3794ff'),
+      theme('--vscode-charts-purple', '#b180d7'),
+      theme('--vscode-charts-green', '#89d185'),
+      theme('--vscode-charts-orange', '#d18616'),
+      theme('--vscode-charts-cyan', '#29b8db'),
+    ];
+    const kind = data.namespaceKind === 'database' ? 'Database' : 'Schema';
+    regions.forEach((region, index) => {
+      const color = palette[index % palette.length];
+      const group = new echarts.graphic.Group({ x: region.x, y: region.y, silent: true });
+      group.add(new echarts.graphic.Rect({
+        shape: { x: 0, y: 0, width: region.width, height: region.height, r: 0 },
+        culling: true,
+        silent: true,
+        style: {
+          fill: echarts.color.modifyAlpha(color, 0.045),
+          stroke: echarts.color.modifyAlpha(color, 0.52),
+          lineWidth: 1,
+          lineDash: [8, 5],
+        },
+      }));
+      const title = new echarts.graphic.Text({
+        x: 18,
+        y: 16,
+        culling: true,
+        silent: true,
+        style: {
+          text: `${kind} · ${region.name}`,
+          fill: echarts.color.modifyAlpha(color, 0.9),
+          fontSize: 12,
+          fontWeight: 600,
+          fontFamily: theme('--vscode-font-family', 'sans-serif'),
+          align: 'left',
+          verticalAlign: 'top',
+        },
+      });
+      group.add(title);
+      regionPresentationRecords.push({ rect: group.childAt(0), title });
+      regionLayer.add(group);
+    });
+    const firstChild = graphView.group.childAt(0);
+    if (firstChild) graphView.group.addBefore(regionLayer, firstChild);
+    else graphView.group.add(regionLayer);
+    updateRegionPresentation();
+  }
+
+  function updateRegionPresentation() {
+    if (!chart || regionPresentationRecords.length === 0) return;
+    const series = chart.getModel().getSeriesByIndex(0);
+    const graphView = series && chart.getViewOfSeriesModel(series);
+    if (!graphView || !graphView.group) return;
+    const scaleX = Math.max(0.0001, Math.abs(graphView.group.scaleX || 1));
+    const scaleY = Math.max(0.0001, Math.abs(graphView.group.scaleY || 1));
+    for (const record of regionPresentationRecords) {
+      record.rect.setStyle({ lineWidth: 1 / Math.max(scaleX, scaleY), lineDash: [8 / scaleX, 5 / scaleX] });
+      record.title.attr({ x: 18 / scaleX, y: 16 / scaleY });
+      record.title.setStyle({ fontSize: 12 / scaleY });
+    }
   }
 
   function rebaseCardLayer() {
@@ -822,6 +895,7 @@
       hideHoverTooltip();
       if (typeof event.zoom === 'number') {
         currentZoom = Math.max(farZoom, Math.min(MAX_ZOOM, currentZoom * event.zoom));
+        updateRegionPresentation();
         updateSemanticDisplay();
       }
     });
@@ -846,7 +920,7 @@
     farZoom = Math.max(0.5, overviewZoom * MIN_OVERVIEW_SCALE);
     // Never let the overview card become wider than its detail card before
     // the LOD switch (notably in a small double-click focused graph).
-    detailZoom = Math.min(levels.detail, overviewZoom * DETAIL_TO_OVERVIEW_RATIO);
+    detailZoom = Math.min(levels.detail, overviewZoom * DETAIL_REVEAL_RATIO);
   }
 
   function graphScope() {
@@ -887,6 +961,7 @@
       removeCardLayer();
       chart.clear();
       positionedNodes = [];
+      regions = [];
       setEmpty('No tables or views found in this scope.');
       setStatus();
       return;
@@ -909,6 +984,7 @@
       });
     const bounds = layoutResult.bounds;
     positionedNodes = layoutResult.nodes;
+    regions = isolatedTableId ? [] : (layoutResult.regions || []);
     positionedNodes.push(
       anchorNode('__er_anchor_tl', bounds.x, bounds.y),
       anchorNode('__er_anchor_tr', bounds.x + bounds.width, bounds.y),
@@ -1129,11 +1205,13 @@
     if (!chart) return;
     chart.resize();
     rebaseCardLayer();
+    updateRegionPresentation();
     if (resizeTimer !== undefined) window.clearTimeout(resizeTimer);
     resizeTimer = window.setTimeout(() => {
       resizeTimer = undefined;
       chart.resize();
       rebaseCardLayer();
+      updateRegionPresentation();
     }, SEMANTIC_TRANSITION_MS);
   }
 

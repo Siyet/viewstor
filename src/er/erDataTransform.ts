@@ -21,12 +21,15 @@ export interface ErTable {
 export interface ErDiagramData {
   tables: ErTable[];
   foreignKeys: ForeignKeyInfo[];
+  /** Label used for grouped areas in engines with named namespaces. */
+  namespaceKind?: 'schema' | 'database';
   /** True when the driver cannot expose FK metadata. */
   foreignKeysUnsupported?: boolean;
 }
 
 export interface BuildErDiagramOptions {
   schema?: string;
+  namespaceKind?: 'schema' | 'database';
   foreignKeysUnsupported?: boolean;
 }
 
@@ -101,6 +104,7 @@ export function buildErDiagramData(
   return {
     tables,
     foreignKeys: visibleForeignKeys,
+    namespaceKind: tables.some(table => table.schema) ? (options.namespaceKind ?? 'schema') : undefined,
     foreignKeysUnsupported: options.foreignKeysUnsupported || undefined,
   };
 }

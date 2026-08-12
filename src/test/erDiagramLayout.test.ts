@@ -7,6 +7,7 @@ const SCRIPT_PATH = path.join(__dirname, '..', 'webview', 'scripts', 'er-diagram
 
 interface LayoutNode {
   id: string;
+  schema?: string;
   width: number;
   height: number;
   x?: number;
@@ -22,6 +23,7 @@ interface LayoutApi {
   relationshipOrder(nodes: LayoutNode[], links: LayoutLink[]): LayoutNode[];
   layout(nodes: LayoutNode[], links: LayoutLink[], options?: { aspectRatio?: number }): {
     nodes: Required<LayoutNode>[];
+    regions: Array<{ name: string; x: number; y: number; width: number; height: number }>;
     bounds: { x: number; y: number; width: number; height: number };
     columns: number;
   };
@@ -102,6 +104,40 @@ describe('ER diagram layout', () => {
     const second = api.layout(nodes, links);
 
     expect(JSON.parse(JSON.stringify(first))).toEqual(JSON.parse(JSON.stringify(second)));
+  });
+
+  it('places schemas into distinct labelled regions', () => {
+    const api = loadLayout();
+    const nodes = [
+      { id: 'public.users', schema: 'public', width: 326, height: 180 },
+      { id: 'public.orders', schema: 'public', width: 326, height: 220 },
+      { id: 'audit.events', schema: 'audit', width: 326, height: 260 },
+      { id: 'audit.changes', schema: 'audit', width: 326, height: 140 },
+    ];
+    const result = api.layout(nodes, [
+      { source: 'public.orders', target: 'public.users' },
+      { source: 'audit.changes', target: 'audit.events' },
+      { source: 'audit.events', target: 'public.users' },
+    ]);
+
+    expect(result.regions.map(region => region.name)).toEqual(['audit', 'public']);
+    expectNoOverlap(result.nodes);
+    for (const region of result.regions) {
+      const regionNodes = result.nodes.filter(node => node.schema === region.name);
+      expect(regionNodes.length).toBeGreaterThan(0);
+      for (const node of regionNodes) {
+        expect(node.x - node.width / 2).toBeGreaterThanOrEqual(region.x);
+        expect(node.x + node.width / 2).toBeLessThanOrEqual(region.x + region.width);
+        expect(node.y - node.height / 2).toBeGreaterThanOrEqual(region.y);
+        expect(node.y + node.height / 2).toBeLessThanOrEqual(region.y + region.height);
+      }
+    }
+    const [first, second] = result.regions;
+    const separated = first.x + first.width <= second.x
+      || second.x + second.width <= first.x
+      || first.y + first.height <= second.y
+      || second.y + second.height <= first.y;
+    expect(separated).toBe(true);
   });
 
   it('keeps connected components contiguous', () => {

@@ -111,6 +111,7 @@ export class ErDiagramPanelManager {
       <div class="legend" aria-label="ER diagram legend">
         <span><i class="legend-box table"></i>Table</span>
         <span><i class="legend-box view"></i>View</span>
+        <span><i class="legend-region"></i>Schema / database</span>
         <span><i class="legend-line"></i>Relationship</span>
         <span><i class="legend-pk">PK</i>Primary key</span>
         <span><i class="legend-fk">FK</i>Foreign key</span>

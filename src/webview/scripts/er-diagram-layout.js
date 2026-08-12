@@ -6,6 +6,11 @@
     gapX: 96,
     gapY: 96,
     aspectRatio: 1.55,
+    regionGapX: 150,
+    regionGapY: 150,
+    regionPaddingX: 72,
+    regionPaddingTop: 82,
+    regionPaddingBottom: 64,
   });
 
   function compareIds(left, right) {
@@ -70,7 +75,7 @@
    * serpentine shelf layout makes every card reachable and keeps related
    * tables reasonably close without an expensive graph-layout dependency.
    */
-  function layout(nodes, links, options) {
+  function shelfLayout(nodes, links, options) {
     if (nodes.length === 0) {
       return { nodes: [], bounds: { x: 0, y: 0, width: 0, height: 0 }, columns: 0 };
     }
@@ -125,6 +130,97 @@
         height: contentHeight,
       },
       columns,
+    };
+  }
+
+  /**
+   * Keep every named schema/database in its own non-overlapping region. Each
+   * namespace gets the same deterministic relationship-aware shelf layout,
+   * then the resulting region rectangles are packed into a larger grid.
+   */
+  function layout(nodes, links, options) {
+    if (nodes.length === 0) {
+      return { nodes: [], regions: [], bounds: { x: 0, y: 0, width: 0, height: 0 }, columns: 0 };
+    }
+    const config = { ...DEFAULTS, ...(options || {}) };
+    const namedNodes = nodes.filter(node => node.schema);
+    if (namedNodes.length === 0) {
+      return { ...shelfLayout(nodes, links, config), regions: [] };
+    }
+
+    const nodesByNamespace = new Map();
+    for (const node of nodes) {
+      const name = node.schema || 'default';
+      if (!nodesByNamespace.has(name)) nodesByNamespace.set(name, []);
+      nodesByNamespace.get(name).push(node);
+    }
+    const namespaceNames = [...nodesByNamespace.keys()].sort(compareIds);
+    const namespaceCards = namespaceNames.map(name => {
+      const namespaceNodes = nodesByNamespace.get(name);
+      const ids = new Set(namespaceNodes.map(node => node.id));
+      const namespaceLinks = links.filter(link => ids.has(link.source) && ids.has(link.target));
+      const inner = shelfLayout(namespaceNodes, namespaceLinks, {
+        ...config,
+        aspectRatio: Math.max(1, Math.min(1.6, config.aspectRatio)),
+      });
+      return {
+        name,
+        inner,
+        width: inner.bounds.width + config.regionPaddingX * 2,
+        height: inner.bounds.height + config.regionPaddingTop + config.regionPaddingBottom,
+      };
+    });
+
+    const averageWidth = namespaceCards.reduce((sum, card) => sum + card.width, 0) / namespaceCards.length;
+    const averageHeight = namespaceCards.reduce((sum, card) => sum + card.height, 0) / namespaceCards.length;
+    const regionColumns = Math.max(1, Math.min(namespaceCards.length, Math.ceil(Math.sqrt(
+      namespaceCards.length * config.aspectRatio * averageHeight / averageWidth,
+    ))));
+    const rows = [];
+    for (let offset = 0; offset < namespaceCards.length; offset += regionColumns) {
+      rows.push(namespaceCards.slice(offset, offset + regionColumns));
+    }
+
+    const positioned = [];
+    const regions = [];
+    let top = 0;
+    let contentWidth = 0;
+    for (const row of rows) {
+      const rowHeight = Math.max(...row.map(card => card.height));
+      let left = 0;
+      for (const card of row) {
+        regions.push({
+          id: `namespace:${card.name}`,
+          name: card.name,
+          x: left,
+          y: top,
+          width: card.width,
+          height: card.height,
+        });
+        const offsetX = left + config.regionPaddingX - card.inner.bounds.x;
+        const offsetY = top + config.regionPaddingTop - card.inner.bounds.y;
+        for (const node of card.inner.nodes) {
+          positioned.push({ ...node, x: node.x + offsetX, y: node.y + offsetY });
+        }
+        left += card.width + config.regionGapX;
+      }
+      contentWidth = Math.max(contentWidth, Math.max(0, left - config.regionGapX));
+      top += rowHeight + config.regionGapY;
+    }
+    const contentHeight = Math.max(0, top - config.regionGapY);
+    for (const node of positioned) {
+      node.x -= contentWidth / 2;
+      node.y -= contentHeight / 2;
+    }
+    for (const region of regions) {
+      region.x -= contentWidth / 2;
+      region.y -= contentHeight / 2;
+    }
+    return {
+      nodes: positioned,
+      regions,
+      bounds: { x: -contentWidth / 2, y: -contentHeight / 2, width: contentWidth, height: contentHeight },
+      columns: regionColumns,
     };
   }
 

@@ -67,6 +67,14 @@ body {
   border: 1.5px dashed var(--vscode-charts-purple, #b180d7);
 }
 
+.legend-region {
+  width: 15px;
+  height: 10px;
+  display: inline-block;
+  border: 1px dashed color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 55%, transparent);
+  background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 5%, transparent);
+}
+
 .legend-line {
   width: 15px;
   height: 0;

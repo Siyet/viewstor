@@ -109,6 +109,7 @@ describe('ER diagram data transform', () => {
       'orders_user_id_fkey',
       'events_user_id_fkey',
     ]);
+    expect(result.namespaceKind).toBe('schema');
   });
 
   it('limits tables and relationships to one schema', () => {
@@ -137,6 +138,12 @@ describe('ER diagram data transform', () => {
     expect(result.tables.map(table => table.id)).toEqual(['child', 'parent']);
     expect(result.foreignKeys).toHaveLength(1);
     expect(result.foreignKeysUnsupported).toBe(true);
+    expect(result.namespaceKind).toBeUndefined();
+  });
+
+  it('labels ClickHouse namespaces as databases', () => {
+    const result = buildErDiagramData(schema, foreignKeys, { namespaceKind: 'database' });
+    expect(result.namespaceKind).toBe('database');
   });
 
   it('qualifies table ids only when a schema is present', () => {
