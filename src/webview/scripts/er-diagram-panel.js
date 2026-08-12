@@ -19,6 +19,12 @@
   const MIN_OVERVIEW_SCALE = 0.12;
   const LABEL_OVERVIEW_SCALE = 0.48;
   const HOVER_TRANSITION_MS = 150;
+  const ZOOM_TRANSITION_MS = 130;
+  const SEMANTIC_TRANSITION_MS = 140;
+  const DETAIL_TRANSITION_START = 0.82;
+  const DETAIL_TRANSITION_END = 1.08;
+  const MAX_DETAIL_SCALE = 1.65;
+  const ROLE_COLOR_ALPHA = 0.78;
   const TABLE_PREVIEW_DELAY_MS = 3000;
 
   let chart;
@@ -30,7 +36,11 @@
   let farZoom = 0.5;
   let detailZoom = MIN_DETAIL_ZOOM;
   let showingDetails = false;
+  let detailProgress = 0;
+  let detailScale = 1;
   let overviewScale = 1;
+  let zoomAnimation;
+  let zoomAnimationFrame;
   let panPointer;
   let relationshipsVisible = true;
   let isolatedTableId;
@@ -65,6 +75,30 @@
   function truncateText(value, maxLength) {
     const text = String(value || '');
     return text.length <= maxLength ? text : `${text.slice(0, Math.max(1, maxLength - 1))}…`;
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function mix(from, to, progress) {
+    return from + (to - from) * progress;
+  }
+
+  function smoothstep(progress) {
+    const value = clamp(progress, 0, 1);
+    return value * value * (3 - 2 * value);
+  }
+
+  function scaled(value, scale) {
+    return Math.round(value * scale * 10) / 10;
+  }
+
+  function mutedRoleColor(variable, fallback) {
+    const color = theme(variable, fallback);
+    return echarts && echarts.color && typeof echarts.color.modifyAlpha === 'function'
+      ? echarts.color.modifyAlpha(color, ROLE_COLOR_ALPHA)
+      : color;
   }
 
   function columnLine(column) {
@@ -163,137 +197,147 @@
 
   function displayNode(node) {
     if (node.anchor) return node;
+    const transition = smoothstep(detailProgress);
+    const overviewWidth = OVERVIEW_WIDTH * overviewScale;
+    const overviewHeight = OVERVIEW_HEIGHT * overviewScale;
+    const detailWidth = DETAIL_WIDTH * detailScale;
+    const detailHeight = node.detailHeight * detailScale;
     return {
       ...node,
-      symbolSize: showingDetails
-        ? [DETAIL_WIDTH, node.detailHeight]
-        : [OVERVIEW_WIDTH * overviewScale, OVERVIEW_HEIGHT * overviewScale],
+      renderedDetailScale: detailScale,
+      symbolSize: [
+        mix(overviewWidth, detailWidth, transition),
+        mix(overviewHeight, detailHeight, transition),
+      ],
     };
   }
 
   function labelOptions() {
     const foreground = theme('--vscode-foreground', '#cccccc');
     const dimmed = theme('--vscode-descriptionForeground', '#999999');
-    const primary = theme('--vscode-terminal-ansiYellow', '#d7ba7d');
-    const foreign = theme('--vscode-terminal-ansiMagenta', '#c586c0');
-    const indexed = theme('--vscode-charts-blue', '#3794ff');
+    const primary = mutedRoleColor('--vscode-terminal-ansiYellow', '#b8a66c');
+    const foreign = mutedRoleColor('--vscode-terminal-ansiMagenta', '#a979a7');
+    const indexed = mutedRoleColor('--vscode-charts-blue', '#4f89bd');
     const overviewLabelsVisible = overviewScale >= LABEL_OVERVIEW_SCALE;
+    const textScale = showingDetails ? detailScale : Math.max(0.72, overviewScale);
     return {
       show: showingDetails || overviewLabelsVisible,
       position: 'inside',
       align: 'center',
       verticalAlign: 'middle',
-      padding: showingDetails ? [7, 12] : [4, 10],
+      padding: showingDetails
+        ? [scaled(7, textScale), scaled(12, textScale)]
+        : [scaled(4, textScale), scaled(10, textScale)],
       formatter: params => showingDetails ? params.data.detailLabelText : params.data.overviewLabelText,
       rich: {
         overviewTitle: {
-          width: OVERVIEW_WIDTH - 24,
+          width: scaled(OVERVIEW_WIDTH - 24, textScale),
           overflow: 'truncate',
           ellipsis: '…',
           color: foreground,
           fontWeight: 600,
-          fontSize: 11,
-          lineHeight: 22,
+          fontSize: scaled(11, textScale),
+          lineHeight: scaled(22, textScale),
           align: 'center',
         },
         title: {
-          width: DETAIL_WIDTH - 30,
+          width: scaled(DETAIL_WIDTH - 30, textScale),
           overflow: 'truncate',
           ellipsis: '…',
           color: foreground,
           fontWeight: 600,
-          fontSize: 12,
-          lineHeight: 24,
+          fontSize: scaled(12, textScale),
+          lineHeight: scaled(24, textScale),
           align: 'center',
         },
         column: {
-          width: 174,
+          width: scaled(174, textScale),
           overflow: 'truncate',
           ellipsis: '…',
           color: foreground,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
-          fontSize: 10,
-          lineHeight: 18,
+          fontSize: scaled(10, textScale),
+          lineHeight: scaled(18, textScale),
           align: 'left',
         },
         pkColumn: {
-          width: 174,
+          width: scaled(174, textScale),
           overflow: 'truncate',
           ellipsis: '…',
           color: primary,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontWeight: 700,
-          fontSize: 10,
-          lineHeight: 18,
+          fontSize: scaled(10, textScale),
+          lineHeight: scaled(18, textScale),
           align: 'left',
         },
         type: {
-          width: 116,
+          width: scaled(116, textScale),
           overflow: 'truncate',
           ellipsis: '…',
           color: dimmed,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
-          fontSize: 9,
-          lineHeight: 18,
+          fontSize: scaled(9, textScale),
+          lineHeight: scaled(18, textScale),
           align: 'left',
         },
         pkType: {
-          width: 116,
+          width: scaled(116, textScale),
           overflow: 'truncate',
           ellipsis: '…',
           color: primary,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
-          fontSize: 9,
-          lineHeight: 18,
+          fontSize: scaled(9, textScale),
+          lineHeight: scaled(18, textScale),
           align: 'left',
         },
         fkColumn: {
-          width: 174,
+          width: scaled(174, textScale),
           overflow: 'truncate',
           ellipsis: '…',
           color: foreign,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontWeight: 700,
-          fontSize: 10,
-          lineHeight: 18,
+          fontSize: scaled(10, textScale),
+          lineHeight: scaled(18, textScale),
           align: 'left',
         },
         fkType: {
-          width: 116,
+          width: scaled(116, textScale),
           overflow: 'truncate',
           ellipsis: '…',
           color: foreign,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
-          fontSize: 9,
-          lineHeight: 18,
+          fontSize: scaled(9, textScale),
+          lineHeight: scaled(18, textScale),
           align: 'left',
         },
         indexedColumn: {
-          width: 174,
+          width: scaled(174, textScale),
           overflow: 'truncate',
           ellipsis: '…',
           color: indexed,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
           fontWeight: 600,
-          fontSize: 10,
-          lineHeight: 18,
+          fontSize: scaled(10, textScale),
+          lineHeight: scaled(18, textScale),
           align: 'left',
         },
         indexedType: {
-          width: 116,
+          width: scaled(116, textScale),
           overflow: 'truncate',
           ellipsis: '…',
           color: indexed,
           fontFamily: theme('--vscode-editor-font-family', 'monospace'),
-          fontSize: 9,
-          lineHeight: 18,
+          fontSize: scaled(9, textScale),
+          lineHeight: scaled(18, textScale),
           align: 'left',
         },
         more: {
           color: dimmed,
           fontStyle: 'italic',
-          fontSize: 10,
-          lineHeight: 18,
+          fontSize: scaled(10, textScale),
+          lineHeight: scaled(18, textScale),
           align: 'left',
         },
       },
@@ -331,17 +375,30 @@
 
   function updateSemanticDisplay(force) {
     if (!chart || positionedNodes.length === 0) return;
-    const nextShowingDetails = currentZoom >= detailZoom;
+    const zoomRatio = currentZoom / detailZoom;
+    const nextDetailProgress = clamp(
+      (zoomRatio - DETAIL_TRANSITION_START) / (DETAIL_TRANSITION_END - DETAIL_TRANSITION_START),
+      0,
+      1,
+    );
+    const nextShowingDetails = nextDetailProgress >= 0.5;
+    const nextDetailScale = nextShowingDetails
+      ? clamp(Math.sqrt(Math.max(1, zoomRatio)), 1, MAX_DETAIL_SCALE)
+      : 1;
     const nextOverviewScale = nextShowingDetails
       ? 1
       : Math.max(MIN_OVERVIEW_SCALE, Math.min(1, currentZoom / overviewZoom));
     if (!force
       && nextShowingDetails === showingDetails
+      && Math.abs(nextDetailProgress - detailProgress) < 0.02
+      && Math.abs(nextDetailScale - detailScale) < 0.02
       && Math.abs(nextOverviewScale - overviewScale) < 0.025) {
       setStatus();
       return;
     }
     showingDetails = nextShowingDetails;
+    detailProgress = nextDetailProgress;
+    detailScale = nextDetailScale;
     overviewScale = nextOverviewScale;
     chart.setOption({ series: [semanticSeriesPatch()] });
     hideHoverTooltip();
@@ -418,28 +475,15 @@
     event.stopImmediatePropagation();
   }
 
-  function zoomCanvas(event) {
-    if (!chart || positionedNodes.length === 0) return;
-    const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
-    if (!delta) return;
-
-    const magnitude = Math.abs(delta);
-    const step = magnitude > 120 ? 1.4 : magnitude > 30 ? 1.2 : 1.1;
-    const requestedScale = delta < 0 ? step : 1 / step;
-    const nextZoom = Math.max(farZoom, Math.min(MAX_ZOOM, currentZoom * requestedScale));
+  function applyCanvasZoom(nextZoom, originX, originY) {
     const appliedScale = nextZoom / currentZoom;
     if (Math.abs(appliedScale - 1) < 0.0001) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
       return;
     }
 
     const series = chart.getModel().getSeriesByIndex(0);
     const graphView = series && chart.getViewOfSeriesModel(series);
     const group = graphView && graphView.group;
-    const rect = chartEl.getBoundingClientRect();
-    const originX = event.clientX - rect.left;
-    const originY = event.clientY - rect.top;
     if (group) {
       group.x -= (originX - group.x) * (appliedScale - 1);
       group.y -= (originY - group.y) * (appliedScale - 1);
@@ -454,6 +498,44 @@
       originX,
       originY,
     });
+  }
+
+  function animateCanvasZoom(timestamp) {
+    if (!zoomAnimation || !chart) {
+      zoomAnimationFrame = undefined;
+      return;
+    }
+    const progress = clamp((timestamp - zoomAnimation.startedAt) / ZOOM_TRANSITION_MS, 0, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const nextZoom = zoomAnimation.from * Math.pow(zoomAnimation.to / zoomAnimation.from, eased);
+    applyCanvasZoom(nextZoom, zoomAnimation.originX, zoomAnimation.originY);
+    if (progress < 1) {
+      zoomAnimationFrame = window.requestAnimationFrame(animateCanvasZoom);
+    } else {
+      zoomAnimation = undefined;
+      zoomAnimationFrame = undefined;
+    }
+  }
+
+  function zoomCanvas(event) {
+    if (!chart || positionedNodes.length === 0) return;
+    const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
+    if (!delta) return;
+
+    const rect = chartEl.getBoundingClientRect();
+    const baseZoom = zoomAnimation ? zoomAnimation.to : currentZoom;
+    const requestedScale = Math.exp(clamp(-delta * 0.002, -0.24, 0.24));
+    const targetZoom = clamp(baseZoom * requestedScale, farZoom, MAX_ZOOM);
+    zoomAnimation = {
+      from: currentZoom,
+      to: targetZoom,
+      originX: event.clientX - rect.left,
+      originY: event.clientY - rect.top,
+      startedAt: performance.now(),
+    };
+    if (zoomAnimationFrame === undefined) {
+      zoomAnimationFrame = window.requestAnimationFrame(animateCanvasZoom);
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
   }
@@ -465,6 +547,9 @@
     window.addEventListener('mouseup', stopPan, true);
     window.addEventListener('blur', () => {
       panPointer = undefined;
+      zoomAnimation = undefined;
+      if (zoomAnimationFrame !== undefined) window.cancelAnimationFrame(zoomAnimationFrame);
+      zoomAnimationFrame = undefined;
       chartEl.classList.remove('panning');
     });
     chartEl.addEventListener('auxclick', event => {
@@ -568,13 +653,19 @@
     calculateZoomLevels(bounds);
     currentZoom = overviewZoom;
     showingDetails = false;
+    detailProgress = 0;
+    detailScale = 1;
     overviewScale = 1;
+    zoomAnimation = undefined;
+    if (zoomAnimationFrame !== undefined) window.cancelAnimationFrame(zoomAnimationFrame);
+    zoomAnimationFrame = undefined;
 
     chart.setOption({
-      // Keep layout/zoom updates immediate, but ease hover emphasis and blur states.
+      // Keep zoom responsive while smoothing semantic card changes and hover states.
       animation: true,
       animationDuration: 0,
-      animationDurationUpdate: 0,
+      animationDurationUpdate: SEMANTIC_TRANSITION_MS,
+      animationEasingUpdate: 'cubicOut',
       animationThreshold: 5000,
       stateAnimation: {
         duration: HOVER_TRANSITION_MS,
@@ -634,8 +725,9 @@
     }
 
     const pointerY = params.event.offsetY;
-    const firstColumnTop = center[1] - params.data.detailContentHeight / 2 + 24;
-    const columnIndex = Math.floor((pointerY - firstColumnTop) / 18);
+    const renderedScale = params.data.renderedDetailScale || 1;
+    const firstColumnTop = center[1] - params.data.detailContentHeight * renderedScale / 2 + 24 * renderedScale;
+    const columnIndex = Math.floor((pointerY - firstColumnTop) / (18 * renderedScale));
     const column = params.data.columns[columnIndex];
     if (!column) {
       hideHoverTooltip();

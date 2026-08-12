@@ -84,9 +84,15 @@ body {
 }
 
 .legend-pk,
-.legend-required { color: var(--vscode-terminal-ansiYellow, #d7ba7d); }
-.legend-fk { color: var(--vscode-terminal-ansiMagenta, #c586c0); }
-.legend-indexed { color: var(--vscode-charts-blue, #3794ff); }
+.legend-required {
+  color: color-mix(in srgb, var(--vscode-terminal-ansiYellow, #d7ba7d) 78%, var(--vscode-editor-background) 22%);
+}
+.legend-fk {
+  color: color-mix(in srgb, var(--vscode-terminal-ansiMagenta, #c586c0) 78%, var(--vscode-editor-background) 22%);
+}
+.legend-indexed {
+  color: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 78%, var(--vscode-editor-background) 22%);
+}
 
 main {
   min-height: 0;
@@ -161,19 +167,19 @@ main {
 .hover-tooltip-type { color: var(--viewstor-text-dimmed); }
 .hover-tooltip-column.pk,
 .hover-tooltip-type.pk {
-  color: var(--vscode-terminal-ansiYellow, #d7ba7d);
+  color: color-mix(in srgb, var(--vscode-terminal-ansiYellow, #d7ba7d) 78%, var(--vscode-editorWidget-background) 22%);
   font-weight: 700;
 }
 
 .hover-tooltip-column.fk,
 .hover-tooltip-type.fk {
-  color: var(--vscode-terminal-ansiMagenta, #c586c0);
+  color: color-mix(in srgb, var(--vscode-terminal-ansiMagenta, #c586c0) 78%, var(--vscode-editorWidget-background) 22%);
   font-weight: 700;
 }
 
 .hover-tooltip-column.indexed,
 .hover-tooltip-type.indexed {
-  color: var(--vscode-charts-blue, #3794ff);
+  color: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 78%, var(--vscode-editorWidget-background) 22%);
   font-weight: 600;
 }
 
