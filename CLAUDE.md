@@ -32,6 +32,7 @@ F5 in VS Code → Extension Development Host. Reload Window picks up new `dist/`
 Required methods: `connect`, `disconnect`, `ping`, `execute`, `getSchema`, `getTableInfo`, `getTableData`.
 
 Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff), `getTableStatistics` (row count, sizes, vacuum info, scan counters — used by stats diff tab; PG uses `pg_table_size`/`pg_indexes_size` + `pg_stat_user_tables`, CH uses `system.tables` + `system.parts`, SQLite uses `COUNT(*)` + optional `dbstat` vtable).
+Optional: `getForeignKeys` returns schema-qualified source/target tables and ordered column pairs for ER diagrams. PostgreSQL uses `information_schema.referential_constraints` + paired `key_column_usage`; SQLite groups `PRAGMA foreign_key_list()` rows by FK id.
 
 Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
 
@@ -140,6 +141,13 @@ Webview: `src/webview/scripts/map-panel.js` (Leaflet init, OpenStreetMap tiles, 
 
 Binary WKB (PostGIS hex) is **not** parsed — drivers should return WKT or GeoJSON when possible. Clustering and "color by value" are not implemented yet.
 
+### ER Diagram
+`src/er/erDataTransform.ts` — pure transformation from nested `SchemaObject[]` + `ForeignKeyInfo[]` to flat graph tables. Extracts direct column children, preserves schema-qualified ids, recognizes `(PK)` badges, and removes relationships whose endpoints are outside the selected schema scope.
+
+`src/er/erDiagramPanel.ts` — `ErDiagramPanelManager`, an ECharts graph webview built on shared `tokens.css`, `@vscode-elements/elements`, and codicons. One panel/cache per connection + database + schema scope. The webview supports zoom, pan, draggable table cards, refresh, fit/reset, search, and All/Connected/None table selection.
+
+`src/commands/erDiagramCommands.ts` — `viewstor.showErDiagram`, available on connected connection, database, and schema tree nodes. PostgreSQL and SQLite provide FK edges; other drivers render table structure with an unsupported-relations status.
+
 ### SQL Autocomplete
 `src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).
 
@@ -229,6 +237,7 @@ Zero-allocation fast path: when `mode === 'off'` or no columns match, the origin
 | `schemaCommands.ts` | `showDDL`, `copyName`, rename/create/drop objects, `reportIssue` |
 | `exportCommands.ts` | Export (CSV/TSV/JSON/Markdown), visualize, Grafana, MCP query |
 | `diffCommands.ts` | `compareWith` (context menu), `compareData` (command palette) |
+| `erDiagramCommands.ts` | `showErDiagram` for connection/database/schema tree scopes |
 
 All commands support `databaseName` parameter for multi-DB connections.
 

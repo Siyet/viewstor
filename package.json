@@ -346,6 +346,12 @@
         "title": "%command.showOnMap%",
         "category": "Viewstor",
         "icon": "$(globe)"
+      },
+      {
+        "command": "viewstor.showErDiagram",
+        "title": "%command.showErDiagram%",
+        "category": "Viewstor",
+        "icon": "$(type-hierarchy-sub)"
       }
     ],
     "menus": {
@@ -417,6 +423,11 @@
         {
           "command": "viewstor.compareWith",
           "when": "view == viewstor.connections && viewItem =~ /^(table|view)$/",
+          "group": "2_data"
+        },
+        {
+          "command": "viewstor.showErDiagram",
+          "when": "view == viewstor.connections && viewItem =~ /^(connection-connected|database|schema)$/",
           "group": "2_data"
         },
         {

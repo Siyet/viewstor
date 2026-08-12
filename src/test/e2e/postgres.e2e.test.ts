@@ -215,6 +215,20 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
     expect(moodCol.detail).not.toContain('USER-DEFINED');
   });
 
+  it('getForeignKeys returns schema-qualified relationships', async () => {
+    const foreignKeys = await driver.getForeignKeys!('public');
+    expect(foreignKeys).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceSchema: 'public',
+        sourceTable: 'orders',
+        sourceColumns: ['user_id'],
+        targetSchema: 'public',
+        targetTable: 'users',
+        targetColumns: ['id'],
+      }),
+    ]));
+  });
+
   it.each([
     ['table', 'users', ['CREATE TABLE', '"users"', '"id"', '"name"', 'PRIMARY KEY']],
     ['view', 'user_order_summary', ['CREATE OR REPLACE VIEW', 'user_order_summary']],

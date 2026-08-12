@@ -39,6 +39,7 @@ Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHo
 | **Chart visualization** | 12 chart types, free | No | No | No |
 | **Data diff** | Row + schema diff, free | No | No | No |
 | **Map view** | Built-in (Leaflet), free | No | No | No |
+| **ER diagram** | Interactive, free | Paid tier | No | Paid tier |
 | **Color-coded folders** | Nested, inherited | No | No | No |
 | **Localization** | 12 languages | English only | English only | English only |
 
@@ -95,6 +96,16 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 - Auto-collapse single-database and single-schema levels
 - Hide schemas/databases from context menu
 - Inaccessible objects (no permissions) rendered in error color
+
+### ER Diagram
+
+Right-click a connected connection, database, or schema → **Show ER Diagram**:
+
+- Tables render as draggable cards with columns, data types, and highlighted primary keys
+- Foreign-key arrows include column mappings and `ON DELETE` / `ON UPDATE` details
+- Scroll to zoom, drag the canvas to pan, and drag tables to rearrange the layout
+- Search and table checkboxes make large schemas manageable; **Connected** hides isolated tables
+- PostgreSQL and SQLite relationships are detected natively. ClickHouse still shows its tables and columns with a clear note that the driver has no FK metadata; Redis has no relational tables to diagram
 
 ### Query Editor
 

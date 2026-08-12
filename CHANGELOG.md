@@ -4,6 +4,9 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- **Interactive ER diagrams** — right-click a connected connection, database, or schema to visualize tables as draggable cards with columns, data types, and highlighted primary keys. Foreign-key arrows show column mappings and referential actions; the ECharts canvas supports zoom/pan/drag, fit/reset, refresh, text filtering, and All/Connected/None table selection. PostgreSQL reads composite and cross-schema relationships from `information_schema`; SQLite uses `PRAGMA foreign_key_list`. Drivers without FK metadata still show the available table structure with an explicit status note ([#6](https://github.com/Siyet/viewstor/issues/6))
+
 ## [0.4.0] — 2026-04-29
 
 ### Fixed

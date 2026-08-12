@@ -44,6 +44,19 @@ export interface TableInfo {
   sizeBytes?: number;
 }
 
+/** A foreign-key relationship used by schema visualizations. */
+export interface ForeignKeyInfo {
+  name: string;
+  sourceSchema?: string;
+  sourceTable: string;
+  sourceColumns: string[];
+  targetSchema?: string;
+  targetTable: string;
+  targetColumns: string[];
+  onDelete?: string;
+  onUpdate?: string;
+}
+
 export interface IndexInfo {
   name: string;
   columns: string[];

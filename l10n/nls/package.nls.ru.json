@@ -51,5 +51,6 @@
   "chat.command.chart": "Сгенерировать визуализацию графика из запроса",
   "command.compareWith": "Сравнить с...",
   "command.compareData": "Сравнить данные",
-  "config.diffRowLimit.description": "Максимальное количество строк для сравнения на таблицу."
+  "config.diffRowLimit.description": "Максимальное количество строк для сравнения на таблицу.",
+  "command.showErDiagram": "Показать ER-диаграмму"
 }
