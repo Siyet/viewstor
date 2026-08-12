@@ -42,6 +42,8 @@ describe('ER diagram transitions', () => {
     expect(script).toContain('culling: true');
     expect(script).toContain('function rebaseCardLayer()');
     expect(script).toContain('window.addEventListener(\'resize\', resizeChart)');
+    expect(script).toContain('cardTextStyleCache.has(cacheKey)');
+    expect(script).toContain('overviewZoom * DETAIL_TO_OVERVIEW_RATIO');
     expect(script).not.toContain('visualScale');
     expect(script).not.toContain('detailProgress');
   });

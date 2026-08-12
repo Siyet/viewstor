@@ -13,6 +13,7 @@
   const OVERVIEW_WIDTH = 196;
   const OVERVIEW_HEIGHT = 44;
   const DETAIL_WIDTH = 326;
+  const DETAIL_TO_OVERVIEW_RATIO = DETAIL_WIDTH / OVERVIEW_WIDTH;
   const MAX_CARD_COLUMNS = 24;
   const MIN_DETAIL_ZOOM = 2.2;
   const MAX_ZOOM = 24;
@@ -54,6 +55,7 @@
   let activeFocusKey;
   let cardOutTimer;
   let resizeTimer;
+  let cardTextStyleCache = new Map();
 
   function theme(name, fallback) {
     return getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
@@ -204,6 +206,8 @@
   }
 
   function cardTextStyles(details) {
+    const cacheKey = details ? 'details' : 'overview';
+    if (cardTextStyleCache.has(cacheKey)) return cardTextStyleCache.get(cacheKey);
     const foreground = theme('--vscode-foreground', '#cccccc');
     const dimmed = theme('--vscode-descriptionForeground', '#999999');
     const primary = mutedRoleColor('--vscode-terminal-ansiYellow', '#b8a66c');
@@ -213,7 +217,7 @@
     // normalized to detailZoom inside that same group. Camera zoom then applies
     // one inherited transform to the rectangle and every glyph together.
     const textScale = details ? overviewZoom / detailZoom : 1;
-    return {
+    const result = {
       padding: details
         ? [scaled(7, textScale), scaled(12, textScale)]
         : [scaled(4, textScale), scaled(10, textScale)],
@@ -330,6 +334,8 @@
         },
       },
     };
+    cardTextStyleCache.set(cacheKey, result);
+    return result;
   }
 
   function cardTextStyle(node, details) {
@@ -838,7 +844,9 @@
     });
     overviewZoom = levels.overview;
     farZoom = Math.max(0.5, overviewZoom * MIN_OVERVIEW_SCALE);
-    detailZoom = levels.detail;
+    // Never let the overview card become wider than its detail card before
+    // the LOD switch (notably in a small double-click focused graph).
+    detailZoom = Math.min(levels.detail, overviewZoom * DETAIL_TO_OVERVIEW_RATIO);
   }
 
   function graphScope() {
@@ -887,6 +895,7 @@
 
     cancelTablePreview();
     hideHoverTooltip();
+    cardTextStyleCache = new Map();
     const scope = graphScope();
     const cards = scope.tables.map(cardFor);
     links = scope.foreignKeys.map(linkFor);
