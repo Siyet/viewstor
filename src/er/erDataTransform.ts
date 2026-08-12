@@ -11,6 +11,7 @@ export interface ErTable {
   id: string;
   name: string;
   schema?: string;
+  kind: 'table' | 'view';
   columns: ErColumn[];
 }
 
@@ -47,7 +48,8 @@ export function buildErDiagramData(
         ? object.name
         : object.schema ?? inheritedSchema;
 
-      if (object.type === 'table' && (!options.schema || currentSchema === options.schema)) {
+      if ((object.type === 'table' || object.type === 'view')
+        && (!options.schema || currentSchema === options.schema)) {
         const columns = (object.children ?? [])
           .filter(child => child.type === 'column')
           .map(child => ({
@@ -60,6 +62,7 @@ export function buildErDiagramData(
           id: erTableId(currentSchema, object.name),
           name: object.name,
           schema: currentSchema,
+          kind: object.type,
           columns,
         });
       }

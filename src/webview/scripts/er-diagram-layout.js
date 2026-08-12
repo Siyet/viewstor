@@ -128,20 +128,25 @@
     };
   }
 
-  /** Select the highest-degree tables for a useful first view of a large DB. */
-  function coreTableIds(nodes, links, limit) {
-    const adjacency = buildAdjacency(nodes, links);
-    return nodes
-      .slice()
-      .sort((left, right) => {
-        const degreeDelta = adjacency.get(right.id).size - adjacency.get(left.id).size;
-        return degreeDelta || compareIds(left.id, right.id);
-      })
-      .slice(0, Math.max(0, limit))
-      .map(node => node.id);
+  /**
+   * Choose a readable initial zoom and the point where full cards fit without
+   * overlap. Nodes stay pixel-sized in ECharts, so the relationship between
+   * graph bounds and viewport size must be reflected in the roam zoom.
+   */
+  function zoomLevels(bounds, viewport, sizes) {
+    const availableWidth = Math.max(320, viewport.width - 64);
+    const availableHeight = Math.max(240, viewport.height - 64);
+    const fittedScale = Math.max(0.01, Math.min(
+      availableWidth / Math.max(1, bounds.width),
+      availableHeight / Math.max(1, bounds.height),
+    ));
+    const overview = Math.max(1, Math.min(12, sizes.overviewWidth / (sizes.detailWidth * fittedScale)));
+    let detail = Math.max(2.2, Math.min(18, 1 / fittedScale));
+    if (detail <= overview) detail = Math.min(24, overview * 1.6);
+    return { overview, detail };
   }
 
-  const api = { buildAdjacency, relationshipOrder, layout, coreTableIds };
+  const api = { buildAdjacency, relationshipOrder, layout, zoomLevels };
   if (root) root.ViewstorErLayout = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

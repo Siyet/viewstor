@@ -25,7 +25,11 @@ interface LayoutApi {
     bounds: { x: number; y: number; width: number; height: number };
     columns: number;
   };
-  coreTableIds(nodes: LayoutNode[], links: LayoutLink[], limit: number): string[];
+  zoomLevels(
+    bounds: { width: number; height: number },
+    viewport: { width: number; height: number },
+    sizes: { overviewWidth: number; detailWidth: number },
+  ): { overview: number; detail: number };
 }
 
 function loadLayout(): LayoutApi {
@@ -96,7 +100,7 @@ describe('ER diagram layout', () => {
     expect(JSON.parse(JSON.stringify(first))).toEqual(JSON.parse(JSON.stringify(second)));
   });
 
-  it('keeps connected components contiguous and prioritizes hubs', () => {
+  it('keeps connected components contiguous', () => {
     const api = loadLayout();
     const nodes = ['hub', 'a', 'b', 'c', 'isolated'].map(id => ({ id, width: 100, height: 60 }));
     const links = [
@@ -106,6 +110,18 @@ describe('ER diagram layout', () => {
     ];
 
     expect(api.relationshipOrder(nodes, links).map(node => node.id)).toEqual(['hub', 'a', 'b', 'c', 'isolated']);
-    expect(api.coreTableIds(nodes, links, 2)).toEqual(['hub', 'a']);
+  });
+
+  it('keeps overview cards apart and reveals details at a closer zoom', () => {
+    const api = loadLayout();
+    const levels = api.zoomLevels(
+      { width: 7800, height: 9800 },
+      { width: 1468, height: 1000 },
+      { overviewWidth: 196, detailWidth: 326 },
+    );
+
+    expect(levels.overview).toBeGreaterThan(1);
+    expect(levels.detail).toBeGreaterThan(levels.overview);
+    expect(levels.detail).toBeLessThanOrEqual(18);
   });
 });

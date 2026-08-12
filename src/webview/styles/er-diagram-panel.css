@@ -36,82 +36,6 @@ main {
   display: flex;
 }
 
-.sidebar {
-  width: 240px;
-  min-width: 180px;
-  max-width: 32vw;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-right: 1px solid var(--viewstor-border-subtle);
-  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-}
-
-.selection-actions {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 4px;
-}
-
-.selection-actions vscode-button { width: 100%; }
-
-.table-list {
-  min-height: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.table-option {
-  min-height: 25px;
-  padding: 3px 5px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
-  border-radius: 3px;
-  cursor: pointer;
-  font-family: var(--viewstor-font-mono);
-  font-size: var(--viewstor-font-table-data-size);
-}
-
-.table-option:hover { background: var(--vscode-list-hoverBackground); }
-.table-option input { margin: 0; accent-color: var(--vscode-focusBorder); }
-
-.table-name {
-  min-width: 0;
-  padding: 1px 2px;
-  overflow: hidden;
-  border: 0;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: zoom-in;
-}
-
-.table-name:hover,
-.table-name:focus-visible {
-  color: var(--vscode-textLink-foreground);
-  outline: none;
-  text-decoration: underline;
-}
-
-.column-count {
-  min-width: 20px;
-  padding: 1px 5px;
-  border-radius: 9px;
-  text-align: center;
-  color: var(--vscode-badge-foreground);
-  background: var(--vscode-badge-background);
-  font-family: var(--vscode-font-family);
-  font-size: 9px;
-}
-
 .canvas-wrap {
   position: relative;
   min-width: 0;
@@ -119,7 +43,15 @@ main {
   flex: 1;
 }
 
-#chart { width: 100%; height: 100%; }
+#chart {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+#chart.panning { cursor: grabbing; }
 
 .empty-state {
   position: absolute;
@@ -138,6 +70,5 @@ main {
 .hidden { display: none; }
 
 @media (max-width: 720px) {
-  .sidebar { width: 190px; }
   .toolbar-help { display: none; }
 }

@@ -101,11 +101,10 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 
 Right-click a connected connection, database, or schema → **Show ER Diagram**:
 
-- Small selections render as draggable cards with columns, data types, and highlighted primary keys
+- Tables and views share one continuous canvas: the overview shows named rectangles, with views distinguished by a dashed purple border
 - Foreign-key arrows include column mappings and `ON DELETE` / `ON UPDATE` details
-- Scroll to zoom, drag the canvas to pan, and drag tables to rearrange the layout
-- Large schemas open on a suggested **Core** of the 42 most-connected tables. **All** switches to a compact relationship map, while clicking a table name focuses it and its nearest neighbours with full column details
-- Search and table checkboxes make large schemas manageable; press Enter to focus matching tables, or use **Connected** to hide isolated tables
+- Scroll to zoom; rectangles expand automatically to show columns, data types, and highlighted primary keys once there is enough room
+- Drag anywhere with the left mouse button, or hold the middle mouse button, to pan horizontally and vertically. **Overview** resets the viewport
 - PostgreSQL and SQLite relationships are detected natively. ClickHouse still shows its tables and columns with a clear note that the driver has no FK metadata; Redis has no relational tables to diagram
 
 ### Query Editor

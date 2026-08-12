@@ -72,11 +72,17 @@ describe('ER diagram data transform', () => {
   it('flattens schema tables, columns, PKs and types', () => {
     const result = buildErDiagramData(schema, foreignKeys);
 
-    expect(result.tables.map(table => table.id)).toEqual(['audit.events', 'public.orders', 'public.users']);
+    expect(result.tables.map(table => table.id)).toEqual([
+      'audit.events',
+      'public.orders',
+      'public.user_summary',
+      'public.users',
+    ]);
     expect(result.tables.find(table => table.id === 'public.users')?.columns).toEqual([
       { name: 'id', dataType: 'integer', primaryKey: true, notNullable: true },
       { name: 'email', dataType: 'character varying(255)', primaryKey: false, notNullable: true },
     ]);
+    expect(result.tables.find(table => table.id === 'public.user_summary')?.kind).toBe('view');
     expect(result.foreignKeys.map(foreignKey => foreignKey.name)).toEqual([
       'orders_user_id_fkey',
       'events_user_id_fkey',
@@ -86,7 +92,11 @@ describe('ER diagram data transform', () => {
   it('limits tables and relationships to one schema', () => {
     const result = buildErDiagramData(schema, foreignKeys, { schema: 'public' });
 
-    expect(result.tables.map(table => table.id)).toEqual(['public.orders', 'public.users']);
+    expect(result.tables.map(table => table.id)).toEqual([
+      'public.orders',
+      'public.user_summary',
+      'public.users',
+    ]);
     expect(result.foreignKeys.map(foreignKey => foreignKey.name)).toEqual(['orders_user_id_fkey']);
   });
 

@@ -100,22 +100,12 @@ export class ErDiagramPanelManager {
 </head>
 <body>
   <div class="toolbar" style="${esc(accentBorder)}">
-    <vscode-button id="fitBtn" secondary icon="screen-full">Fit</vscode-button>
+    <vscode-button id="fitBtn" secondary icon="screen-full">Overview</vscode-button>
     <vscode-button id="refreshBtn" secondary icon="refresh">Refresh</vscode-button>
-    <span class="toolbar-help">Drag tables · scroll to zoom · click a table name to focus</span>
+    <span class="toolbar-help">Drag canvas or hold the middle mouse button to pan · scroll to zoom · columns appear as you zoom in</span>
     <span id="status" class="status"></span>
   </div>
   <main>
-    <aside class="sidebar">
-      <vscode-textfield id="filterInput" placeholder="Filter tables..." style="width:100%"></vscode-textfield>
-      <div class="selection-actions">
-        <vscode-button id="allBtn" secondary>All</vscode-button>
-        <vscode-button id="coreBtn" secondary>Core</vscode-button>
-        <vscode-button id="connectedBtn" secondary>Connected</vscode-button>
-        <vscode-button id="noneBtn" secondary>None</vscode-button>
-      </div>
-      <div id="tableList" class="table-list"></div>
-    </aside>
     <section class="canvas-wrap">
       <div id="chart"></div>
       <div id="emptyState" class="empty-state">Loading schema…</div>
