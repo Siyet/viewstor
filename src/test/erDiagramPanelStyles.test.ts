@@ -45,6 +45,9 @@ describe('ER diagram transitions', () => {
     expect(script).toContain('cardTextStyleCache.has(cacheKey)');
     expect(script).toContain('const DETAIL_REVEAL_RATIO = 1.25');
     expect(script).toContain('overviewZoom * DETAIL_REVEAL_RATIO');
+    expect(script).toContain('const LABEL_OVERVIEW_SCALE = 0.48');
+    expect(script).toContain('const LABEL_OVERVIEW_ZOOM_DELTA = 0.4');
+    expect(script).toContain('nameThreshold * (1 - MODE_HYSTERESIS) - LABEL_OVERVIEW_ZOOM_DELTA');
     expect(script).not.toContain('visualScale');
     expect(script).not.toContain('detailProgress');
   });
@@ -121,6 +124,14 @@ describe('ER diagram interactions', () => {
     expect(script).toContain('return \'fk\'');
     expect(script).toContain('return \'indexed\'');
     expect(script).toContain('const ROLE_COLOR_ALPHA = 0.78');
+  });
+
+  it('uses concise object and namespace labels', () => {
+    const script = readScript();
+    expect(script).toContain('const title = entity.name;');
+    expect(script).toContain('fontSize: scaled(16, textScale)');
+    expect(script).toContain('text: region.name');
+    expect(script).not.toContain('`${kind} · ${region.name}`');
   });
 
   it('removes Overview and renders the relationship toggle plus legend', () => {

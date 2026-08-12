@@ -19,6 +19,7 @@
   const MAX_ZOOM = 24;
   const MIN_OVERVIEW_SCALE = 0.12;
   const LABEL_OVERVIEW_SCALE = 0.48;
+  const LABEL_OVERVIEW_ZOOM_DELTA = 0.4;
   const HOVER_TRANSITION_MS = 150;
   const ZOOM_HALF_LIFE_MS = 28;
   const SEMANTIC_TRANSITION_MS = 140;
@@ -128,7 +129,7 @@
   }
 
   function cardFor(entity) {
-    const title = entity.schema ? `${entity.schema}.${entity.name}` : entity.name;
+    const title = entity.name;
     const shownColumns = entity.columns.slice(0, MAX_CARD_COLUMNS);
     const hiddenColumns = Math.max(0, entity.columns.length - shownColumns.length);
     const detailLines = [`{title|${safeRichText(truncateText(title, 40))}}`, ...shownColumns.map(columnLine)];
@@ -232,8 +233,8 @@
           ellipsis: '…',
           fill: foreground,
           fontWeight: 600,
-          fontSize: scaled(11, textScale),
-          lineHeight: scaled(22, textScale),
+          fontSize: scaled(16, textScale),
+          lineHeight: scaled(24, textScale),
           align: 'center',
         },
         title: {
@@ -395,10 +396,15 @@
 
   function modeForZoom(zoom, currentMode = semanticMode) {
     const nameThreshold = overviewZoom * LABEL_OVERVIEW_SCALE;
+    const nameExitThreshold = Math.max(
+      0,
+      nameThreshold * (1 - MODE_HYSTERESIS) - LABEL_OVERVIEW_ZOOM_DELTA,
+    );
+    const nameEnterThreshold = nameThreshold * (1 + MODE_HYSTERESIS);
     if (currentMode === 'details' && zoom >= detailZoom * DETAIL_EXIT_RATIO) return 'details';
     if (currentMode !== 'details' && zoom >= detailZoom * DETAIL_ENTER_RATIO) return 'details';
-    if (currentMode === 'names' && zoom >= nameThreshold * (1 - MODE_HYSTERESIS)) return 'names';
-    if (currentMode === 'map' && zoom < nameThreshold * (1 + MODE_HYSTERESIS)) return 'map';
+    if (currentMode === 'names' && zoom >= nameExitThreshold) return 'names';
+    if (currentMode === 'map' && zoom < nameEnterThreshold) return 'map';
     if (zoom >= nameThreshold) return 'names';
     return 'map';
   }
@@ -539,7 +545,6 @@
       theme('--vscode-charts-orange', '#d18616'),
       theme('--vscode-charts-cyan', '#29b8db'),
     ];
-    const kind = data.namespaceKind === 'database' ? 'Database' : 'Schema';
     regions.forEach((region, index) => {
       const color = palette[index % palette.length];
       const group = new echarts.graphic.Group({ x: region.x, y: region.y, silent: true });
@@ -560,7 +565,7 @@
         culling: true,
         silent: true,
         style: {
-          text: `${kind} · ${region.name}`,
+          text: region.name,
           fill: echarts.color.modifyAlpha(color, 0.9),
           fontSize: 12,
           fontWeight: 600,
