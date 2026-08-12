@@ -129,6 +129,52 @@
   }
 
   /**
+   * Place one table at the origin and its direct neighbours on concentric
+   * rings. Ring capacity grows with circumference so variable-sized cards do
+   * not collapse into each other when a hub has many relationships.
+   */
+  function focusLayout(nodes, centerId, options) {
+    if (nodes.length === 0) {
+      return { nodes: [], bounds: { x: 0, y: 0, width: 0, height: 0 } };
+    }
+
+    const center = nodes.find(node => node.id === centerId) || nodes[0];
+    const neighbours = nodes.filter(node => node.id !== center.id).sort((left, right) => compareIds(left.id, right.id));
+    const maxWidth = Math.max(...nodes.map(node => node.width));
+    const maxHeight = Math.max(...nodes.map(node => node.height));
+    const gap = Math.max(72, options?.gap ?? 110);
+    const slotSize = Math.max(maxWidth, maxHeight) + gap;
+    const positioned = [{ ...center, x: 0, y: 0 }];
+
+    let offset = 0;
+    let ring = 1;
+    while (offset < neighbours.length) {
+      const radius = ring * slotSize;
+      const capacity = Math.max(6, Math.floor((2 * Math.PI * radius) / slotSize));
+      const count = Math.min(capacity, neighbours.length - offset);
+      for (let index = 0; index < count; index += 1) {
+        const angle = -Math.PI / 2 + (2 * Math.PI * index / count);
+        positioned.push({
+          ...neighbours[offset + index],
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+        });
+      }
+      offset += count;
+      ring += 1;
+    }
+
+    const left = Math.min(...positioned.map(node => node.x - node.width / 2));
+    const right = Math.max(...positioned.map(node => node.x + node.width / 2));
+    const top = Math.min(...positioned.map(node => node.y - node.height / 2));
+    const bottom = Math.max(...positioned.map(node => node.y + node.height / 2));
+    return {
+      nodes: positioned,
+      bounds: { x: left, y: top, width: right - left, height: bottom - top },
+    };
+  }
+
+  /**
    * Choose a readable initial zoom and the point where full cards fit without
    * overlap. Nodes stay pixel-sized in ECharts, so the relationship between
    * graph bounds and viewport size must be reflected in the roam zoom.
@@ -146,7 +192,7 @@
     return { overview, detail };
   }
 
-  const api = { buildAdjacency, relationshipOrder, layout, zoomLevels };
+  const api = { buildAdjacency, relationshipOrder, layout, focusLayout, zoomLevels };
   if (root) root.ViewstorErLayout = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

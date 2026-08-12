@@ -29,6 +29,58 @@ body {
 
 .toolbar-help { margin-left: 4px; }
 .status { margin-left: auto; }
+.toolbar vscode-button { flex: 0 0 auto; white-space: nowrap; }
+
+.legend {
+  position: absolute;
+  z-index: 5;
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--viewstor-border-subtle);
+  color: var(--viewstor-text-dimmed);
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .2);
+  font-size: var(--viewstor-font-meta-size);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-box {
+  width: 13px;
+  height: 9px;
+  display: inline-block;
+  border: 1px solid var(--vscode-focusBorder, var(--vscode-charts-blue));
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+}
+
+.legend-box.view {
+  border: 1.5px dashed var(--vscode-charts-purple, #b180d7);
+}
+
+.legend-line {
+  width: 15px;
+  height: 0;
+  display: inline-block;
+  border-top: 1px solid var(--vscode-charts-blue, #3794ff);
+}
+
+.legend-pk,
+.legend-required {
+  color: var(--vscode-terminal-ansiYellow, #d7ba7d);
+  font-family: var(--viewstor-font-mono);
+  font-style: normal;
+  font-weight: 700;
+}
 
 main {
   min-height: 0;
@@ -57,6 +109,8 @@ main {
   position: absolute;
   z-index: 10;
   max-width: 360px;
+  max-height: min(70vh, 640px);
+  overflow: auto;
   padding: 7px 9px;
   border: 1px solid var(--vscode-editorHoverWidget-border, var(--viewstor-border-subtle));
   border-radius: 2px;
@@ -69,12 +123,40 @@ main {
   pointer-events: none;
 }
 
+.hover-tooltip.table-preview {
+  min-width: 320px;
+  max-width: 520px;
+  padding: 9px 11px;
+  pointer-events: auto;
+}
+
 .hover-tooltip-title {
   display: block;
   margin-bottom: 3px;
   color: var(--vscode-foreground);
   font-family: var(--viewstor-font-mono);
   font-weight: 600;
+}
+
+.hover-tooltip-columns {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(110px, auto);
+  column-gap: 18px;
+  font-family: var(--viewstor-font-mono);
+}
+
+.hover-tooltip-column,
+.hover-tooltip-type {
+  min-width: 0;
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.hover-tooltip-type { color: var(--viewstor-text-dimmed); }
+.hover-tooltip-column.pk,
+.hover-tooltip-type.pk {
+  color: var(--vscode-terminal-ansiYellow, #d7ba7d);
+  font-weight: 700;
 }
 
 .empty-state {
@@ -94,5 +176,6 @@ main {
 .hidden { display: none; }
 
 @media (max-width: 720px) {
-  .toolbar-help { display: none; }
+  .toolbar-help,
+  .legend { display: none; }
 }

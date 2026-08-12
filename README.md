@@ -106,7 +106,10 @@ Right-click a connected connection, database, or schema → **Show ER Diagram**:
 - Scroll to zoom; rectangles expand automatically to show left-aligned columns and data types once there is enough room. Primary keys are highlighted and marked inline as `PK`
 - Hover a column to see its database comment when PostgreSQL or ClickHouse exposes one
 - Hover a table or relationship to keep its adjacent graph visible while unrelated objects fade smoothly over a fast 150 ms transition
-- Drag anywhere with the left mouse button, or hold the middle mouse button, to pan horizontally and vertically. **Overview** resets the viewport
+- At name-only zoom, hold the pointer still over a table for three seconds to preview its complete column card
+- Double-click a table to isolate it in the centre with its directly related tables; double-click the centre again or press `Esc` to return
+- Use **Hide relationships** / **Show relationships** to toggle edges; the canvas legend explains tables, views, relationships, primary keys, and required columns
+- Start a left-button drag even on empty canvas beyond the outermost tables, or hold the middle mouse button, to pan horizontally and vertically
 - PostgreSQL and SQLite relationships are detected natively. ClickHouse still shows its tables and columns with a clear note that the driver has no FK metadata; Redis has no relational tables to diagram
 
 ### Query Editor

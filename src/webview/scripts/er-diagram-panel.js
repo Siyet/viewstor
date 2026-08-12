@@ -7,8 +7,8 @@
   const hoverTooltipEl = document.getElementById('hoverTooltip');
   const emptyEl = document.getElementById('emptyState');
   const statusEl = document.getElementById('status');
-  const fitBtn = document.getElementById('fitBtn');
   const refreshBtn = document.getElementById('refreshBtn');
+  const relationshipsBtn = document.getElementById('relationshipsBtn');
 
   const OVERVIEW_WIDTH = 196;
   const OVERVIEW_HEIGHT = 44;
@@ -19,6 +19,7 @@
   const MIN_OVERVIEW_SCALE = 0.12;
   const LABEL_OVERVIEW_SCALE = 0.48;
   const HOVER_TRANSITION_MS = 150;
+  const TABLE_PREVIEW_DELAY_MS = 3000;
 
   let chart;
   let data = { tables: [], foreignKeys: [] };
@@ -31,6 +32,12 @@
   let showingDetails = false;
   let overviewScale = 1;
   let panPointer;
+  let relationshipsVisible = true;
+  let isolatedTableId;
+  let tablePreviewTimer;
+  let tablePreviewTarget;
+  let tablePreviewPoint;
+  let tablePreviewHideTimer;
 
   function theme(name, fallback) {
     return getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
@@ -87,6 +94,7 @@
       detailHeight,
       detailContentHeight: 24 + contentRows * 18,
       columns: shownColumns,
+      allColumns: entity.columns,
       symbol: 'rect',
       overviewLabelText: `{overviewTitle|${safeRichText(truncateText(title, 30))}}`,
       detailLabelText: detailLines.join('\n'),
@@ -236,6 +244,7 @@
     return {
       id: 'erGraph',
       data: positionedNodes.map(displayNode),
+      links: relationshipsVisible ? links : [],
       label: labelOptions(),
       edgeSymbol: ['none', showingDetails ? 'arrow' : 'none'],
       edgeSymbolSize: [0, showingDetails ? 8 : 0],
@@ -280,16 +289,45 @@
   }
 
   function startPan(event) {
-    // ECharts handles primary-button pan. Its roam controller deliberately
-    // ignores the middle button, so bridge that button to graphRoam here.
-    if (event.button !== 1) return;
+    // ECharts' graph roam can miss primary-button drags that start beyond the
+    // outermost node. Bridge blank-canvas LMB drags and every middle-button
+    // drag to graphRoam, while leaving node/edge interaction to ECharts.
+    const blankPrimaryDrag = event.button === 0 && canStartCanvasPan(event);
+    if (!blankPrimaryDrag && event.button !== 1) return;
     panPointer = {
       x: event.clientX,
       y: event.clientY,
     };
     chartEl.classList.add('panning');
+    cancelTablePreview();
     hideHoverTooltip();
     event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function canStartCanvasPan(event) {
+    if (!chart) return false;
+    const rect = chartEl.getBoundingClientRect();
+    const hovered = chart.getZr().findHover(event.clientX - rect.left, event.clientY - rect.top);
+    return !hovered || !isTableGraphicTarget(hovered.target);
+  }
+
+  function isTableGraphicTarget(target) {
+    if (!target || !chart) return false;
+    const series = chart.getModel().getSeriesByIndex(0);
+    const seriesData = series && series.getData();
+    if (!seriesData) return false;
+    for (let index = 0; index < seriesData.count(); index += 1) {
+      const itemEl = seriesData.getItemGraphicEl(index);
+      if (!itemEl) continue;
+      let current = target;
+      while (current) {
+        if (current === itemEl) return true;
+        current = current.parent || current.__hostTarget;
+      }
+      if (itemEl.getTextContent && itemEl.getTextContent() === target) return true;
+    }
+    return false;
   }
 
   function movePan(event) {
@@ -299,9 +337,17 @@
     panPointer.x = event.clientX;
     panPointer.y = event.clientY;
     if (dx || dy) {
+      const series = chart.getModel().getSeriesByIndex(0);
+      const graphView = series && chart.getViewOfSeriesModel(series);
+      if (graphView && graphView.group) {
+        graphView.group.x += dx;
+        graphView.group.y += dy;
+        graphView.group.dirty();
+      }
       chart.dispatchAction({ type: 'graphRoam', seriesId: 'erGraph', dx, dy });
     }
     event.preventDefault();
+    event.stopImmediatePropagation();
   }
 
   function stopPan(event) {
@@ -309,6 +355,7 @@
     panPointer = undefined;
     chartEl.classList.remove('panning');
     event.preventDefault();
+    event.stopImmediatePropagation();
   }
 
   function installPanHandlers() {
@@ -335,7 +382,8 @@
       }
     });
     chart.on('mousemove', handleChartHover);
-    chart.on('mouseout', hideHoverTooltip);
+    chart.on('mouseout', handleChartOut);
+    chart.on('dblclick', handleChartDoubleClick);
     installPanHandlers();
   }
 
@@ -350,6 +398,33 @@
     overviewZoom = levels.overview;
     farZoom = Math.max(0.5, overviewZoom * MIN_OVERVIEW_SCALE);
     detailZoom = levels.detail;
+  }
+
+  function graphScope() {
+    const allEntityIds = new Set(data.tables.map(entity => entity.id));
+    const allForeignKeys = data.foreignKeys.filter(foreignKey => {
+      const [source, target] = edgeEndpoints(foreignKey);
+      return allEntityIds.has(source) && allEntityIds.has(target);
+    });
+
+    if (!isolatedTableId || !allEntityIds.has(isolatedTableId)) {
+      isolatedTableId = undefined;
+      return { tables: data.tables, foreignKeys: allForeignKeys };
+    }
+
+    const visibleIds = new Set([isolatedTableId]);
+    for (const foreignKey of allForeignKeys) {
+      const [source, target] = edgeEndpoints(foreignKey);
+      if (source === isolatedTableId) visibleIds.add(target);
+      if (target === isolatedTableId) visibleIds.add(source);
+    }
+    return {
+      tables: data.tables.filter(entity => visibleIds.has(entity.id)),
+      foreignKeys: allForeignKeys.filter(foreignKey => {
+        const [source, target] = edgeEndpoints(foreignKey);
+        return visibleIds.has(source) && visibleIds.has(target);
+      }),
+    };
   }
 
   function renderChart() {
@@ -368,19 +443,19 @@
     }
     emptyEl.classList.add('hidden');
 
-    const entityIds = new Set(data.tables.map(entity => entity.id));
-    const visibleForeignKeys = data.foreignKeys.filter(foreignKey => {
-      const [source, target] = edgeEndpoints(foreignKey);
-      return entityIds.has(source) && entityIds.has(target);
-    });
-    const cards = data.tables.map(cardFor);
-    links = visibleForeignKeys.map(linkFor);
+    cancelTablePreview();
+    hideHoverTooltip();
+    const scope = graphScope();
+    const cards = scope.tables.map(cardFor);
+    links = scope.foreignKeys.map(linkFor);
     const aspectRatio = Math.max(0.75, chartEl.clientWidth / Math.max(1, chartEl.clientHeight));
-    const layoutResult = ViewstorErLayout.layout(cards, links, {
-      aspectRatio,
-      gapX: 110,
-      gapY: 100,
-    });
+    const layoutResult = isolatedTableId
+      ? ViewstorErLayout.focusLayout(cards, isolatedTableId, { gap: 110 })
+      : ViewstorErLayout.layout(cards, links, {
+        aspectRatio,
+        gapX: 110,
+        gapY: 100,
+      });
     const bounds = layoutResult.bounds;
     positionedNodes = layoutResult.nodes;
     positionedNodes.push(
@@ -412,7 +487,6 @@
         roam: true,
         draggable: false,
         cursor: 'grab',
-        links,
         zoom: overviewZoom,
         scaleLimit: { min: farZoom, max: MAX_ZOOM },
         nodeScaleRatio: 0,
@@ -423,11 +497,13 @@
 
   function handleChartHover(params) {
     if (!params || !params.data || !params.event || panPointer) {
+      cancelTablePreview();
       hideHoverTooltip();
       return;
     }
 
     if (params.dataType === 'edge') {
+      cancelTablePreview();
       const lines = [];
       if (params.data.mapping) lines.push(params.data.mapping);
       if (params.data.onDelete) lines.push(`ON DELETE ${params.data.onDelete}`);
@@ -436,10 +512,17 @@
       return;
     }
 
-    if (!showingDetails || params.data.anchor || !Array.isArray(params.data.columns)) {
+    if (params.data.anchor || !Array.isArray(params.data.allColumns)) {
+      cancelTablePreview();
       hideHoverTooltip();
       return;
     }
+
+    if (!showingDetails) {
+      scheduleTablePreview(params.data, params.event);
+      return;
+    }
+    cancelTablePreview();
 
     const seriesModel = chart.getModel().getSeriesByIndex(params.seriesIndex);
     const itemEl = seriesModel && seriesModel.getData().getItemGraphicEl(params.dataIndex);
@@ -460,6 +543,69 @@
     showHoverTooltip(column.name, column.comment, params.event);
   }
 
+  function scheduleTablePreview(table, event) {
+    const point = { x: event.offsetX, y: event.offsetY };
+    const pointerMoved = tablePreviewPoint
+      && Math.hypot(point.x - tablePreviewPoint.x, point.y - tablePreviewPoint.y) > 4;
+    if (tablePreviewTarget === table.id && !pointerMoved) return;
+
+    cancelTablePreview();
+    hideHoverTooltip();
+    tablePreviewTarget = table.id;
+    tablePreviewPoint = point;
+    tablePreviewTimer = window.setTimeout(() => {
+      if (tablePreviewTarget !== table.id || showingDetails || panPointer) return;
+      showTablePreviewTooltip(table, point);
+      tablePreviewTimer = undefined;
+    }, TABLE_PREVIEW_DELAY_MS);
+  }
+
+  function cancelTablePreview() {
+    if (tablePreviewTimer !== undefined) window.clearTimeout(tablePreviewTimer);
+    tablePreviewTimer = undefined;
+    tablePreviewTarget = undefined;
+    tablePreviewPoint = undefined;
+  }
+
+  function handleChartOut() {
+    cancelTablePreview();
+    if (hoverTooltipEl.classList.contains('table-preview')) {
+      tablePreviewHideTimer = window.setTimeout(hideHoverTooltip, 120);
+    } else {
+      hideHoverTooltip();
+    }
+  }
+
+  function handleChartDoubleClick(params) {
+    if (!params || params.dataType === 'edge' || !params.data || params.data.anchor) return;
+    isolatedTableId = isolatedTableId === params.data.id ? undefined : params.data.id;
+    renderChart();
+  }
+
+  function showTablePreviewTooltip(table, point) {
+    if (!hoverTooltipEl || !Array.isArray(table.allColumns)) return;
+    if (tablePreviewHideTimer !== undefined) window.clearTimeout(tablePreviewHideTimer);
+    const titleEl = document.createElement('span');
+    titleEl.className = 'hover-tooltip-title';
+    titleEl.textContent = table.id;
+
+    const columnsEl = document.createElement('div');
+    columnsEl.className = 'hover-tooltip-columns';
+    for (const column of table.allColumns) {
+      const nameEl = document.createElement('span');
+      nameEl.className = `hover-tooltip-column${column.primaryKey ? ' pk' : ''}`;
+      nameEl.textContent = `${column.name}${column.notNullable && !column.primaryKey ? '*' : ''}`;
+      const typeEl = document.createElement('span');
+      typeEl.className = `hover-tooltip-type${column.primaryKey ? ' pk' : ''}`;
+      typeEl.textContent = `${column.dataType}${column.primaryKey ? ', PK' : ''}`;
+      columnsEl.append(nameEl, typeEl);
+    }
+    hoverTooltipEl.replaceChildren(titleEl, columnsEl);
+    hoverTooltipEl.classList.add('table-preview');
+    hoverTooltipEl.classList.remove('hidden');
+    positionTooltip(point.x, point.y);
+  }
+
   function showHoverTooltip(title, body, event) {
     if (!hoverTooltipEl || !body) {
       hideHoverTooltip();
@@ -469,10 +615,12 @@
     titleEl.className = 'hover-tooltip-title';
     titleEl.textContent = title;
     hoverTooltipEl.replaceChildren(titleEl, document.createTextNode(body));
+    hoverTooltipEl.classList.remove('table-preview');
     hoverTooltipEl.classList.remove('hidden');
+    positionTooltip(event.offsetX, event.offsetY);
+  }
 
-    const pointerX = event.offsetX;
-    const pointerY = event.offsetY;
+  function positionTooltip(pointerX, pointerY) {
     const width = hoverTooltipEl.offsetWidth;
     const height = hoverTooltipEl.offsetHeight;
     let left = pointerX + 14;
@@ -484,7 +632,12 @@
   }
 
   function hideHoverTooltip() {
-    if (hoverTooltipEl) hoverTooltipEl.classList.add('hidden');
+    if (tablePreviewHideTimer !== undefined) window.clearTimeout(tablePreviewHideTimer);
+    tablePreviewHideTimer = undefined;
+    if (hoverTooltipEl) {
+      hoverTooltipEl.classList.add('hidden');
+      hoverTooltipEl.classList.remove('table-preview');
+    }
   }
 
   function setStatus() {
@@ -494,7 +647,27 @@
       ? 'columns'
       : overviewScale >= LABEL_OVERVIEW_SCALE ? 'names' : 'map';
     const density = positionedNodes.length > 0 ? ` · ${densityMode}` : '';
-    statusEl.textContent = `${data.tables.length} tables/views · ${links.length} relationships${zoom}${density}${support}`;
+    const visibleTables = positionedNodes.filter(node => !node.anchor).length;
+    const tableCount = isolatedTableId ? `${visibleTables}/${data.tables.length}` : String(data.tables.length);
+    const focus = isolatedTableId ? ` · focused: ${isolatedTableId}` : '';
+    const hidden = relationshipsVisible ? '' : ' (hidden)';
+    statusEl.textContent = `${tableCount} tables/views · ${links.length} relationships${hidden}${zoom}${density}${focus}${support}`;
+  }
+
+  function toggleRelationships() {
+    relationshipsVisible = !relationshipsVisible;
+    relationshipsBtn.textContent = relationshipsVisible ? 'Hide relationships' : 'Show relationships';
+    relationshipsBtn.setAttribute('aria-pressed', String(relationshipsVisible));
+    cancelTablePreview();
+    hideHoverTooltip();
+    if (chart && positionedNodes.length > 0) chart.setOption({ series: [semanticSeriesPatch()] });
+    setStatus();
+  }
+
+  function exitFocusedGraph() {
+    if (!isolatedTableId) return;
+    isolatedTableId = undefined;
+    renderChart();
   }
 
   function setEmpty(message) {
@@ -502,8 +675,21 @@
     emptyEl.classList.remove('hidden');
   }
 
-  fitBtn.addEventListener('click', renderChart);
   refreshBtn.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
+  relationshipsBtn.addEventListener('click', toggleRelationships);
+  hoverTooltipEl.addEventListener('mouseenter', () => {
+    if (hoverTooltipEl.classList.contains('table-preview') && tablePreviewHideTimer !== undefined) {
+      window.clearTimeout(tablePreviewHideTimer);
+      tablePreviewHideTimer = undefined;
+    }
+  });
+  hoverTooltipEl.addEventListener('mouseleave', hideHoverTooltip);
+  window.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && isolatedTableId) {
+      event.preventDefault();
+      exitFocusedGraph();
+    }
+  });
   window.addEventListener('resize', () => chart && chart.resize());
   window.addEventListener('message', event => {
     const message = event.data;

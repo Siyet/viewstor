@@ -100,14 +100,21 @@ export class ErDiagramPanelManager {
 </head>
 <body>
   <div class="toolbar" style="${esc(accentBorder)}">
-    <vscode-button id="fitBtn" secondary icon="screen-full">Overview</vscode-button>
     <vscode-button id="refreshBtn" secondary icon="refresh">Refresh</vscode-button>
-    <span class="toolbar-help">Drag canvas or hold the middle mouse button to pan · scroll to zoom · columns appear as you zoom in</span>
+    <vscode-button id="relationshipsBtn" secondary icon="type-hierarchy" aria-pressed="true">Hide relationships</vscode-button>
+    <span class="toolbar-help">Drag empty canvas or hold middle mouse to pan · scroll to zoom · double-click a table to isolate its neighbours · Esc to exit</span>
     <span id="status" class="status"></span>
   </div>
   <main>
     <section class="canvas-wrap">
       <div id="chart"></div>
+      <div class="legend" aria-label="ER diagram legend">
+        <span><i class="legend-box table"></i>Table</span>
+        <span><i class="legend-box view"></i>View</span>
+        <span><i class="legend-line"></i>Relationship</span>
+        <span><i class="legend-pk">PK</i>Primary key</span>
+        <span><i class="legend-required">*</i>Required</span>
+      </div>
       <div id="hoverTooltip" class="hover-tooltip hidden" role="tooltip"></div>
       <div id="emptyState" class="empty-state">Loading schema…</div>
     </section>

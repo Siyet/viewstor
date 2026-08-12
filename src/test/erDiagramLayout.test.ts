@@ -25,6 +25,10 @@ interface LayoutApi {
     bounds: { x: number; y: number; width: number; height: number };
     columns: number;
   };
+  focusLayout(nodes: LayoutNode[], centerId: string, options?: { gap?: number }): {
+    nodes: Required<LayoutNode>[];
+    bounds: { x: number; y: number; width: number; height: number };
+  };
   zoomLevels(
     bounds: { width: number; height: number },
     viewport: { width: number; height: number },
@@ -110,6 +114,23 @@ describe('ER diagram layout', () => {
     ];
 
     expect(api.relationshipOrder(nodes, links).map(node => node.id)).toEqual(['hub', 'a', 'b', 'c', 'isolated']);
+  });
+
+  it('centres a selected table and places its neighbours around it without overlap', () => {
+    const api = loadLayout();
+    const nodes = Array.from({ length: 32 }, (_, index) => ({
+      id: index === 0 ? 'hub' : `neighbour_${index}`,
+      width: 326,
+      height: 68 + (index % 12) * 18,
+    }));
+
+    const result = api.focusLayout(nodes, 'hub');
+    const hub = result.nodes.find(node => node.id === 'hub');
+
+    expect(hub).toMatchObject({ x: 0, y: 0 });
+    expect(result.bounds.width).toBeGreaterThan(0);
+    expect(result.bounds.height).toBeGreaterThan(0);
+    expectNoOverlap(result.nodes);
   });
 
   it('keeps overview cards apart and reveals details at a closer zoom', () => {
