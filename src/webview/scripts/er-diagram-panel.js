@@ -916,7 +916,13 @@
     });
     chart.on('globalout', handleChartOut);
     chart.on('dblclick', handleChartDoubleClick);
+    chart.getZr().on('dblclick', handleCanvasDoubleClick);
     installPanHandlers();
+  }
+
+  function handleCanvasDoubleClick(event) {
+    if (!isolatedTableId || event.target) return;
+    exitFocusedGraph();
   }
 
   function calculateZoomLevels(bounds) {

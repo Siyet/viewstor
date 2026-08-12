@@ -106,6 +106,9 @@ describe('ER diagram interactions', () => {
     expect(script).toContain('event.button === 0 && canStartCanvasPan(event)');
     expect(script).toContain('graphView.group.x += dx');
     expect(script).toContain('event.key === \'Escape\'');
+    expect(script).toContain('chart.getZr().on(\'dblclick\', handleCanvasDoubleClick)');
+    expect(script).toContain('if (!isolatedTableId || event.target) return;');
+    expect(script).toContain('exitFocusedGraph();');
   });
 
   it('bridges wheel zoom over the entire canvas and synchronizes graph roam state', () => {
