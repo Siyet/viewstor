@@ -181,4 +181,30 @@ describe('ER diagram layout', () => {
     expect(levels.detail).toBeGreaterThan(levels.overview);
     expect(levels.detail).toBeLessThanOrEqual(18);
   });
+
+  it('reserves enough layout space for cards at the early detail threshold', () => {
+    const api = loadLayout();
+    const overviewWidth = 196;
+    const detailWidth = 326;
+    const revealRatio = 1.08;
+    const enterRatio = 1.02;
+    const layoutScale = detailWidth / (overviewWidth * revealRatio);
+    const detailHeights = [188, 296, 404, 224, 350, 170, 440, 260];
+    const nodes = detailHeights.map((height, index) => ({
+      id: `table_${index}`,
+      width: detailWidth * layoutScale,
+      height: height * layoutScale,
+    }));
+    const result = api.layout(nodes, [], { aspectRatio: 1.6 });
+    const screenScale = (overviewWidth / detailWidth) * revealRatio * enterRatio;
+    const projected = result.nodes.map((node, index) => ({
+      ...node,
+      x: node.x * screenScale,
+      y: node.y * screenScale,
+      width: detailWidth,
+      height: detailHeights[index],
+    }));
+
+    expectNoOverlap(projected);
+  });
 });

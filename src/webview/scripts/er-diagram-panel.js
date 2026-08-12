@@ -13,7 +13,8 @@
   const OVERVIEW_WIDTH = 196;
   const OVERVIEW_HEIGHT = 44;
   const DETAIL_WIDTH = 326;
-  const DETAIL_REVEAL_RATIO = 1.25;
+  const DETAIL_REVEAL_RATIO = 1.08;
+  const DETAIL_LAYOUT_SCALE = DETAIL_WIDTH / (OVERVIEW_WIDTH * DETAIL_REVEAL_RATIO);
   const MAX_CARD_COLUMNS = 24;
   const MIN_DETAIL_ZOOM = 2.2;
   const MAX_ZOOM = 24;
@@ -978,11 +979,19 @@
     cardTextStyleCache = new Map();
     const scope = graphScope();
     const cards = scope.tables.map(cardFor);
+    // Full cards appear shortly after the compact overview. Reserve their
+    // screen-space footprint in the layout up front, otherwise the earlier
+    // LOD transition makes neighbouring cards touch or overlap.
+    const layoutCards = cards.map(card => ({
+      ...card,
+      width: card.width * DETAIL_LAYOUT_SCALE,
+      height: card.height * DETAIL_LAYOUT_SCALE,
+    }));
     links = scope.foreignKeys.map(linkFor);
     const aspectRatio = Math.max(0.75, chartEl.clientWidth / Math.max(1, chartEl.clientHeight));
     const layoutResult = isolatedTableId
-      ? ViewstorErLayout.focusLayout(cards, isolatedTableId, { gap: 110 })
-      : ViewstorErLayout.layout(cards, links, {
+      ? ViewstorErLayout.focusLayout(layoutCards, isolatedTableId, { gap: 110 })
+      : ViewstorErLayout.layout(layoutCards, links, {
         aspectRatio,
         gapX: 110,
         gapY: 100,

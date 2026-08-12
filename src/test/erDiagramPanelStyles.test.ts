@@ -43,8 +43,12 @@ describe('ER diagram transitions', () => {
     expect(script).toContain('function rebaseCardLayer()');
     expect(script).toContain('window.addEventListener(\'resize\', resizeChart)');
     expect(script).toContain('cardTextStyleCache.has(cacheKey)');
-    expect(script).toContain('const DETAIL_REVEAL_RATIO = 1.25');
+    expect(script).toContain('const DETAIL_REVEAL_RATIO = 1.08');
     expect(script).toContain('overviewZoom * DETAIL_REVEAL_RATIO');
+    expect(script).toContain('const DETAIL_LAYOUT_SCALE = DETAIL_WIDTH / (OVERVIEW_WIDTH * DETAIL_REVEAL_RATIO)');
+    expect(script).toContain('width: card.width * DETAIL_LAYOUT_SCALE');
+    expect(script).toContain('height: card.height * DETAIL_LAYOUT_SCALE');
+    expect(script).toContain('ViewstorErLayout.layout(layoutCards, links');
     expect(script).toContain('const LABEL_OVERVIEW_SCALE = 0.48');
     expect(script).toContain('const LABEL_OVERVIEW_ZOOM_DELTA = 0.4');
     expect(script).toContain('nameThreshold * (1 - MODE_HYSTERESIS) - LABEL_OVERVIEW_ZOOM_DELTA');
@@ -81,7 +85,7 @@ describe('ER diagram interactions', () => {
     const script = readScript();
     expect(script).toContain('links: relationshipsVisible ? links : []');
     expect(script).toContain('group.on(\'dblclick\'');
-    expect(script).toContain('ViewstorErLayout.focusLayout(cards, isolatedTableId');
+    expect(script).toContain('ViewstorErLayout.focusLayout(layoutCards, isolatedTableId');
     expect(script).toContain('x: node.x');
     expect(script).toContain('new echarts.graphic.Group({ name: \'viewstor-er-regions\'');
     expect(script).toContain('regions = isolatedTableId ? []');
