@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { CommandContext, getRequiredDriver, wrapError } from './shared';
-import { ConnectionTreeItem } from '../views/connectionTree';
-import { DiffSource, DiffOptions } from '../diff/diffTypes';
+import type { ConnectionTreeItem } from '../views/connectionTree';
+import type { DiffSource, DiffOptions } from '../diff/diffTypes';
+import type { QueryResult } from '../types/query';
 import { collectComparableTables } from '../diff/diffTablePicker';
 import { dbg } from '../utils/debug';
 
@@ -45,6 +46,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             leftDriver.getTableData(item.schemaObject!.name, item.schemaObject!.schema, rowLimit, 0),
             rightDriver.getTableData(picked.tableName, picked.schema, rowLimit, 0),
           ]);
+          assertDiffDataLoaded(leftData, rightData);
 
           // Fetch table objects (indexes, constraints, etc.) — non-critical, fallback to undefined
           let leftObjects, rightObjects;
@@ -162,6 +164,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             leftDriver.getTableData(leftPick.tableName, leftPick.schema, rowLimit, 0),
             rightDriver.getTableData(rightPick.tableName, rightPick.schema, rowLimit, 0),
           ]);
+          assertDiffDataLoaded(leftData, rightData);
 
           let leftObjects, rightObjects;
           try {
@@ -231,6 +234,11 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
       }
     }),
   );
+}
+
+function assertDiffDataLoaded(left: QueryResult, right: QueryResult): void {
+  if (left.error) throw new Error(left.error);
+  if (right.error) throw new Error(right.error);
 }
 
 interface TablePickItem {

@@ -18,34 +18,37 @@ tests until a dedicated source adapter is designed.
   and ACL degradation for TYPE/cardinality/MEMORY/TTL/OBJECT commands.
 - Existing unit/host tests cover numeric normalization, Statistics banner/empty
   state, in-place swap, SQL rerun races/disposal, and the SQLite picker regression.
+- Real-driver row and schema comparisons cover all six PostgreSQL, ClickHouse,
+  and SQLite pairs with deterministic unchanged/changed/added/removed fixtures,
+  decimal normalization, `NULL` versus empty strings, Unicode, ISO date strings,
+  and large text identifiers beyond JavaScript's safe integer range.
+- Command-level tests cover both entry points, cancellation at either table/key
+  picker, automatic and manually selected keys, flat SQLite tables/views, required
+  load failures, optional metadata degradation, and the no-connections path.
+- Panel lifecycle tests cover both completion orders for competing SQL reruns,
+  reconnect de-duplication, disposal during a run, readonly preflight, one-sided
+  execution errors, missing key columns, and in-place side swapping.
 
 The remaining items below are the planned Compare Tables coverage backlog. They
 are not claimed as automated by PR #110.
 
-## P0 backlog — next required Compare Tables test slice
+## Remaining P0 backlog
 
-- Entry points: `Compare With...` and `Viewstor: Compare Data`; cancel at either
-  picker; tables and views from every connected PostgreSQL, ClickHouse, and
-  SQLite connection; duplicate names remain distinguishable by source/schema.
-- Row diff, all six driver pairs: PG↔PG, CH↔CH, SQLite↔SQLite, PG↔CH,
-  PG↔SQLite, and CH↔SQLite. Fixtures contain unchanged, changed, added, and
-  removed rows; decimal forms such as `716.90` and `716.9`; `NULL` and empty
-  strings; Unicode; dates; and values beyond JavaScript's safe integer range.
+- Picker labels for duplicate names across multiple connections/schemas remain
+  distinguishable, including multi-database connections.
 - Keys: automatic single-column PK, explicit key selection when there is no PK,
-  composite PK order, cancel with no key selection, and a rerun whose result no
-  longer contains the key column.
+  composite PK order, and duplicate-key warning/rejection. Cancellation and a
+  rerun whose result no longer contains the key column are already automated.
 - Schema diff: common/left-only/right-only columns, native type differences,
-  nullability, PK flags, comments, indexes, constraints, triggers, and sequences.
+  nullability, PK flags, and comments are automated; real cross-driver indexes,
+  constraints, triggers, and sequences remain to cover.
 - Statistics, same type: complete driver metric set, zero and missing values,
   and PostgreSQL views never exposing the `-1` catalog sentinel.
 - Statistics, cross type: only the semantic allowlist (currently `row_count`),
   incompatible `total_size` hidden, branded banner, hidden metric counts, and
   the PostgreSQL estimated-count disclosure.
-- Degradation: unavailable objects/statistics do not suppress row/schema diff;
-  required data or table-info failures show one error and do not open a panel.
-- Panel lifecycle: swap stays in one panel, latest SQL rerun wins, dispose drops
-  pending results, readonly preflight blocks writes, reconnect uses
-  `ensureDriver`, and missing keys/errors keep the previous successful diff.
+- Degradation and panel lifecycle scenarios listed above are automated at the
+  command/host boundary; a real-driver permission/network variant remains.
 
 ## P1 — nightly or Extension Host suite
 

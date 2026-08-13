@@ -18,6 +18,7 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 - Cross-database row comparisons now treat equivalent numeric representations such as PostgreSQL `716.90` and ClickHouse `716.9` as equal without losing precision for large numeric values; text identifiers with leading zeroes remain distinct.
 - PostgreSQL views no longer report the internal `-1` row-estimate sentinel. View statistics fall back to an exact `COUNT(*)`, or show the metric as unavailable when the relation cannot be read.
 - SQLite tables and views now appear in the **Compare With...** picker alongside PostgreSQL and ClickHouse objects; the picker supports both flat and namespace-nested driver schemas.
+- Compare Tables no longer opens an empty diff when a driver returns a data-loading error as part of its query result; both entry points now surface the original error and leave the current workspace unchanged.
 
 ## [0.5.0] — 2026-08-13
 
