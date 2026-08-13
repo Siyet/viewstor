@@ -5,6 +5,15 @@ import { quoteIdentifier } from '../utils/queryHelpers';
 import path from 'path';
 import type { TempFileManager } from '../services/tempFileManager';
 
+export interface ResultWebviewUris {
+  tokensUri: string;
+  codiconUri: string;
+  resultPanelUri: string;
+  shellUri: string;
+  elementsUri: string;
+  cspSource: string;
+}
+
 // Shared context-menu primitive (#94). Loaded lazily on first buildResultHtml
 // call so module evaluation (and extension activation) stays side-effect-free
 // even if the asset is missing from an unusual layout — e.g. a tsc-compiled
@@ -142,10 +151,23 @@ export class ResultPanelManager {
     return panel;
   }
 
+  private getWebviewUris(webview: vscode.Webview): ResultWebviewUris {
+    const distUri = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
+    return {
+      tokensUri: webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'tokens.css')).toString(),
+      codiconUri: webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'codicon.css')).toString(),
+      resultPanelUri: webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'result-panel.css')).toString(),
+      shellUri: webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'webview-shell.js')).toString(),
+      elementsUri: webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'vscode-elements.js')).toString(),
+      cspSource: webview.cspSource,
+    };
+  }
+
   /** Open panel immediately with animated loading screen (before data is fetched) */
   showLoading(title: string, opts?: { color?: string }) {
     const panel = this.getOrCreatePanel(title);
-    panel.webview.html = buildLoadingHtml(getLoadingPhrases(), opts?.color);
+    const uris = this.getWebviewUris(panel.webview);
+    panel.webview.html = buildLoadingHtml(getLoadingPhrases(), opts?.color, uris);
   }
 
   /** Close and dispose a panel by title */
@@ -160,7 +182,8 @@ export class ResultPanelManager {
     const panel = this.getOrCreatePanel(panelTitle);
 
     const phrases = getLoadingPhrases();
-    panel.webview.html = buildResultHtml(result, { ...opts, loadingPhrases: phrases });
+    const uris = this.getWebviewUris(panel.webview);
+    panel.webview.html = buildResultHtml(result, { ...opts, loadingPhrases: phrases }, uris);
 
     this.messageDisposables.get(panelKey)?.dispose();
 
@@ -320,11 +343,20 @@ function getLoadingPhrases(): string[] {
 }
 
 /** @internal Exported for testing */
-export function buildLoadingHtml(phrases: string[], color?: string): string {
+export function buildLoadingHtml(phrases: string[], color?: string, uris?: ResultWebviewUris): string {
   const colorBorder = color ? `border-top: 2px solid ${color}; background: color-mix(in srgb, ${color} 15%, var(--vscode-editor-background));` : '';
+  const headLinks = uris
+    ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${uris.cspSource} data:; style-src ${uris.cspSource} 'unsafe-inline'; font-src ${uris.cspSource}; script-src ${uris.cspSource} 'unsafe-inline';">
+  <link id="vscode-codicon-stylesheet" rel="stylesheet" href="${uris.codiconUri}">
+  <link rel="stylesheet" href="${uris.tokensUri}">
+  <link rel="stylesheet" href="${uris.resultPanelUri}">
+  <script src="${uris.shellUri}"></script>
+  <script type="module" src="${uris.elementsUri}"></script>`
+    : '';
   return `<!DOCTYPE html>
 <html>
 <head>
+${headLinks}
 <style>
   * { box-sizing: border-box; }
   body { font-family: var(--vscode-font-family); padding:0; margin:0; display:flex; align-items:center; justify-content:center; height:100vh; background:var(--vscode-editor-background); ${colorBorder} }
@@ -359,7 +391,7 @@ export function buildLoadingHtml(phrases: string[], color?: string): string {
 }
 
 /** @internal Exported for testing */
-export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string {
+export function buildResultHtml(result: QueryResult, opts?: ShowOptions, uris?: ResultWebviewUris): string {
 
   const colorBg = opts?.color ? `background: color-mix(in srgb, ${opts.color} 15%, var(--vscode-editor-background));` : '';
   const colorBorder = opts?.color ? `border-top: 2px solid ${opts.color}; ${colorBg}` : '';
@@ -373,100 +405,25 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     ? `SELECT * FROM ${opts?.schema ? quoteIdentifier(opts.schema) + '.' : ''}${quoteIdentifier(opts?.tableName || '')}`
     : '');
 
+  const headLinks = uris
+    ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${uris.cspSource} data:; style-src ${uris.cspSource} 'unsafe-inline'; font-src ${uris.cspSource}; script-src ${uris.cspSource} 'unsafe-inline';">
+  <link id="vscode-codicon-stylesheet" rel="stylesheet" href="${uris.codiconUri}">
+  <link rel="stylesheet" href="${uris.tokensUri}">
+  <link rel="stylesheet" href="${uris.resultPanelUri}">
+  <script src="${uris.shellUri}"></` + 'script>' + `
+  <script type="module" src="${uris.elementsUri}"></` + 'script>'
+    : '';
+
   return `<!DOCTYPE html>
 <html>
 <head>
+${headLinks}
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: var(--vscode-font-family); padding:0; margin:0; font-size:13px; display:flex; flex-direction:column; height:100vh; }
-  .toolbar { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorder} }
-  .footer { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:12px; border-top:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorderBottom} }
-  .toolbar select, .footer select { background:var(--vscode-dropdown-background); color:var(--vscode-dropdown-foreground); border:1px solid var(--vscode-dropdown-border); padding:2px 6px; font-size:12px; border-radius:2px; }
-  .toolbar button, .footer button { background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground); border:none; padding:2px 8px; font-size:12px; cursor:pointer; border-radius:2px; }
-  .toolbar button:hover, .footer button:hover { background:var(--vscode-button-secondaryHoverBackground); }
-  .toolbar button:disabled, .footer button:disabled { opacity:0.5; cursor:default; }
-  .btn-primary { background:var(--vscode-button-background) !important; color:var(--vscode-button-foreground) !important; }
-  .btn-primary:hover { background:var(--vscode-button-hoverBackground) !important; }
-  .container { overflow:auto; flex:1; position:relative; }
-  table { border-collapse:collapse; table-layout:auto; }
-  th, td { padding:4px 8px; border:1px solid var(--vscode-panel-border); text-align:left; white-space:nowrap; max-width:400px; overflow:hidden; text-overflow:ellipsis; user-select:none; }
-  th { position:sticky; top:0; background:var(--vscode-editor-background); font-weight:600; z-index:1; cursor:pointer; position:relative; }
-  th .col-resize-handle { position:absolute; top:0; right:-2px; width:5px; height:100%; cursor:col-resize; z-index:4; }
-  th .col-resize-handle:hover { background:var(--vscode-focusBorder); }
-  .row-num, .row-num-header { position:sticky; left:0; z-index:2; background:var(--vscode-editor-background); color:var(--vscode-descriptionForeground); text-align:right; padding:4px 8px; border-right:2px solid var(--vscode-panel-border); min-width:40px; max-width:none; font-size:11px; cursor:default; user-select:none; }
-  .row-num-header { z-index:3; top:0; font-weight:600; cursor:default; }
-  th:hover { background:var(--vscode-list-hoverBackground); }
-  th small { color:var(--vscode-descriptionForeground); font-weight:normal; }
-  th .sort-icon { margin-left:4px; font-size:10px; opacity:0.7; }
-  tr:hover { background:var(--vscode-list-hoverBackground); }
-  /* Selection borders via inset box-shadow so the cell's layout size
-     doesn't change when classes toggle (borders would add ~2px each side
-     and shift the row). Same pattern as diff-panel.css. */
-  td.selected {
-    background:color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important;
-    --sh-top: 0 0 0 0 transparent;
-    --sh-bottom: 0 0 0 0 transparent;
-    --sh-left: 0 0 0 0 transparent;
-    --sh-right: 0 0 0 0 transparent;
-    box-shadow:
-      inset var(--sh-top),
-      inset var(--sh-bottom),
-      inset var(--sh-left),
-      inset var(--sh-right);
-  }
-  td.sel-top { --sh-top: 0 2px 0 0 var(--vscode-focusBorder); }
-  td.sel-bottom { --sh-bottom: 0 -2px 0 0 var(--vscode-focusBorder); }
-  td.sel-left { --sh-left: 2px 0 0 0 var(--vscode-focusBorder); }
-  td.sel-right { --sh-right: -2px 0 0 0 var(--vscode-focusBorder); }
-  /* Context-menu styles come from the shared module (#94). */
+  /* Context-menu styles from the shared module (#94). */
   ${getCtxMenuCss()}
-  td.has-handle { overflow:visible !important; }
-  .resize-handle { position:absolute; bottom:-5px; right:-5px; width:8px; height:8px; background:var(--vscode-focusBorder); cursor:crosshair; z-index:5; border:2px solid var(--vscode-editor-background); border-radius:1px; }
-  .null-val { color:var(--vscode-descriptionForeground); font-style:italic; }
-  td.json-cell { cursor:pointer; }
-  td.editable { cursor:text; }
-  td.search-hit { background:color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c0055) 60%, transparent) !important; }
-  td.search-focus { outline:2px solid var(--vscode-editor-findMatchBorder, var(--vscode-focusBorder)) !important; background:color-mix(in srgb, var(--vscode-editor-findMatchBackground, #515c6a) 70%, transparent) !important; }
-  .search-input { padding:2px 6px; font-size:12px; border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); background:var(--vscode-input-background); color:var(--vscode-input-foreground); border-radius:2px; width:160px; outline:none; }
-  .search-input:focus { border-color:var(--vscode-focusBorder); }
-  .search-count { font-size:11px; min-width:30px; }
-  td.editing { padding:0; }
-  .loading-overlay { position:absolute; inset:0; z-index:10; display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--vscode-descriptionForeground); }
-  .loading-overlay::before { content:''; position:absolute; inset:0; background:var(--vscode-editor-background); opacity:0.75; }
-  ${LOADING_CSS}
-  td.editing input, td.editing select { width:100%; padding:4px 8px; border:2px solid var(--vscode-focusBorder); background:var(--vscode-input-background); color:var(--vscode-input-foreground); font-family:inherit; font-size:inherit; outline:none; }
-  td.modified { border-left:3px solid var(--vscode-inputValidation-warningBorder); }
-  tr.new-row { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
-  tr.out-of-query-row { opacity:0.4; }
-  td.invalid-cell { border-left:3px solid var(--vscode-inputValidation-errorBorder, #f44); background:var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); }
-  .default-val { color:var(--vscode-descriptionForeground); font-style:italic; }
-  .popup { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:60vw; max-height:70vh; background:var(--vscode-editor-background); border:1px solid var(--vscode-panel-border); border-radius:4px; box-shadow:0 4px 20px rgba(0,0,0,0.4); z-index:100; display:flex; flex-direction:column; }
-  .popup-header { padding:8px 12px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--vscode-panel-border); }
-  .popup-body { flex:1; overflow:auto; padding:12px; }
-  .json-editor { width:100%; min-height:200px; max-height:50vh; font-family:var(--vscode-editor-font-family); font-size:var(--vscode-editor-font-size); background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); padding:8px; white-space:pre; tab-size:2; outline:none; resize:vertical; }
-  .json-editor:focus { border-color:var(--vscode-focusBorder); }
-  .export-form label { display:block; margin-bottom:4px; font-size:12px; color:var(--vscode-descriptionForeground); }
-  .export-form select { width:100%; margin-bottom:12px; }
-  .export-form p { font-size:12px; color:var(--vscode-descriptionForeground); margin:0 0 12px; }
-  .query-bar { padding:4px 12px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; display:flex; gap:6px; align-items:center; }
-  .query-bar button { font-size:11px; }
-  .query-editor-wrap { flex:1; position:relative; font-family:var(--vscode-editor-font-family); font-size:12px; line-height:1.4; }
-  .query-editor-highlight { position:absolute; top:0; left:0; right:0; bottom:0; padding:4px 8px; white-space:pre; overflow:hidden; pointer-events:none; color:transparent; border:1px solid transparent; border-radius:2px; }
-  .query-editor-textarea { display:block; width:100%; padding:4px 8px; font:inherit; line-height:inherit; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:2px; outline:none; resize:none; overflow:hidden; caret-color:var(--vscode-input-foreground); }
-  .query-editor-textarea:focus { border-color:var(--vscode-focusBorder); }
-  .query-editor-textarea.has-highlight { color:transparent; background:var(--vscode-input-background); }
-  .tk-op { color:var(--vscode-descriptionForeground); }
-  .code-preview { padding:8px; font-family:var(--vscode-editor-font-family); font-size:var(--vscode-editor-font-size); white-space:pre-wrap; word-break:break-word; line-height:1.5; }
-  .tk-kw { color:var(--vscode-debugTokenExpression-name, #569cd6); font-weight:600; }
-  .tk-str { color:var(--vscode-debugTokenExpression-string, #ce9178); }
-  .tk-num { color:var(--vscode-debugTokenExpression-number, #b5cea8); }
-  .tk-id { color:var(--vscode-debugTokenExpression-value, #9cdcfe); }
-  .tk-cmt { color:var(--vscode-descriptionForeground); font-style:italic; }
-  .tk-bool { color:var(--vscode-debugTokenExpression-boolean, #569cd6); }
-  .tk-null { color:var(--vscode-descriptionForeground); }
-  .tk-key { color:var(--vscode-debugTokenExpression-name, #9cdcfe); }
-  .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:99; }
-  .hidden { display:none; }
+  /* Inline color overrides (per-connection color) */
+  ${colorBorder ? `.toolbar { ${colorBorder} }` : ''}
+  ${colorBorderBottom ? `.footer { ${colorBorderBottom} }` : ''}
 </style>
 <script>
 ${getCtxMenuScript()}
@@ -474,38 +431,77 @@ ${getCtxMenuScript()}
 </head>
 <body>
   <div class="toolbar">
-    <span id="statsInfo">${result.executionTimeMs}ms${result.truncated ? ' · truncated' : ''}${result.affectedRows !== undefined ? ' · ' + result.affectedRows + ' affected' : ''}</span>
-    <input type="text" id="searchInput" class="search-input" placeholder="Search..." />
-    <span id="searchCount" class="search-count"></span>
-    <span style="flex:1"></span>
-    <button id="exportBtn">Export</button>
-    <button id="visualizeBtn" title="Visualize as chart">📊</button>
-    <button id="mapBtn" title="Show on map">🗺</button>
-    <button id="addRowBtn" class="hidden">+ Row</button>
-    <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
-    <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
-    <button id="refreshBtn" title="Refresh">↻</button>
-    <button id="discardBtn" class="hidden">Discard</button>
-    <button id="prevPage" disabled>&lt;</button>
-    <span id="pageInfo"></span>
-    <button id="nextPage">&gt;</button>
-    <label>Rows per page: <select id="pageSize">
-      ${PAGE_SIZE_OPTIONS.map(n => `<option value="${n}"${n === activePageSize ? ' selected' : ''}>${n}</option>`).join('')}
-    </select></label>
+    <div class="toolbar-group">
+      <span id="statsInfo">${result.executionTimeMs}ms${result.truncated ? ' · truncated' : ''}${result.affectedRows !== undefined ? ' · ' + result.affectedRows + ' affected' : ''}</span>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <vscode-textfield id="searchInput" class="search-field" placeholder="Search...">
+        <vscode-icon slot="content-before" name="search" title="Search"></vscode-icon>
+      </vscode-textfield>
+      <span id="searchCount" class="search-count"></span>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <vscode-button id="exportBtn" appearance="secondary">
+        <vscode-icon slot="content-before" name="export"></vscode-icon>
+        Export
+      </vscode-button>
+      <vscode-button id="visualizeBtn" appearance="icon" title="Visualize as chart">
+        <vscode-icon name="graph"></vscode-icon>
+      </vscode-button>
+      <vscode-button id="mapBtn" appearance="icon" title="Show on map">
+        <vscode-icon name="map"></vscode-icon>
+      </vscode-button>
+    </div>
+    <div class="toolbar-spacer"></div>
+    <div class="toolbar-group">
+      <vscode-button id="addRowBtn" appearance="secondary" class="hidden">
+        <vscode-icon slot="content-before" name="add"></vscode-icon>
+        Row
+      </vscode-button>
+      <vscode-button id="deleteRowBtn" appearance="secondary" class="hidden" disabled>
+        <vscode-icon slot="content-before" name="remove"></vscode-icon>
+        Row
+      </vscode-button>
+      <vscode-button id="saveBtn" class="hidden">Save Changes</vscode-button>
+      <vscode-button id="discardBtn" appearance="secondary" class="hidden">Discard</vscode-button>
+    </div>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-group">
+      <vscode-button id="refreshBtn" appearance="icon" title="Refresh">
+        <vscode-icon name="refresh"></vscode-icon>
+      </vscode-button>
+      <vscode-button id="prevPage" appearance="icon" disabled title="Previous page">
+        <vscode-icon name="chevron-left"></vscode-icon>
+      </vscode-button>
+      <span id="pageInfo"></span>
+      <vscode-button id="nextPage" appearance="icon" title="Next page">
+        <vscode-icon name="chevron-right"></vscode-icon>
+      </vscode-button>
+      <span class="page-size-label">Rows:
+        <vscode-single-select id="pageSize" style="width:80px;">
+          ${PAGE_SIZE_OPTIONS.map(n => `<vscode-option value="${n}"${n === activePageSize ? ' selected' : ''}>${n}</vscode-option>`).join('')}
+        </vscode-single-select>
+      </span>
+    </div>
   </div>
   ${isTableMode ? `<div class="query-bar">
     <div class="query-editor-wrap">
       <div class="query-editor-highlight" id="queryHighlight" aria-hidden="true"></div>
       <textarea class="query-editor-textarea has-highlight" id="queryInput" rows="1" spellcheck="false">${esc(defaultQuery)}</textarea>
     </div>
-    <button id="queryRun" class="btn-primary" title="Run query (Enter)">▶</button>
+    <vscode-button id="queryRun" title="Run query (Enter)">
+      <vscode-icon slot="content-before" name="play"></vscode-icon>
+      Run
+    </vscode-button>
   </div>` : ''}
   <div class="container">
     <div id="loadingOverlay" class="loading-overlay hidden">
       <div class="loading-content">
         ${LOADING_SVG}
         <div id="loadingPhrase" class="loading-phrase">${esc((opts?.loadingPhrases || [])[0] || '')}</div>
-        <button id="cancelQuery" style="margin-top:12px;" class="btn-primary">Cancel</button>
+        <vscode-button id="cancelQuery" style="margin-top:12px;">Cancel</vscode-button>
       </div>
     </div>
     <table>
@@ -515,35 +511,54 @@ ${getCtxMenuScript()}
   </div>
   <div class="footer">
     <span id="footerRowCount"></span>
-    <button id="refreshCount" title="Get exact row count" style="font-size:11px;padding:1px 5px;">⟳</button>
-    <span style="flex:1"></span>
-    <button id="footerRefreshBtn" title="Refresh">↻</button>
-    <button id="footerExportBtn">Export</button>
-    <button id="footerAddRowBtn" class="hidden">+ Row</button>
-    <button id="footerDeleteRowBtn" class="hidden" disabled>− Row</button>
-    <button id="footerSaveBtn" class="btn-primary hidden">Save Changes</button>
-    <button id="footerDiscardBtn" class="hidden">Discard</button>
-    <button id="footerPrev" disabled>&lt;</button>
+    <vscode-button id="refreshCount" appearance="icon" title="Get exact row count">
+      <vscode-icon name="sync"></vscode-icon>
+    </vscode-button>
+    <div class="toolbar-spacer"></div>
+    <vscode-button id="footerRefreshBtn" appearance="icon" title="Refresh">
+      <vscode-icon name="refresh"></vscode-icon>
+    </vscode-button>
+    <vscode-button id="footerExportBtn" appearance="secondary">
+      <vscode-icon slot="content-before" name="export"></vscode-icon>
+      Export
+    </vscode-button>
+    <vscode-button id="footerAddRowBtn" appearance="secondary" class="hidden">
+      <vscode-icon slot="content-before" name="add"></vscode-icon>
+      Row
+    </vscode-button>
+    <vscode-button id="footerDeleteRowBtn" appearance="secondary" class="hidden" disabled>
+      <vscode-icon slot="content-before" name="remove"></vscode-icon>
+      Row
+    </vscode-button>
+    <vscode-button id="footerSaveBtn" class="hidden">Save Changes</vscode-button>
+    <vscode-button id="footerDiscardBtn" appearance="secondary" class="hidden">Discard</vscode-button>
+    <vscode-button id="footerPrev" appearance="icon" disabled title="Previous page">
+      <vscode-icon name="chevron-left"></vscode-icon>
+    </vscode-button>
     <span id="footerPageInfo"></span>
-    <button id="footerNext">&gt;</button>
+    <vscode-button id="footerNext" appearance="icon" title="Next page">
+      <vscode-icon name="chevron-right"></vscode-icon>
+    </vscode-button>
   </div>
   <div id="overlay" class="overlay hidden"></div>
   <div id="exportPopup" class="popup hidden" style="width:360px;">
     <div class="popup-header">
       <span>Export Data</span>
-      <button id="exportClose">Close</button>
+      <vscode-button id="exportClose" appearance="icon" title="Close">
+        <vscode-icon name="close"></vscode-icon>
+      </vscode-button>
     </div>
     <div class="popup-body export-form">
       <label for="exportFormat">Format</label>
-      <select id="exportFormat">
-        <option value="csv">CSV</option>
-        <option value="tsv">TSV</option>
-        <option value="csv-semicolon">CSV (semicolon)</option>
-        <option value="json">JSON</option>
-        <option value="markdown">Markdown Table</option>
-      </select>
+      <vscode-single-select id="exportFormat">
+        <vscode-option value="csv">CSV</vscode-option>
+        <vscode-option value="tsv">TSV</vscode-option>
+        <vscode-option value="csv-semicolon">CSV (semicolon)</vscode-option>
+        <vscode-option value="json">JSON</vscode-option>
+        <vscode-option value="markdown">Markdown Table</vscode-option>
+      </vscode-single-select>
       <p id="exportInfo"></p>
-      <button id="exportConfirm" class="btn-primary">Export</button>
+      <vscode-button id="exportConfirm">Export</vscode-button>
     </div>
   </div>
 <script>
@@ -697,6 +712,14 @@ ${getCtxMenuScript()}
     }).join(',') + '}';
   }
 
+  function dataTypeClass(dt) {
+    if (/^(int|integer|bigint|smallint|serial|bigserial|numeric|decimal|real|float|double|money|oid|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float32|Float64)/i.test(dt)) return 'numeric';
+    if (/^(uuid|uniqueidentifier)$/i.test(dt)) return 'uuid';
+    if (/^(timestamp|datetime|date|time|interval)/i.test(dt)) return 'timestamp';
+    if (/^(bool|boolean|Bool)$/i.test(dt)) return 'boolean';
+    return 'text';
+  }
+
   // --- Rendering ---
   function renderHeader() {
     const headerRow = document.getElementById('headerRow');
@@ -709,7 +732,8 @@ ${getCtxMenuScript()}
         if (sortColumns.length > 1) icon += '<sup>' + (sortIdx+1) + '</sup>';
         icon += '</span>';
       }
-      return '<th data-col="' + i + '">' + escHtml(c.name) + icon + '<br><small>' + escHtml(c.dataType) + '</small><div class="col-resize-handle"></div></th>';
+      var tc = dataTypeClass(c.dataType);
+      return '<th data-col="' + i + '" data-type-class="' + tc + '">' + escHtml(c.name) + icon + '<span class="col-type">' + escHtml(c.dataType) + '</span><div class="col-resize-handle"></div></th>';
     }).join('');
     headerRow.querySelectorAll('th[data-col]').forEach(th => {
       th.addEventListener('click', (e) => { if (e.target.classList && e.target.classList.contains('col-resize-handle')) return; handleSortClick(Number(th.dataset.col), e.shiftKey); });
@@ -776,7 +800,8 @@ ${getCtxMenuScript()}
         const isComplex = row[c.name] !== null && row[c.name] !== undefined && row[c.name] !== '__DEFAULT__' && (jsonTypes.has(c.dataType) || isComplexValue(row[c.name]));
         const jsonClass = isComplex ? ' json-cell' : '';
         const editClass = !IS_READONLY && !isComplex && (pkColumns.length > 0 || isNewRow) ? ' editable' : '';
-        return '<td data-row="' + ri + '" data-col="' + ci + '" class="' + modClass + jsonClass + editClass + '">' + formatCell(row[c.name], c) + '</td>';
+        var tc = dataTypeClass(c.dataType);
+        return '<td data-row="' + ri + '" data-col="' + ci + '" data-type-class="' + tc + '" class="' + modClass + jsonClass + editClass + '">' + formatCell(row[c.name], c) + '</td>';
       }).join('');
       var trClass = isNewRow ? ' class="new-row"' : isOutOfQuery ? ' class="out-of-query-row"' : '';
       return '<tr' + trClass + '>' + rowNum + cells + '</tr>';
@@ -1054,7 +1079,7 @@ ${getCtxMenuScript()}
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyF') {
       e.preventDefault();
       searchInput.focus();
-      searchInput.select();
+      if (searchInput.select) searchInput.select();
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC' && selectedCells.size > 0) {
