@@ -504,6 +504,36 @@ describe('ConnectionManager', () => {
     });
   });
 
+  describe('ensureDriver', () => {
+    it('reconnects a disconnected connection before returning its primary driver', async () => {
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'ensure-1' }));
+
+      const driver = await manager.ensureDriver('ensure-1');
+
+      expect(driver).toBe(manager.getDriver('ensure-1'));
+      expect(manager.get('ensure-1')?.connected).toBe(true);
+      expect(driver.connect).toHaveBeenCalledOnce();
+    });
+
+    it('reuses an existing primary driver without reconnecting', async () => {
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'ensure-2' }));
+      await manager.connect('ensure-2');
+      const existing = manager.getDriver('ensure-2')!;
+
+      const driver = await manager.ensureDriver('ensure-2');
+
+      expect(driver).toBe(existing);
+      expect(existing.connect).toHaveBeenCalledOnce();
+    });
+
+    it('throws for an unknown connection', async () => {
+      const manager = createManager();
+      await expect(manager.ensureDriver('ghost')).rejects.toThrow('Connection not found');
+    });
+  });
+
   // -----------------------------------------------------------------------
   // testConnection
   // -----------------------------------------------------------------------

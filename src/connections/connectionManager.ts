@@ -179,6 +179,24 @@ export class ConnectionManager {
     return this.drivers.get(id);
   }
 
+  /** Return a usable driver, reconnecting a disconnected connection when needed. */
+  async ensureDriver(connectionId: string, database?: string): Promise<DatabaseDriver> {
+    const state = this.connections.get(connectionId);
+    if (!state) throw new Error('Connection not found');
+
+    if (!database || state.config.database === database) {
+      let driver = this.drivers.get(connectionId);
+      if (!driver) {
+        await this.connect(connectionId);
+        driver = this.drivers.get(connectionId);
+      }
+      if (!driver) throw new Error('Connection driver unavailable');
+      return driver;
+    }
+
+    return this.getDriverForDatabase(connectionId, database);
+  }
+
   /** Get or create a cached driver for a specific database within a multi-DB connection */
   async getDriverForDatabase(connectionId: string, database: string): Promise<DatabaseDriver> {
     const state = this.connections.get(connectionId);
