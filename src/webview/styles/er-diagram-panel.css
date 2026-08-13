@@ -28,28 +28,100 @@ body {
 }
 
 .toolbar-help { margin-left: 4px; }
-.status { margin-left: auto; }
+.status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .toolbar vscode-button { flex: 0 0 auto; white-space: nowrap; }
 
 .toolbar-search {
-  min-width: 210px;
-  max-width: 360px;
-  flex: 1 1 280px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
+  position: relative;
+  width: min(390px, 42vw);
+  min-width: 220px;
+  flex: 0 1 390px;
 }
 
-.toolbar-search vscode-textfield {
-  min-width: 160px;
+.search-field {
+  position: relative;
   width: 100%;
 }
 
-.search-status {
-  flex: 0 0 auto;
-  color: var(--viewstor-text-dimmed);
-  font-size: var(--viewstor-font-meta-size);
+.search-field vscode-textfield { width: 100%; }
+
+.search-results {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  max-height: min(50vh, 420px);
+  overflow: auto;
+  padding: 4px 0;
+  border: 1px solid var(--vscode-menu-border, var(--viewstor-border-subtle));
+  border-radius: 3px;
+  background: var(--vscode-menu-background, var(--vscode-dropdown-background));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .3);
+}
+
+.search-result {
+  width: 100%;
+  padding: 7px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  border: 0;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-result:hover,
+.search-result:focus-visible {
+  outline: none;
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+}
+
+.search-result-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.search-result-kind,
+.search-result-columns,
+.search-results-empty {
+  color: var(--vscode-descriptionForeground, var(--viewstor-text-dimmed));
+  font-size: var(--viewstor-font-meta-size);
+}
+
+.search-result-kind { text-transform: capitalize; }
+
+.search-result-columns {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-results-empty { padding: 8px 10px; }
+
+.toolbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.toolbar-icon-button {
+  width: 28px;
+  height: 28px;
 }
 
 .relationships-toggle {
@@ -213,6 +285,8 @@ main {
 }
 
 @media (max-width: 720px) {
-  .search-status,
+  .status,
   .legend { display: none; }
+
+  .toolbar-search { width: min(100%, 340px); }
 }

@@ -10,7 +10,7 @@
   const refreshBtn = document.getElementById('refreshBtn');
   const relationshipsBtn = document.getElementById('relationshipsBtn');
   const searchInput = document.getElementById('searchInput');
-  const searchStatusEl = document.getElementById('searchStatus');
+  const searchResultsEl = document.getElementById('searchResults');
 
   const FIT_CARD_WIDTH = 196;
   const DETAIL_WIDTH = 326;
@@ -54,6 +54,7 @@
   let searchTimer;
   let searchMatchIds;
   let searchIsolatedTableId;
+  let latestSearchMatches = [];
   let tableActions = [];
   let cardTextStyleCache = new Map();
 
@@ -72,7 +73,7 @@
     ];
   }
 
-  function matchingTableIds(value) {
+  function matchingTables(value) {
     const terms = String(value || '').trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     if (terms.length === 0) return [];
     return data.tables.filter(entity => {
@@ -80,7 +81,13 @@
         .join('\n')
         .toLocaleLowerCase();
       return terms.every(term => searchable.includes(term));
-    }).map(entity => entity.id);
+    }).map(entity => ({
+      entity,
+      columns: entity.columns.filter(column => {
+        const name = column.name.toLocaleLowerCase();
+        return terms.some(term => name.includes(term));
+      }),
+    }));
   }
 
   function safeRichText(value) {
@@ -592,13 +599,72 @@
     if (chart) chart.dispatchAction({ type: 'downplay', seriesId: 'erGraph' });
   }
 
+  function hideSearchResults() {
+    searchResultsEl.classList.add('hidden');
+  }
+
+  function openSearchResult(tableId) {
+    searchMatchIds = undefined;
+    searchIsolatedTableId = tableId;
+    isolatedTableId = tableId;
+    hideSearchResults();
+    renderChart();
+  }
+
+  function renderSearchResults(query, matches) {
+    latestSearchMatches = matches;
+    searchResultsEl.replaceChildren();
+    if (!query) {
+      hideSearchResults();
+      return;
+    }
+
+    if (matches.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'search-results-empty';
+      empty.textContent = 'No matching tables, views, or columns';
+      searchResultsEl.appendChild(empty);
+      searchResultsEl.classList.remove('hidden');
+      return;
+    }
+
+    for (const match of matches) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'search-result';
+      button.setAttribute('role', 'option');
+      button.addEventListener('click', () => openSearchResult(match.entity.id));
+
+      const name = document.createElement('span');
+      name.className = 'search-result-name';
+      name.textContent = match.entity.name;
+      const kind = document.createElement('span');
+      kind.className = 'search-result-kind';
+      kind.textContent = match.entity.kind;
+      button.append(name, kind);
+
+      const details = [];
+      if (match.entity.schema) details.push(match.entity.schema);
+      if (match.columns.length > 0) details.push(match.columns.map(column => column.name).join(', '));
+      if (details.length > 0) {
+        const columns = document.createElement('span');
+        columns.className = 'search-result-columns';
+        columns.textContent = details.join(' · ');
+        button.appendChild(columns);
+      }
+      searchResultsEl.appendChild(button);
+    }
+    searchResultsEl.classList.remove('hidden');
+  }
+
   function clearSearchState() {
     if (searchTimer !== undefined) window.clearTimeout(searchTimer);
     searchTimer = undefined;
     searchMatchIds = undefined;
     searchIsolatedTableId = undefined;
+    latestSearchMatches = [];
     searchInput.value = '';
-    searchStatusEl.textContent = '';
+    hideSearchResults();
   }
 
   function applySearch(value) {
@@ -606,9 +672,9 @@
     const previousSearchTableId = searchIsolatedTableId;
     const hadMultipleMatches = searchMatchIds !== undefined;
     if (!query) {
+      renderSearchResults('', []);
       searchMatchIds = undefined;
       searchIsolatedTableId = undefined;
-      searchStatusEl.textContent = '';
       if (previousSearchTableId && isolatedTableId === previousSearchTableId) {
         isolatedTableId = undefined;
         renderChart();
@@ -618,11 +684,11 @@
       return;
     }
 
-    const matches = matchingTableIds(query);
+    const matches = matchingTables(query);
+    renderSearchResults(query, matches);
     if (matches.length === 0) {
       searchMatchIds = undefined;
       searchIsolatedTableId = undefined;
-      searchStatusEl.textContent = 'No matches';
       if (previousSearchTableId && isolatedTableId === previousSearchTableId) {
         isolatedTableId = undefined;
         renderChart();
@@ -633,11 +699,9 @@
     }
 
     if (matches.length === 1) {
-      const tableId = matches[0];
-      const entity = data.tables.find(table => table.id === tableId);
+      const tableId = matches[0].entity.id;
       searchMatchIds = undefined;
       searchIsolatedTableId = tableId;
-      searchStatusEl.textContent = `1 table · ${entity ? entity.name : tableId}`;
       if (isolatedTableId !== tableId) {
         isolatedTableId = tableId;
         renderChart();
@@ -647,9 +711,8 @@
       return;
     }
 
-    searchMatchIds = new Set(matches);
+    searchMatchIds = new Set(matches.map(match => match.entity.id));
     searchIsolatedTableId = undefined;
-    searchStatusEl.textContent = `${matches.length} tables`;
     if (isolatedTableId || !hadMultipleMatches) {
       isolatedTableId = undefined;
       renderChart();
@@ -1174,7 +1237,9 @@
 
   function toggleRelationships() {
     relationshipsVisible = !relationshipsVisible;
-    relationshipsBtn.textContent = relationshipsVisible ? 'Hide relationships' : 'Show relationships';
+    const label = relationshipsVisible ? 'Hide relationships' : 'Show relationships';
+    relationshipsBtn.setAttribute('aria-label', label);
+    relationshipsBtn.setAttribute('title', label);
     relationshipsBtn.setAttribute('aria-pressed', String(relationshipsVisible));
     hideHoverTooltip();
     if (chart && positionedNodes.length > 0) {
@@ -1212,6 +1277,10 @@
   refreshBtn.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
   relationshipsBtn.addEventListener('click', toggleRelationships);
   searchInput.addEventListener('input', queueSearch);
+  searchInput.addEventListener('focus', () => {
+    const query = String(searchInput.value || '').trim();
+    if (query) renderSearchResults(query, latestSearchMatches);
+  });
   searchInput.addEventListener('keydown', event => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
@@ -1228,6 +1297,12 @@
     } else if (isolatedTableId) {
       event.preventDefault();
       exitFocusedGraph();
+    }
+  });
+  document.addEventListener('mousedown', event => {
+    const target = event.target;
+    if (!target || typeof target.closest !== 'function' || !target.closest('.toolbar-search')) {
+      hideSearchResults();
     }
   });
   window.addEventListener('resize', resizeChart);

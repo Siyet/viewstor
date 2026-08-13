@@ -157,14 +157,20 @@ export class ErDiagramPanelManager {
 </head>
 <body>
   <div class="toolbar" style="${esc(accentBorder)}">
-    <vscode-button id="refreshBtn" secondary icon="refresh">Refresh</vscode-button>
     <div class="toolbar-search">
-      <vscode-textfield id="searchInput" placeholder="Search tables or columns…" aria-label="Search tables, views, and columns"></vscode-textfield>
-      <span id="searchStatus" class="search-status" aria-live="polite"></span>
+      <div class="search-field">
+        <vscode-textfield id="searchInput" placeholder="Search tables or columns…" aria-label="Search tables, views, and columns" autocomplete="off">
+          <vscode-icon slot="content-before" name="search"></vscode-icon>
+        </vscode-textfield>
+      </div>
+      <div id="searchResults" class="search-results hidden" role="listbox" aria-label="Search results"></div>
     </div>
-    <vscode-button id="relationshipsBtn" class="relationships-toggle" secondary icon="type-hierarchy" aria-pressed="true">Hide relationships</vscode-button>
     <span class="toolbar-help">Drag empty canvas or hold middle mouse to pan · scroll to zoom · double-click a table to isolate its neighbours · Esc to exit</span>
     <span id="status" class="status"></span>
+    <div class="toolbar-actions">
+      <vscode-button id="refreshBtn" class="toolbar-icon-button" secondary icon-only icon="refresh" aria-label="Refresh" title="Refresh"></vscode-button>
+      <vscode-button id="relationshipsBtn" class="toolbar-icon-button relationships-toggle" secondary icon-only icon="type-hierarchy" aria-label="Hide relationships" title="Hide relationships" aria-pressed="true"></vscode-button>
+    </div>
   </div>
   <main>
     <section class="canvas-wrap">

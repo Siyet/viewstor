@@ -163,20 +163,35 @@ describe('ER diagram interactions', () => {
     const script = readScript();
     expect(panel).toContain('id="searchInput"');
     expect(panel).toContain('placeholder="Search tables or columns…"');
-    expect(panel).toContain('id="searchStatus"');
+    expect(panel).toContain('slot="content-before" name="search"');
+    expect(panel).toContain('id="searchResults"');
+    expect(panel).toContain('role="listbox"');
     expect(script).toContain('...entity.columns.map(column => column.name)');
     expect(script).toContain('return terms.every(term => searchable.includes(term))');
     expect(script).toContain('if (matches.length === 1)');
     expect(script).toContain('isolatedTableId = tableId');
-    expect(script).toContain('searchMatchIds = new Set(matches)');
+    expect(script).toContain('searchMatchIds = new Set(matches.map(match => match.entity.id))');
     expect(script).toContain('searchMatchIds.has(record.node.id) ? 1 : 0.18');
+    expect(script).toContain('button.addEventListener(\'click\', () => openSearchResult(match.entity.id))');
+    expect(script).toContain('match.columns.map(column => column.name).join(\', \')');
   });
 
   it('renders the relationship toggle as a lower-emphasis action', () => {
     const panel = fs.readFileSync(PANEL_PATH, 'utf-8');
     const style = fs.readFileSync(STYLE_PATH, 'utf-8');
-    expect(panel).toContain('class="relationships-toggle"');
+    expect(panel).toContain('class="toolbar-icon-button relationships-toggle"');
     expect(style).toMatch(/\.relationships-toggle \{[^}]*opacity: \.58;[^}]*filter: saturate\(\.65\);/s);
+  });
+
+  it('keeps refresh and relationship actions as icon-only controls on the right', () => {
+    const panel = fs.readFileSync(PANEL_PATH, 'utf-8');
+    const style = fs.readFileSync(STYLE_PATH, 'utf-8');
+    expect(panel).toContain('id="refreshBtn" class="toolbar-icon-button" secondary icon-only icon="refresh"');
+    expect(panel).toContain('id="relationshipsBtn" class="toolbar-icon-button relationships-toggle" secondary icon-only');
+    expect(panel).not.toContain('>Refresh</vscode-button>');
+    expect(panel).not.toContain('>Hide relationships</vscode-button>');
+    expect(style).toMatch(/\.toolbar-actions \{[^}]*margin-left: auto;/s);
+    expect(style).toMatch(/\.toolbar-search \{[^}]*position: relative;[^}]*width: min\(390px, 42vw\);/s);
   });
 
   it('uses the shared context-menu primitive and host-provided table actions', () => {
