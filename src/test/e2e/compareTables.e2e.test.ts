@@ -159,7 +159,7 @@ describeIf(isDockerAvailable)('Compare Tables E2E matrix', () => {
     expect(common.get('changed_type')?.typeDiffers).toBe(true);
     expect(common.get('changed_nullable')?.nullableDiffers).toBe(true);
     expect(common.get('stable_text')?.nullableDiffers).toBe(false);
-    expect(common.get('id')?.pkDiffers).toBe(leftEngine !== 'ch');
+    expect(common.get('id')?.pkDiffers).toBe(true);
     expect(common.get('commented')?.commentDiffers).toBe(
       !(leftEngine === 'sqlite' && rightEngine === 'sqlite'),
     );
@@ -287,7 +287,7 @@ async function seedClickHouse(driver: DatabaseDriver): Promise<void> {
     `CREATE TABLE ${NAMESPACE}.schema_right (
       id Int64, stable_text String, changed_type String,
       changed_nullable String, commented String COMMENT 'right comment', right_only String
-    ) ENGINE = MergeTree ORDER BY id`,
+    ) ENGINE = MergeTree ORDER BY tuple()`,
   ]);
 }
 

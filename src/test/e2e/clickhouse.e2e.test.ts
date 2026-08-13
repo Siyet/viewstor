@@ -140,6 +140,7 @@ describeIf(isDockerAvailable)('ClickHouse Driver E2E', () => {
 
     const idCol = info.columns.find(c => c.name === 'id');
     expect(idCol!.dataType).toBe('UInt64');
+    expect(idCol!.isPrimaryKey).toBe(true);
 
     const createdCol = info.columns.find(c => c.name === 'created_at');
     expect(createdCol!.defaultValue).toContain('now()');

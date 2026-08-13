@@ -3,6 +3,7 @@ import { CommandContext, getRequiredDriver, wrapError } from './shared';
 import type { ConnectionTreeItem } from '../views/connectionTree';
 import type { DiffSource, DiffOptions } from '../diff/diffTypes';
 import type { QueryResult } from '../types/query';
+import type { ColumnInfo, TableInfo } from '../types/schema';
 import { collectComparableTables } from '../diff/diffTablePicker';
 import { dbg } from '../utils/debug';
 
@@ -73,19 +74,8 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             } catch { /* statistics unavailable — diff will omit stats tab */ }
           }
 
-          // Auto-detect key columns from left table PKs
-          const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
-          let keyColumns = pkColumns;
-
-          if (keyColumns.length === 0) {
-            // No PK — ask user to pick key columns
-            const colPick = await vscode.window.showQuickPick(
-              leftInfo.columns.map(c => ({ label: c.name, description: c.dataType, picked: false })),
-              { canPickMany: true, placeHolder: vscode.l10n.t('No primary key found. Select key column(s) for matching:') },
-            );
-            if (!colPick || colPick.length === 0) return;
-            keyColumns = colPick.map(c => c.label);
-          }
+          const keyColumns = await chooseKeyColumns(leftInfo, rightInfo);
+          if (!keyColumns) return;
 
           const leftSource: DiffSource = {
             label: `${leftState.config.name} → ${item.schemaObject!.name}`,
@@ -186,17 +176,8 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             } catch { /* statistics unavailable — diff will omit stats tab */ }
           }
 
-          const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
-          let keyColumns = pkColumns;
-
-          if (keyColumns.length === 0) {
-            const colPick = await vscode.window.showQuickPick(
-              leftInfo.columns.map(c => ({ label: c.name, description: c.dataType, picked: false })),
-              { canPickMany: true, placeHolder: vscode.l10n.t('No primary key found. Select key column(s) for matching:') },
-            );
-            if (!colPick || colPick.length === 0) return;
-            keyColumns = colPick.map(c => c.label);
-          }
+          const keyColumns = await chooseKeyColumns(leftInfo, rightInfo);
+          if (!keyColumns) return;
 
           const leftState = connectionManager.get(leftPick.connectionId);
           const rightState = connectionManager.get(rightPick.connectionId);
@@ -239,6 +220,52 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
 function assertDiffDataLoaded(left: QueryResult, right: QueryResult): void {
   if (left.error) throw new Error(left.error);
   if (right.error) throw new Error(right.error);
+}
+
+/**
+ * Resolve row-matching keys that exist on both sides. Prefer a complete PK from
+ * the left source, then from the right source (important for table ↔ view
+ * comparisons). If neither side exposes a usable PK, ask only about common
+ * columns and suggest a conventional `id` column.
+ */
+async function chooseKeyColumns(left: TableInfo, right: TableInfo): Promise<string[] | undefined> {
+  const rightNames = new Set(right.columns.map(column => column.name));
+  const leftNames = new Set(left.columns.map(column => column.name));
+  const leftPk = primaryKeyColumns(left.columns);
+  const rightPk = primaryKeyColumns(right.columns);
+
+  if (leftPk.length > 0 && leftPk.every(column => rightNames.has(column))) return leftPk;
+  if (rightPk.length > 0 && rightPk.every(column => leftNames.has(column))) return rightPk;
+
+  const common = left.columns.filter(column => rightNames.has(column.name));
+  if (common.length === 0) {
+    throw new Error(vscode.l10n.t('The selected tables have no common columns to use for row matching.'));
+  }
+
+  const suggested = common.find(column => column.name.toLocaleLowerCase() === 'id')
+    ?? (common.filter(column => /_id$/i.test(column.name)).length === 1
+      ? common.find(column => /_id$/i.test(column.name))
+      : undefined);
+  const rightTypes = new Map(right.columns.map(column => [column.name, column.dataType]));
+  const colPick = await vscode.window.showQuickPick(
+    common.map(column => ({
+      label: column.name,
+      description: column.dataType === rightTypes.get(column.name)
+        ? column.dataType
+        : `${column.dataType} ↔ ${rightTypes.get(column.name)}`,
+      picked: column.name === suggested?.name,
+    })),
+    {
+      canPickMany: true,
+      placeHolder: vscode.l10n.t('No shared primary key found. Select common column(s) that uniquely identify a row:'),
+    },
+  );
+  if (!colPick || colPick.length === 0) return undefined;
+  return colPick.map(column => column.label);
+}
+
+function primaryKeyColumns(columns: ColumnInfo[]): string[] {
+  return columns.filter(column => column.isPrimaryKey).map(column => column.name);
 }
 
 interface TablePickItem {

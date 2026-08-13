@@ -244,8 +244,97 @@ describe('Data Diff commands', () => {
     await command('viewstor.compareData')();
 
     expect(mocks.showQuickPick).toHaveBeenCalledOnce();
+    expect(mocks.showQuickPick.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ label: 'external_id', picked: true }),
+      expect.objectContaining({ label: 'value', picked: false }),
+    ]);
     expect(diffPanelManager.show).toHaveBeenCalledOnce();
     expect(diffPanelManager.show.mock.calls[0][2]).toEqual({ keyColumns: ['external_id'], rowLimit: 10000 });
+  });
+
+  it('uses a right-side primary key when comparing a keyless view with its table', async () => {
+    const driver = makeDriver([
+      { name: 'customer_summary', type: 'view' },
+      { name: 'customers', type: 'table' },
+    ], {
+      info: name => ({
+        name,
+        columns: [
+          { name: 'id', dataType: 'UInt64', nullable: false, isPrimaryKey: name === 'customers' },
+          { name: 'name', dataType: 'String', nullable: false, isPrimaryKey: false },
+          ...(name === 'customer_summary'
+            ? [{ name: 'order_count', dataType: 'UInt64', nullable: false, isPrimaryKey: false }]
+            : [{ name: 'email', dataType: 'String', nullable: true, isPrimaryKey: false }]),
+        ],
+      }),
+      data: name => ({
+        columns: name === 'customer_summary'
+          ? [
+            { name: 'id', dataType: 'UInt64' },
+            { name: 'name', dataType: 'String' },
+            { name: 'order_count', dataType: 'UInt64' },
+          ]
+          : [
+            { name: 'id', dataType: 'UInt64' },
+            { name: 'name', dataType: 'String' },
+            { name: 'email', dataType: 'String' },
+          ],
+        rows: [{ id: '1', name: 'Customer 1' }],
+        rowCount: 1,
+        executionTimeMs: 1,
+      }),
+    });
+    const { diffPanelManager } = setup([{ id: 'ch', name: 'ClickHouse', type: 'clickhouse', driver }]);
+    mocks.pickerPlans.push(
+      { connectionId: 'ch', tableName: 'customer_summary' },
+      { connectionId: 'ch', tableName: 'customers' },
+    );
+
+    await command('viewstor.compareData')();
+
+    expect(mocks.showQuickPick).not.toHaveBeenCalled();
+    expect(diffPanelManager.show).toHaveBeenCalledOnce();
+    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({ keyColumns: ['id'], rowLimit: 10000 });
+  });
+
+  it('offers only common columns and suggests id when neither side has a primary key', async () => {
+    const driver = makeDriver([
+      { name: 'customer_summary', type: 'view' },
+      { name: 'customers', type: 'view' },
+    ], {
+      info: name => ({
+        name,
+        columns: name === 'customer_summary'
+          ? [
+            { name: 'id', dataType: 'UInt64', nullable: false, isPrimaryKey: false },
+            { name: 'name', dataType: 'String', nullable: false, isPrimaryKey: false },
+            { name: 'order_count', dataType: 'UInt64', nullable: false, isPrimaryKey: false },
+          ]
+          : [
+            { name: 'id', dataType: 'UInt64', nullable: false, isPrimaryKey: false },
+            { name: 'name', dataType: 'String', nullable: false, isPrimaryKey: false },
+            { name: 'email', dataType: 'String', nullable: true, isPrimaryKey: false },
+          ],
+      }),
+    });
+    const { diffPanelManager } = setup([{ id: 'ch', name: 'ClickHouse', type: 'clickhouse', driver }]);
+    mocks.pickerPlans.push(
+      { connectionId: 'ch', tableName: 'customer_summary' },
+      { connectionId: 'ch', tableName: 'customers' },
+    );
+    mocks.columnPicks.push([{ label: 'id', description: 'UInt64' }]);
+
+    await command('viewstor.compareData')();
+
+    expect(mocks.showQuickPick.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ label: 'id', picked: true }),
+      expect.objectContaining({ label: 'name', picked: false }),
+    ]);
+    expect(mocks.showQuickPick.mock.calls[0][0]).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'order_count' }),
+      expect.objectContaining({ label: 'email' }),
+    ]));
+    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({ keyColumns: ['id'], rowLimit: 10000 });
   });
 
   it('Compare Data cancel at the second picker does not fetch data or open a panel', async () => {

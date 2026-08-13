@@ -183,22 +183,31 @@ export class ClickHouseDriver implements DatabaseDriver {
   async getTableInfo(name: string, schema?: string): Promise<TableInfo> {
     const db = schema || 'default';
     const result = await this.client!.query({
-      query: `DESCRIBE TABLE ${quoteIdentifier(db)}.${quoteIdentifier(name)}`,
+      query: `SELECT name, type, default_kind, default_expression, comment, is_in_primary_key
+              FROM system.columns
+              WHERE database = {db:String} AND table = {table:String}
+              ORDER BY position`,
       format: 'JSONEachRow',
+      query_params: { db, table: name },
     });
     const colRows = await result.json<{
       name: string;
       type: string;
-      default_type: string;
+      default_kind: string;
       default_expression: string;
       comment: string;
+      is_in_primary_key: number | string;
     }[]>();
 
     const columns: ColumnInfo[] = colRows.map(row => ({
       name: row.name,
       dataType: row.type,
       nullable: row.type.startsWith('Nullable'),
-      isPrimaryKey: false,
+      // MergeTree tables use ORDER BY as the primary key when no explicit
+      // PRIMARY KEY is declared. system.columns exposes that resolved key,
+      // unlike DESCRIBE TABLE, so Compare Tables can match ClickHouse rows
+      // without asking the user to guess the key columns.
+      isPrimaryKey: Number(row.is_in_primary_key) === 1,
       defaultValue: row.default_expression || undefined,
       comment: row.comment || undefined,
     }));

@@ -34,3 +34,31 @@ describe('ClickHouseDriver.getTableStatistics', () => {
     });
   });
 });
+
+describe('ClickHouseDriver.getTableInfo', () => {
+  it('marks columns from the resolved ClickHouse primary key', async () => {
+    const json = vi.fn().mockResolvedValue([
+      {
+        name: 'id', type: 'UInt64', default_kind: '', default_expression: '',
+        comment: '', is_in_primary_key: 1,
+      },
+      {
+        name: 'name', type: 'String', default_kind: '', default_expression: '',
+        comment: 'Customer name', is_in_primary_key: 0,
+      },
+    ]);
+    const query = vi.fn().mockResolvedValue({ json });
+    const driver = new ClickHouseDriver();
+    (driver as unknown as { client: { query: typeof query } }).client = { query };
+
+    const info = await driver.getTableInfo('customers', 'demo');
+
+    expect(query).toHaveBeenCalledWith(expect.objectContaining({
+      query_params: { db: 'demo', table: 'customers' },
+    }));
+    expect(info.columns).toEqual([
+      expect.objectContaining({ name: 'id', isPrimaryKey: true }),
+      expect.objectContaining({ name: 'name', isPrimaryKey: false, comment: 'Customer name' }),
+    ]);
+  });
+});

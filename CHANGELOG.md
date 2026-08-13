@@ -19,6 +19,7 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 - PostgreSQL views no longer report the internal `-1` row-estimate sentinel. View statistics fall back to an exact `COUNT(*)`, or show the metric as unavailable when the relation cannot be read.
 - SQLite tables and views now appear in the **Compare With...** picker alongside PostgreSQL and ClickHouse objects; the picker supports both flat and namespace-nested driver schemas.
 - Compare Tables no longer opens an empty diff when a driver returns a data-loading error as part of its query result; both entry points now surface the original error and leave the current workspace unchanged.
+- ClickHouse table/view comparisons now resolve MergeTree primary-key columns from `system.columns`, can reuse a compatible key from either side, and limit manual key selection to columns present in both sources. This prevents valid rows from appearing as entirely added/removed when a view has computed columns that the base table does not.
 
 ## [0.5.0] — 2026-08-13
 
