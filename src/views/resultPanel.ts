@@ -379,9 +379,11 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
 <style>
   * { box-sizing: border-box; }
   body { font-family: var(--vscode-font-family); padding:0; margin:0; font-size:13px; display:flex; flex-direction:column; height:100vh; }
-  .toolbar { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorder} }
-  .toolbar-group { display:flex; align-items:center; gap:8px; }
-  .toolbar-sep { width:1px; height:16px; background:var(--vscode-panel-border); flex-shrink:0; }
+  .toolbar { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorder} }
+  .toolbar-group { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; min-width:0; }
+  .toolbar-group-search { flex:0 1 220px; }
+  .toolbar-spacer { flex:1 1 16px; min-width:0; }
+  .toolbar-sep { width:1px; height:16px; background:var(--viewstor-border-subtle, var(--vscode-panel-border, currentColor)); flex-shrink:0; }
   .footer { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:12px; border-top:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorderBottom} }
   .toolbar select, .footer select { background:var(--vscode-dropdown-background); color:var(--vscode-dropdown-foreground); border:1px solid var(--vscode-dropdown-border); padding:2px 6px; font-size:12px; border-radius:2px; }
   .toolbar button, .footer button { background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground); border:none; padding:2px 8px; font-size:12px; cursor:pointer; border-radius:2px; }
@@ -395,16 +397,15 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   th { position:sticky; top:0; background:var(--vscode-editor-background); font-weight:600; z-index:1; cursor:pointer; position:relative; }
   th .col-resize-handle { position:absolute; top:0; right:-2px; width:5px; height:100%; cursor:col-resize; z-index:4; }
   th .col-resize-handle:hover { background:var(--vscode-focusBorder); }
-  .row-num, .row-num-header { position:sticky; left:0; z-index:2; background:var(--vscode-editor-background); color:var(--vscode-descriptionForeground); text-align:right; padding:4px 8px; border-right:2px solid var(--vscode-panel-border); min-width:40px; max-width:none; font-size:11px; cursor:default; user-select:none; }
+  .row-num, .row-num-header { position:sticky; left:0; z-index:2; background:var(--vscode-editor-background) !important; color:var(--vscode-descriptionForeground); text-align:right; padding:4px 8px; border-right:2px solid var(--vscode-panel-border); min-width:40px; max-width:none; font-size:11px; cursor:default; user-select:none; }
   .row-num-header { z-index:3; top:0; font-weight:600; cursor:default; }
   th:hover { background:var(--vscode-list-hoverBackground); }
   th small { color:var(--vscode-descriptionForeground); font-weight:normal; }
   th .sort-icon { margin-left:4px; font-size:10px; opacity:0.7; }
   tbody tr:nth-child(even) td { background:var(--viewstor-row-zebra, color-mix(in srgb, var(--vscode-foreground) 4%, transparent)); }
-  tbody tr:nth-child(even) .row-num { background:var(--vscode-editor-background); }
+  tbody tr.new-row td { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
   tr.new-row:nth-child(even) td { background:color-mix(in srgb, var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)), var(--vscode-foreground) 6%); }
-  tbody tr:hover td { background:var(--vscode-list-hoverBackground); }
-  tbody tr:hover .row-num { background:var(--vscode-editor-background); }
+  tbody tr:hover td, tbody tr.new-row:hover td { background:var(--vscode-list-hoverBackground); }
   /* Selection borders via inset box-shadow so the cell's layout size
      doesn't change when classes toggle (borders would add ~2px each side
      and shift the row). Same pattern as diff-panel.css. */
@@ -433,7 +434,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   td.editable { cursor:text; }
   td.search-hit { background:color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c0055) 60%, transparent) !important; }
   td.search-focus { outline:2px solid var(--vscode-editor-findMatchBorder, var(--vscode-focusBorder)) !important; background:color-mix(in srgb, var(--vscode-editor-findMatchBackground, #515c6a) 70%, transparent) !important; }
-  .search-input { padding:2px 6px; font-size:12px; border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); background:var(--vscode-input-background); color:var(--vscode-input-foreground); border-radius:2px; width:160px; outline:none; }
+  .search-input { padding:2px 6px; font-size:12px; border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); background:var(--vscode-input-background); color:var(--vscode-input-foreground); border-radius:2px; width:160px; max-width:100%; min-width:0; outline:none; }
   .search-input:focus { border-color:var(--vscode-focusBorder); }
   .search-count { font-size:11px; min-width:30px; }
   td.editing { padding:0; }
@@ -442,9 +443,8 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   ${LOADING_CSS}
   td.editing input, td.editing select { width:100%; padding:4px 8px; border:2px solid var(--vscode-focusBorder); background:var(--vscode-input-background); color:var(--vscode-input-foreground); font-family:inherit; font-size:inherit; outline:none; }
   td.modified { border-left:3px solid var(--vscode-inputValidation-warningBorder); }
-  tr.new-row td { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
   tr.out-of-query-row { opacity:0.4; }
-  td.invalid-cell { border-left:3px solid var(--vscode-inputValidation-errorBorder, #f44); background:var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); }
+  td.invalid-cell { border-left:3px solid var(--vscode-inputValidation-errorBorder, #f44); background:var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)) !important; }
   .default-val { color:var(--vscode-descriptionForeground); font-style:italic; }
   .popup { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:60vw; max-height:70vh; background:var(--vscode-editor-background); border:1px solid var(--vscode-panel-border); border-radius:4px; box-shadow:0 4px 20px rgba(0,0,0,0.4); z-index:100; display:flex; flex-direction:column; }
   .popup-header { padding:8px 12px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--vscode-panel-border); }
@@ -473,37 +473,45 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   .tk-key { color:var(--vscode-debugTokenExpression-name, #9cdcfe); }
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:99; }
   .hidden { display:none; }
+  @media (max-width:640px) {
+    .toolbar { align-items:flex-start; }
+    .toolbar-spacer, .toolbar-sep { display:none; }
+    .toolbar-group-search { flex:1 1 180px; }
+  }
+  @media (forced-colors:active) {
+    .toolbar-sep { background:CanvasText; }
+  }
 </style>
 <script>
 ${getCtxMenuScript()}
 </script>
 </head>
 <body>
-  <div class="toolbar">
-    <div class="toolbar-group">
+  <div class="toolbar" role="toolbar" aria-label="Result controls">
+    <div class="toolbar-group toolbar-group-status" role="group" aria-label="Query status">
       <span id="statsInfo">${result.executionTimeMs}ms${result.truncated ? ' · truncated' : ''}${result.affectedRows !== undefined ? ' · ' + result.affectedRows + ' affected' : ''}</span>
     </div>
-    <div class="toolbar-sep"></div>
-    <div class="toolbar-group">
+    <div class="toolbar-sep" aria-hidden="true"></div>
+    <div class="toolbar-group toolbar-group-search" role="group" aria-label="Search results">
       <input type="text" id="searchInput" class="search-input" placeholder="Search..." />
       <span id="searchCount" class="search-count"></span>
     </div>
-    <span style="flex:1"></span>
-    <div class="toolbar-group">
+    <span class="toolbar-spacer" aria-hidden="true"></span>
+    <div class="toolbar-group toolbar-group-export" role="group" aria-label="Export and visualize">
       <button id="exportBtn">Export</button>
       <button id="visualizeBtn" title="Visualize as chart">📊</button>
       <button id="mapBtn" title="Show on map">🗺</button>
     </div>
-    <div class="toolbar-sep"></div>
-    <div class="toolbar-group">
+    <div class="toolbar-sep" aria-hidden="true"></div>
+    <div class="toolbar-group toolbar-group-edit" role="group" aria-label="Edit rows">
       <button id="addRowBtn" class="hidden">+ Row</button>
       <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
       <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
       <button id="refreshBtn" title="Refresh">↻</button>
       <button id="discardBtn" class="hidden">Discard</button>
     </div>
-    <div class="toolbar-sep"></div>
-    <div class="toolbar-group">
+    <div class="toolbar-sep" aria-hidden="true"></div>
+    <div class="toolbar-group toolbar-group-pagination" role="group" aria-label="Pagination">
       <button id="prevPage" disabled>&lt;</button>
       <span id="pageInfo"></span>
       <button id="nextPage">&gt;</button>

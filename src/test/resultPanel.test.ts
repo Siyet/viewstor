@@ -233,24 +233,44 @@ describe('buildResultHtml', () => {
     expect(html).toContain('count(');
   });
 
-  it('includes zebra striping CSS rule', () => {
+  it('orders zebra, new-row, hover, and validation backgrounds by priority', () => {
     const result = makeResult(
       [{ name: 'id', dataType: 'integer' }],
       [{ id: 1 }],
     );
     const html = buildResultHtml(result);
-    expect(html).toContain('nth-child(even)');
-    expect(html).toContain('viewstor-row-zebra');
+    const zebra = 'tbody tr:nth-child(even) td { background:var(--viewstor-row-zebra';
+    const newRow = 'tbody tr.new-row td { background:var(--vscode-diffEditor-insertedLineBackground';
+    const hover = 'tbody tr:hover td, tbody tr.new-row:hover td { background:var(--vscode-list-hoverBackground); }';
+    const invalid = 'td.invalid-cell { border-left:3px solid var(--vscode-inputValidation-errorBorder, #f44); background:var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)) !important; }';
+    expect(html).toContain(zebra);
+    expect(html).toContain(newRow);
+    expect(html).toContain(hover);
+    expect(html).toContain(invalid);
+    expect(html.indexOf(zebra)).toBeLessThan(html.indexOf(newRow));
+    expect(html.indexOf(newRow)).toBeLessThan(html.indexOf(hover));
   });
 
-  it('includes toolbar group separators', () => {
+  it('renders responsive, accessible toolbar groups in logical order', () => {
     const result = makeResult(
       [{ name: 'id', dataType: 'integer' }],
       [{ id: 1 }],
     );
     const html = buildResultHtml(result);
-    expect(html).toContain('toolbar-group');
-    expect(html).toContain('toolbar-sep');
+    expect(html.match(/class="toolbar-group toolbar-group-/g)).toHaveLength(5);
+    expect(html.match(/class="toolbar-sep" aria-hidden="true"/g)).toHaveLength(3);
+    expect(html).toContain('role="toolbar" aria-label="Result controls"');
+    expect(html).toContain('@media (max-width:640px)');
+
+    const groupOrder = [
+      'toolbar-group-status',
+      'toolbar-group-search',
+      'toolbar-group-export',
+      'toolbar-group-edit',
+      'toolbar-group-pagination',
+    ].map(className => html.indexOf(`class="toolbar-group ${className}"`));
+    expect(groupOrder.every(index => index >= 0)).toBe(true);
+    expect(groupOrder).toEqual([...groupOrder].sort((a, b) => a - b));
   });
 });
 

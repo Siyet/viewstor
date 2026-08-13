@@ -77,11 +77,7 @@ td {
   text-overflow: ellipsis;
 }
 
-tbody tr:nth-child(even) td {
-  background: var(--viewstor-row-zebra, color-mix(in srgb, var(--vscode-foreground) 4%, transparent));
-}
-
-tbody tr:hover td {
+tr:hover td {
   background: var(--vscode-list-hoverBackground);
 }
 
