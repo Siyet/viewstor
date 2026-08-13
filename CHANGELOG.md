@@ -4,6 +4,8 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-08-14
+
 ### Added
 - **Data diff: safe cross-DB-type Statistics tab** — comparisons such as PostgreSQL ↔ ClickHouse and SQLite ↔ PostgreSQL now show statistics when both drivers provide them. Cross-type mode uses an explicit semantic contract instead of trusting matching key names: row count is currently the only common metric (with a visible note that some engines estimate it), while incompatible storage and engine-specific metrics are counted and hidden. The tab includes a clear empty state when no metrics are comparable, branded database names, accessible theme-aware messaging, and in-place Swap Sides behavior ([#74](https://github.com/Siyet/viewstor/issues/74)).
 - **Search in Row Diff** — search both sides of a comparison at once with highlighted matches, a live result count, `Enter` / `Shift+Enter` navigation, `Escape` to clear, and `Ctrl/Cmd+F` focus. Search results stay synchronized after status filtering and query reruns.
@@ -20,8 +22,10 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 - PostgreSQL views no longer report the internal `-1` row-estimate sentinel. View statistics fall back to an exact `COUNT(*)`, or show the metric as unavailable when the relation cannot be read.
 - ClickHouse views now show their actual row count in Statistics: when `system.tables.total_rows` is unavailable, Viewstor falls back to an exact `COUNT(*)` and preserves an unavailable value instead of reporting a misleading zero if the view cannot be read.
 - Development builds now detect the Electron runtime used by current macOS VS Code releases and fall back to an architecture-correct source build when a matching `better-sqlite3` prebuild is unavailable.
+- Release packages no longer include local environment setup, agent instructions, test fixtures, or VS Code test-runner configuration.
 - SQLite tables and views now appear in the **Compare With...** picker alongside PostgreSQL and ClickHouse objects; the picker supports both flat and namespace-nested driver schemas.
 - Compare Tables no longer opens an empty diff when a driver returns a data-loading error as part of its query result; both entry points now surface the original error and leave the current workspace unchanged.
+- Stabilized edited-SQL reruns in Diff panels: disconnected sources reconnect once, the latest request wins over stale concurrent responses, closing or swapping a panel invalidates pending work, and readonly, one-sided, or missing-column errors preserve the previous successful diff.
 - Table/view comparisons now resolve compatible primary keys from either side and, when schemas differ, show exact matches, suggested similar-name pairs, and one-sided fields in a separate column picker. Exact pairs are selected safely by default; explicit mappings such as `lifetime_value ↔ total_value` are supported, while unchecked side-only fields remain in Schema Diff instead of marking every matched row as changed. ClickHouse primary keys are resolved from `system.columns`.
 
 ## [0.5.0] — 2026-08-13
