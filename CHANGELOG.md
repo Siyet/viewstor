@@ -2,17 +2,23 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.5.0] — 2026-08-13
 
 ### Added
-- ER toolbar icons now have explanatory tooltips, and the relationship icon is crossed out while edges are hidden; search result type labels reuse the legend's blue table and purple view colors.
-- The ER toolbar no longer shows internal table/link counts, zoom, render-mode, or focused-node diagnostics.
-- ER search now mirrors table/view matches and matching column names in a selectable dropdown; the search icon sits inside the field, while Refresh and relationship visibility are compact icon-only actions pinned to the toolbar's right edge.
-- ER table and view cards now expose the same context actions as their Connections tree counterparts through a shared action registry; a contract test prevents the declarative tree menu and webview menu from drifting apart.
-- Relationship lines use slightly lower opacity below `3×` ER-diagram zoom to reduce distant-view visual noise.
-- ER-diagram search matches table, view, and column names, highlights multiple matching tables, and opens the direct-neighbour graph for a unique match; the relationship visibility toggle now uses lower visual emphasis.
-- Relationship hover highlighting and tooltips now appear together with arrowheads from `3×` ER-diagram zoom.
-- **Interactive ER diagrams** — right-click a connected connection, database, or schema to visualize tables, views, and relationships on one continuous canvas. PostgreSQL schemas and ClickHouse databases occupy separate softly tinted, non-overlapping regions; SQLite keeps a plain canvas. Tables and views always render as complete cards with left-aligned columns and types; zoom is a single continuous camera transform with no intermediate name-only rectangles or semantic LOD transitions. Each visible card is one local `Rect + Text` graphics group on a layer above relationships, so lines cannot cover cards and the camera scales each frame, glyph, spacing, and padding together. Relationship arrowheads appear from `3×` zoom. Cards use muted highlights for inline `PK`, `FK`, and `IDX` roles (including combined roles), while column hover shows comments and index names. Hovering a table or relationship keeps its adjacent graph visible while unrelated objects fade through a fast 150 ms transition. Blank-canvas left-drag and middle-drag pan in both axes; wheel zoom works across the entire canvas, including beyond graph bounds. A relationship toggle and canvas legend clarify the graph; double-click isolates a table at the centre with its direct neighbours using fresh focused-layout coordinates, while double-clicking blank canvas or pressing `Esc` returns to the full graph. Views use a dashed purple border. Foreign-key lines show column mappings and referential actions. PostgreSQL reads composite and cross-schema relationships from `information_schema`; SQLite uses `PRAGMA foreign_key_list`. Drivers without FK metadata still show the available relational structure with an explicit status note ([#6](https://github.com/Siyet/viewstor/issues/6))
+- **Interactive ER diagrams** — open a diagram from a connected connection, database, or schema and explore tables, views, columns, indexes, and foreign-key relationships on one continuous canvas. PostgreSQL and SQLite provide native relationship metadata; ClickHouse renders its available structure and database regions without inventing unsupported foreign keys ([#6](https://github.com/Siyet/viewstor/issues/6)).
+- Namespace regions group PostgreSQL schemas and ClickHouse databases. Complete table cards distinguish views with purple dashed borders and mark `PK`, `FK`, `IDX`, required columns, comments, and index names.
+- Search covers tables, views, and columns. Multiple results highlight matching cards; a unique or selected result opens its direct-neighbour graph. Results reuse the legend's blue table and purple view colors.
+- Table and view cards expose the same context actions as the Connections tree through a shared action registry.
+
+### Changed
+- Zoom and pan use one synchronized camera transform for card frames, text, spacing, edges, regions, and hit-testing. Blank-canvas left-drag, middle-drag, and wheel zoom work across the full canvas.
+- Relationship lines stay below cards, are muted below `3×`, and reveal arrowheads, hover emphasis, and tooltips from `3×`. Hover fades unrelated objects with a short transition.
+- The compact toolbar provides search plus icon-only Refresh and relationship controls with explanatory tooltips. The relationship icon is crossed out while edges are hidden; internal rendering diagnostics are no longer shown.
+
+### Fixed
+- Prevented table-card overlap and relationship lines crossing card contents in both the full diagram and isolated neighbour graphs.
+- Restored double-click isolation and blank-canvas/Escape return to the full graph, including correct layout immediately after switching views.
+- Made zoomed cards scale as unified graphics so frames and typography no longer resize at different times or produce the previous “jelly” effect.
 
 ## [0.4.0] — 2026-04-29
 
