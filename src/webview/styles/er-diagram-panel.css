@@ -12,6 +12,8 @@ body {
 }
 
 .toolbar {
+  position: relative;
+  z-index: 40;
   min-height: 38px;
   padding: 5px 10px;
   display: flex;
@@ -95,6 +97,14 @@ body {
 
 .search-result-kind { text-transform: capitalize; }
 
+.search-result-kind.table {
+  color: var(--vscode-charts-blue, #3794ff);
+}
+
+.search-result-kind.view {
+  color: var(--vscode-charts-purple, #b180d7);
+}
+
 .search-result-columns {
   grid-column: 1 / -1;
   overflow: hidden;
@@ -115,6 +125,62 @@ body {
 .toolbar-icon-button {
   width: 28px;
   height: 28px;
+}
+
+.toolbar-action {
+  position: relative;
+  display: inline-flex;
+}
+
+.toolbar-button-tooltip {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 6px);
+  right: 0;
+  width: max-content;
+  max-width: 280px;
+  padding: 5px 7px;
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--viewstor-border-subtle));
+  border-radius: 2px;
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .28);
+  font-size: var(--viewstor-font-meta-size);
+  line-height: 1.35;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+  transition: opacity 100ms ease-out, transform 100ms ease-out, visibility 0s linear 100ms;
+  pointer-events: none;
+}
+
+.toolbar-action:hover > .toolbar-button-tooltip,
+.toolbar-action:focus-within > .toolbar-button-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.relationships-slash {
+  position: absolute;
+  top: 13px;
+  left: 5px;
+  width: 18px;
+  height: 1.5px;
+  display: block;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0;
+  transform: rotate(-45deg);
+  transform-origin: center;
+  transition: opacity 100ms ease-out;
+  pointer-events: none;
+}
+
+.relationships-action.relationships-hidden .relationships-slash {
+  opacity: .9;
 }
 
 .relationships-toggle {

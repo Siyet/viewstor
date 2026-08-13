@@ -161,6 +161,7 @@ describe('ER diagram interactions', () => {
   it('searches tables and columns, highlighting multiple matches or isolating one', () => {
     const panel = fs.readFileSync(PANEL_PATH, 'utf-8');
     const script = readScript();
+    const style = fs.readFileSync(STYLE_PATH, 'utf-8');
     expect(panel).toContain('id="searchInput"');
     expect(panel).toContain('placeholder="Search tables or columns…"');
     expect(panel).toContain('slot="content-before" name="search"');
@@ -174,6 +175,9 @@ describe('ER diagram interactions', () => {
     expect(script).toContain('searchMatchIds.has(record.node.id) ? 1 : 0.18');
     expect(script).toContain('button.addEventListener(\'click\', () => openSearchResult(match.entity.id))');
     expect(script).toContain('match.columns.map(column => column.name).join(\', \')');
+    expect(script).toContain('kind.classList.add(match.entity.kind === \'view\' ? \'view\' : \'table\')');
+    expect(style).toMatch(/\.search-result-kind\.table \{[^}]*--vscode-charts-blue/s);
+    expect(style).toMatch(/\.search-result-kind\.view \{[^}]*--vscode-charts-purple/s);
   });
 
   it('renders the relationship toggle as a lower-emphasis action', () => {
@@ -192,6 +196,20 @@ describe('ER diagram interactions', () => {
     expect(panel).not.toContain('>Hide relationships</vscode-button>');
     expect(style).toMatch(/\.toolbar-actions \{[^}]*margin-left: auto;/s);
     expect(style).toMatch(/\.toolbar-search \{[^}]*position: relative;[^}]*width: min\(390px, 42vw\);/s);
+  });
+
+  it('explains icon-only actions and strikes through hidden relationships', () => {
+    const panel = fs.readFileSync(PANEL_PATH, 'utf-8');
+    const script = readScript();
+    const style = fs.readFileSync(STYLE_PATH, 'utf-8');
+    expect(panel).toContain('aria-describedby="refreshTooltip"');
+    expect(panel).toContain('Reload tables, views, columns, and relationships from the database');
+    expect(panel).toContain('aria-describedby="relationshipsTooltip"');
+    expect(panel).toContain('class="relationships-slash"');
+    expect(script).toContain('relationshipsAction.classList.toggle(\'relationships-hidden\', !relationshipsVisible)');
+    expect(script).toContain('\'Show relationship lines between tables\'');
+    expect(style).toMatch(/\.relationships-action\.relationships-hidden \.relationships-slash \{[^}]*opacity: \.9;/s);
+    expect(style).toMatch(/\.toolbar-action:hover > \.toolbar-button-tooltip/s);
   });
 
   it('does not expose internal graph diagnostics in the toolbar', () => {

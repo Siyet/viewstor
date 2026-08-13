@@ -8,6 +8,8 @@
   const emptyEl = document.getElementById('emptyState');
   const refreshBtn = document.getElementById('refreshBtn');
   const relationshipsBtn = document.getElementById('relationshipsBtn');
+  const relationshipsAction = document.getElementById('relationshipsAction');
+  const relationshipsTooltip = document.getElementById('relationshipsTooltip');
   const searchInput = document.getElementById('searchInput');
   const searchResultsEl = document.getElementById('searchResults');
 
@@ -638,6 +640,7 @@
       name.textContent = match.entity.name;
       const kind = document.createElement('span');
       kind.className = 'search-result-kind';
+      kind.classList.add(match.entity.kind === 'view' ? 'view' : 'table');
       kind.textContent = match.entity.kind;
       button.append(name, kind);
 
@@ -1206,10 +1209,13 @@
 
   function toggleRelationships() {
     relationshipsVisible = !relationshipsVisible;
-    const label = relationshipsVisible ? 'Hide relationships' : 'Show relationships';
+    const label = relationshipsVisible ? 'Hide relationship lines' : 'Show relationship lines';
     relationshipsBtn.setAttribute('aria-label', label);
-    relationshipsBtn.setAttribute('title', label);
     relationshipsBtn.setAttribute('aria-pressed', String(relationshipsVisible));
+    relationshipsAction.classList.toggle('relationships-hidden', !relationshipsVisible);
+    relationshipsTooltip.textContent = relationshipsVisible
+      ? 'Hide relationship lines between tables'
+      : 'Show relationship lines between tables';
     hideHoverTooltip();
     if (chart && positionedNodes.length > 0) {
       chart.setOption({ series: [{ id: 'erGraph', links: relationshipsVisible ? links : [] }] });
