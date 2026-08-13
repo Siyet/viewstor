@@ -84,7 +84,7 @@ function setup() {
   const driver = { execute: vi.fn(async () => ({ columns: [{ name: 'id', dataType: 'integer' }], rows: [{ id: 1 }] })) };
   const connectionManager = {
     get: (id: string) => ({ config: { type: types.get(id) } }),
-    isConnectionReadonly: () => false,
+    isConnectionReadonly: vi.fn((_id: string) => false),
     ensureDriver: vi.fn(async () => driver),
   };
   const context = { extensionPath: '/test' };
@@ -242,6 +242,136 @@ describe('DiffPanelManager cross-type statistics', () => {
     await first;
 
     expect(manager.getDiffStatesForTesting()[0].left.rows).toEqual([{ id: 2 }]);
+  });
+
+  it('does not apply an earlier rerun that finishes before the latest rerun', async () => {
+    const { manager, connectionManager } = setup();
+    const executions: Array<{ query: string; resolve: (value: unknown) => void }> = [];
+    connectionManager.ensureDriver.mockResolvedValue({
+      execute: vi.fn((query: string) => new Promise(resolve => executions.push({ query, resolve }))),
+    });
+    manager.show(source('PG items', 'pg'), source('CH items', 'ch'), { keyColumns: ['id'], rowLimit: 100 });
+
+    const first = mocks.panels[0].webview.handler?.({
+      type: 'runDiffQuery', leftQuery: 'SELECT first-left', rightQuery: 'SELECT first-right', syncMode: false,
+    });
+    await vi.waitFor(() => expect(executions).toHaveLength(2));
+    const second = mocks.panels[0].webview.handler?.({
+      type: 'runDiffQuery', leftQuery: 'SELECT second-left', rightQuery: 'SELECT second-right', syncMode: false,
+    });
+    await vi.waitFor(() => expect(executions).toHaveLength(4));
+
+    const earlierResult = { columns: [{ name: 'id', dataType: 'integer' }], rows: [{ id: 10 }] };
+    executions[0].resolve(earlierResult);
+    executions[1].resolve(earlierResult);
+    await first;
+
+    expect(manager.getDiffStatesForTesting()[0].left.rows).toEqual([{ id: 1 }]);
+    expect(mocks.panels[0].webview.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'updateDiff' }));
+
+    const latestResult = { columns: [{ name: 'id', dataType: 'integer' }], rows: [{ id: 20 }] };
+    executions[2].resolve(latestResult);
+    executions[3].resolve(latestResult);
+    await second;
+
+    expect(manager.getDiffStatesForTesting()[0].left.rows).toEqual([{ id: 20 }]);
+  });
+
+  it('blocks a mutating readonly query before reconnecting either driver', async () => {
+    const { manager, connectionManager } = setup();
+    connectionManager.isConnectionReadonly.mockImplementation((id: string) => id === 'pg');
+    manager.show(source('PG items', 'pg'), source('CH items', 'ch'), { keyColumns: ['id'], rowLimit: 100 });
+
+    await mocks.panels[0].webview.handler?.({
+      type: 'runDiffQuery', leftQuery: 'DELETE FROM items', rightQuery: 'SELECT id FROM items', syncMode: false,
+    });
+
+    expect(connectionManager.ensureDriver).not.toHaveBeenCalled();
+    expect(mocks.panels[0].webview.postMessage).toHaveBeenCalledWith({
+      type: 'diffQueryError',
+      leftError: 'Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.',
+      rightError: undefined,
+    });
+    expect(manager.getDiffStatesForTesting()[0].left.rows).toEqual([{ id: 1 }]);
+  });
+
+  it('keeps the previous diff when one side of a rerun fails', async () => {
+    const { manager, connectionManager } = setup();
+    connectionManager.ensureDriver.mockResolvedValue({
+      execute: vi.fn(async (query: string) => {
+        if (query === 'SELECT broken-left') throw new Error('left query failed');
+        return { columns: [{ name: 'id', dataType: 'integer' }], rows: [{ id: 2 }] };
+      }),
+    });
+    manager.show(source('PG items', 'pg'), source('CH items', 'ch'), { keyColumns: ['id'], rowLimit: 100 });
+    const previous = manager.getDiffStatesForTesting()[0].rowDiff;
+
+    await mocks.panels[0].webview.handler?.({
+      type: 'runDiffQuery', leftQuery: 'SELECT broken-left', rightQuery: 'SELECT id FROM items', syncMode: false,
+    });
+
+    const state = manager.getDiffStatesForTesting()[0];
+    expect(state.rowDiff).toBe(previous);
+    expect(state.left.rows).toEqual([{ id: 1 }]);
+    expect(state.right.rows).toEqual([{ id: 1 }]);
+    expect(mocks.panels[0].webview.postMessage).toHaveBeenCalledWith({
+      type: 'diffQueryError', leftError: 'left query failed', rightError: undefined,
+    });
+    expect(mocks.panels[0].webview.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'updateDiff' }));
+  });
+
+  it('keeps the previous diff when a rerun omits a required key column', async () => {
+    const { manager, connectionManager } = setup();
+    connectionManager.ensureDriver.mockResolvedValue({
+      execute: vi.fn(async (query: string) => query === 'SELECT name FROM items'
+        ? { columns: [{ name: 'name', dataType: 'text' }], rows: [{ name: 'new' }] }
+        : { columns: [{ name: 'id', dataType: 'integer' }], rows: [{ id: 2 }] }),
+    });
+    manager.show(source('PG items', 'pg'), source('CH items', 'ch'), { keyColumns: ['id'], rowLimit: 100 });
+    const previous = manager.getDiffStatesForTesting()[0].rowDiff;
+
+    await mocks.panels[0].webview.handler?.({
+      type: 'runDiffQuery', leftQuery: 'SELECT name FROM items', rightQuery: 'SELECT id FROM items', syncMode: false,
+    });
+
+    const state = manager.getDiffStatesForTesting()[0];
+    expect(state.rowDiff).toBe(previous);
+    expect(state.left.rows).toEqual([{ id: 1 }]);
+    expect(state.right.rows).toEqual([{ id: 1 }]);
+    expect(mocks.panels[0].webview.postMessage).toHaveBeenCalledWith({
+      type: 'diffQueryError',
+      leftError: 'Query results must include key column(s): id',
+      rightError: undefined,
+    });
+    expect(mocks.panels[0].webview.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'updateDiff' }));
+  });
+
+  it('keeps the previous diff when a rerun omits a selected comparison column', async () => {
+    const { manager, connectionManager } = setup();
+    connectionManager.ensureDriver.mockResolvedValue({
+      execute: vi.fn(async () => ({
+        columns: [{ name: 'id', dataType: 'integer' }],
+        rows: [{ id: 2 }],
+      })),
+    });
+    manager.show(
+      source('PG items', 'pg'),
+      source('CH items', 'ch'),
+      { keyColumns: ['id'], compareColumns: ['id', 'name'], rowLimit: 100 },
+    );
+    const previous = manager.getDiffStatesForTesting()[0].rowDiff;
+
+    await mocks.panels[0].webview.handler?.({
+      type: 'runDiffQuery', leftQuery: 'SELECT id FROM items', rightQuery: 'SELECT id FROM items', syncMode: false,
+    });
+
+    expect(manager.getDiffStatesForTesting()[0].rowDiff).toBe(previous);
+    expect(mocks.panels[0].webview.postMessage).toHaveBeenCalledWith({
+      type: 'diffQueryError',
+      leftError: 'Query results must include compared column(s): name',
+      rightError: 'Query results must include compared column(s): name',
+    });
+    expect(mocks.panels[0].webview.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'updateDiff' }));
   });
 
   it('does not post an async query result after the panel is disposed', async () => {

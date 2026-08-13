@@ -140,6 +140,7 @@ describeIf(isDockerAvailable)('ClickHouse Driver E2E', () => {
 
     const idCol = info.columns.find(c => c.name === 'id');
     expect(idCol!.dataType).toBe('UInt64');
+    expect(idCol!.isPrimaryKey).toBe(true);
 
     const createdCol = info.columns.find(c => c.name === 'created_at');
     expect(createdCol!.defaultValue).toContain('now()');
@@ -186,6 +187,24 @@ describeIf(isDockerAvailable)('ClickHouse Driver E2E', () => {
     const result = await driver.getTableData('events', 'testdb', 100, 0, [{ column: 'id', direction: 'desc' }]);
     expect(result.error).toBeUndefined();
     expect(result.rows.length).toBe(3);
+  });
+
+  it('getTableStatistics exposes normalized keys for MergeTree tables', async () => {
+    const stats = await driver.getTableStatistics!('events', 'testdb');
+    const byKey = new Map(stats.map(stat => [stat.key, stat]));
+
+    expect(byKey.get('row_count')).toMatchObject({ value: 3, unit: 'count' });
+    expect(byKey.get('total_size')?.unit).toBe('bytes');
+    expect(byKey.get('last_modified')?.label).toBe('Latest active part write');
+    expect(byKey.get('last_modified')?.value).toEqual(expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/));
+  });
+
+  it('getTableStatistics keeps active-part timestamp missing for non-MergeTree tables', async () => {
+    await driver.execute('CREATE TABLE IF NOT EXISTS testdb.stats_memory (id UInt8) ENGINE = Memory');
+    await driver.execute('INSERT INTO testdb.stats_memory VALUES (1)');
+
+    const stats = await driver.getTableStatistics!('stats_memory', 'testdb');
+    expect(stats.find(stat => stat.key === 'last_modified')).toMatchObject({ value: null, unit: 'date' });
   });
 
   describe('multi-database isolation', () => {

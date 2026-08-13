@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, formatStatValue, toggleFilter, exportDiffAsCsv, exportDiffAsJson, buildDefaultDiffQuery, isReadOnlyStatement } from '../diff/diffEngine';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
-import { ColumnInfo, TableStatistic } from '../types/schema';
+import { ColumnInfo, TableStatistic, COMMON_STAT_KEYS } from '../types/schema';
 
 // --- stringifyCell ---
 
@@ -239,6 +239,117 @@ describe('computeRowDiff', () => {
     expect(result.matched).toHaveLength(1);
     expect(result.matched[0].changedColumns).toContain('name');
     expect(result.matched[0].changedColumns).toContain('email');
+  });
+
+  it('compares only selected shared columns when table and view schemas differ', () => {
+    const customers = makeSource([
+      { id: 1, name: 'Alice', email: 'alice@example.com' },
+      { id: 2, name: 'Bob', email: 'bob@example.com' },
+    ], ['id', 'name', 'email']);
+    const summary = makeSource([
+      { id: 1, name: 'Alice', order_count: 3 },
+      { id: 2, name: 'Bob', order_count: 5 },
+    ], ['id', 'name', 'order_count']);
+
+    const result = computeRowDiff(customers, summary, {
+      keyColumns: ['id'],
+      compareColumns: ['id', 'name'],
+      rowLimit: 10000,
+    });
+
+    expect(result.allColumns).toEqual(['id', 'name']);
+    expect(result.summary).toMatchObject({ unchanged: 2, changed: 0, added: 0, removed: 0 });
+    expect(result.matched.every(row => row.changedColumns.length === 0)).toBe(true);
+  });
+
+  it('compares explicitly mapped columns with different names', () => {
+    const left = makeSource([{ id: 1, lifetime_value: '716.90' }], ['id', 'lifetime_value']);
+    left.columns[1].dataType = 'numeric';
+    const right = makeSource([{ id: 1, total_value: 716.9 }], ['id', 'total_value']);
+    right.columns[1].dataType = 'Decimal(12, 2)';
+
+    const result = computeRowDiff(left, right, {
+      keyColumns: ['id'],
+      columnMappings: [
+        { label: 'id', left: 'id', right: 'id' },
+        { label: 'lifetime_value ↔ total_value', left: 'lifetime_value', right: 'total_value' },
+      ],
+      rowLimit: 10000,
+    });
+
+    expect(result.allColumns).toEqual(['id', 'lifetime_value ↔ total_value']);
+    expect(result.summary.unchanged).toBe(1);
+    expect(result.matched[0].left['lifetime_value ↔ total_value']).toBe('716.90');
+    expect(result.matched[0].right['lifetime_value ↔ total_value']).toBe(716.9);
+  });
+
+  it('treats PostgreSQL booleans and SQLite integer flags as equal', () => {
+    const postgres: DiffSource = {
+      label: 'PostgreSQL',
+      columns: [
+        { name: 'id', dataType: 'bigint' },
+        { name: 'active', dataType: 'boolean' },
+      ],
+      rows: [{ id: 1, active: true }, { id: 2, active: false }],
+    };
+    const sqlite: DiffSource = {
+      label: 'SQLite',
+      columns: [
+        { name: 'id', dataType: 'INTEGER' },
+        { name: 'active', dataType: 'INTEGER' },
+      ],
+      rows: [{ id: 1, active: 1 }, { id: 2, active: 0 }],
+    };
+
+    const result = computeRowDiff(postgres, sqlite, defaultOptions(['id']));
+
+    expect(result.summary).toMatchObject({ unchanged: 2, changed: 0 });
+    expect(result.matched.every(row => row.changedColumns.length === 0)).toBe(true);
+  });
+
+  it('does not coerce arbitrary integer and text values to booleans', () => {
+    const left: DiffSource = {
+      label: 'left',
+      columns: [{ name: 'id', dataType: 'integer' }, { name: 'value', dataType: 'integer' }],
+      rows: [{ id: 1, value: 1 }],
+    };
+    const right: DiffSource = {
+      label: 'right',
+      columns: [{ name: 'id', dataType: 'integer' }, { name: 'value', dataType: 'text' }],
+      rows: [{ id: 1, value: true }],
+    };
+
+    expect(computeRowDiff(left, right, defaultOptions(['id'])).summary.changed).toBe(1);
+  });
+
+  it('treats PostgreSQL timestamps and equivalent SQLite UTC text as equal', () => {
+    const postgres: DiffSource = {
+      label: 'PostgreSQL',
+      columns: [{ name: 'id', dataType: 'bigint' }, { name: 'created_at', dataType: 'timestamptz' }],
+      rows: [{ id: 1, created_at: new Date('2026-01-01T01:00:00.000Z') }],
+    };
+    const sqlite: DiffSource = {
+      label: 'SQLite',
+      columns: [{ name: 'id', dataType: 'INTEGER' }, { name: 'created_at', dataType: 'TEXT' }],
+      rows: [{ id: 1, created_at: '2026-01-01 01:00:00' }],
+    };
+
+    expect(computeRowDiff(postgres, sqlite, defaultOptions(['id'])).summary.unchanged).toBe(1);
+  });
+
+  it('keeps genuinely different temporal values distinct', () => {
+    const left: DiffSource = {
+      label: 'left',
+      columns: [{ name: 'id', dataType: 'integer' }, { name: 'created_at', dataType: 'timestamp' }],
+      rows: [{ id: 1, created_at: '2026-01-01 01:00:00' }],
+    };
+    const right: DiffSource = {
+      label: 'right',
+      columns: [{ name: 'id', dataType: 'integer' }, { name: 'created_at', dataType: 'text' }],
+      rows: [{ id: 1, created_at: '2026-01-01 02:00:00' }],
+    };
+
+    expect(computeRowDiff(left, right, defaultOptions(['id'])).summary.changed).toBe(1);
   });
 
   it('duplicate keys: last occurrence wins', () => {
@@ -783,6 +894,13 @@ describe('computeStatsDiff', () => {
       { key: 'parts_count', label: 'Parts', value: 12, unit: 'count' },
       { key: 'compressed_size', label: 'Compressed size', value: 512, unit: 'bytes' },
     ];
+
+    it('defines the normalized driver presence contract independently of comparability', () => {
+      expect(COMMON_STAT_KEYS).toEqual(['row_count', 'total_size', 'last_modified']);
+      const result = computeStatsDiff(pgStats, chStats, { crossType: true });
+      expect(result.items.map(item => item.key)).toEqual(['row_count']);
+      expect(result.items.some(item => item.key === 'total_size')).toBe(false);
+    });
 
     it('restricts items to the intersection of keys', () => {
       const result = computeStatsDiff(pgStats, chStats, { crossType: true, comparableMetrics });

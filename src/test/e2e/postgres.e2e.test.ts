@@ -129,6 +129,16 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
   // Shared interface tests
   runDriverInterfaceTests(() => driver, 'users', 'public');
 
+  it('getTableStatistics exposes every normalized key without a negative row count', async () => {
+    const stats = await driver.getTableStatistics!('users', 'public');
+    const byKey = new Map(stats.map(stat => [stat.key, stat]));
+
+    expect(byKey.get('row_count')?.unit).toBe('count');
+    expect(Number(byKey.get('row_count')?.value)).toBeGreaterThanOrEqual(0);
+    expect(byKey.get('total_size')?.unit).toBe('bytes');
+    expect(byKey.get('last_modified')).toMatchObject({ value: null, unit: 'date' });
+  });
+
   it('execute SELECT returns correct rows and columns', async () => {
     const result = await driver.execute('SELECT * FROM users ORDER BY id');
     expect(result.error).toBeUndefined();

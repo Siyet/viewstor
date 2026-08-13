@@ -42,6 +42,47 @@ function isNumericColumnType(dataType: string | undefined): boolean {
   return /^(int|integer|bigint|smallint|tinyint|float|double|real|numeric|decimal|number|serial|bigserial|money|oid|uint|int\d|uint\d|float\d)/i.test(dataType.trim());
 }
 
+function isBooleanColumnType(dataType: string | undefined): boolean {
+  return Boolean(dataType && /^(bool|boolean)$/i.test(dataType.trim()));
+}
+
+function isIntegerColumnType(dataType: string | undefined): boolean {
+  return Boolean(dataType && /^(int|integer|bigint|smallint|tinyint|uint|int\d|uint\d)/i.test(dataType.trim()));
+}
+
+function isTemporalColumnType(dataType: string | undefined): boolean {
+  return Boolean(dataType && /^(date|datetime|timestamp|timestamptz|timestamp with(?:out)? time zone)/i.test(dataType.trim()));
+}
+
+function canonicalTemporalCell(value: unknown): number | undefined {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value.getTime();
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim();
+  let isoText = text;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) isoText = `${text}T00:00:00Z`;
+  else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(text)) {
+    isoText = `${text.replace(' ', 'T')}Z`;
+  }
+  const timestamp = Date.parse(isoText);
+  return Number.isNaN(timestamp) ? undefined : timestamp;
+}
+
+function canonicalBooleanCell(
+  value: unknown,
+  dataType: string | undefined,
+  otherType: string | undefined,
+): boolean | undefined {
+  const booleanTyped = isBooleanColumnType(dataType);
+  const integerCounterpart = isBooleanColumnType(otherType) && isIntegerColumnType(dataType);
+  if (!booleanTyped && !integerCounterpart) return undefined;
+  if (value === true || value === false) return value;
+  if (value === 1 || value === 1n || value === '1') return true;
+  if (value === 0 || value === 0n || value === '0') return false;
+  if (typeof value === 'string' && value.toLocaleLowerCase() === 'true') return true;
+  if (typeof value === 'string' && value.toLocaleLowerCase() === 'false') return false;
+  return undefined;
+}
+
 /**
  * Canonicalize a decimal without converting it to a JavaScript Number.
  * This keeps arbitrarily large integer/decimal values exact while treating
@@ -75,6 +116,16 @@ function cellsEqual(
   leftType: string | undefined,
   rightType: string | undefined,
 ): boolean {
+  if (isBooleanColumnType(leftType) || isBooleanColumnType(rightType)) {
+    const leftBoolean = canonicalBooleanCell(leftValue, leftType, rightType);
+    const rightBoolean = canonicalBooleanCell(rightValue, rightType, leftType);
+    if (leftBoolean !== undefined && rightBoolean !== undefined) return leftBoolean === rightBoolean;
+  }
+  if (isTemporalColumnType(leftType) || isTemporalColumnType(rightType)) {
+    const leftTimestamp = canonicalTemporalCell(leftValue);
+    const rightTimestamp = canonicalTemporalCell(rightValue);
+    if (leftTimestamp !== undefined && rightTimestamp !== undefined) return leftTimestamp === rightTimestamp;
+  }
   if (isNumericColumnType(leftType) && isNumericColumnType(rightType)) {
     const leftNumeric = canonicalNumericCell(leftValue);
     const rightNumeric = canonicalNumericCell(rightValue);
@@ -100,10 +151,11 @@ function buildRowKey(
 
 /**
  * Compute row-level diff between two data sources.
- * Matches rows by key columns, then compares all other columns.
+ * Matches rows by key columns, then compares either the explicitly selected
+ * value columns or, for backwards compatibility, the full column union.
  */
 export function computeRowDiff(left: DiffSource, right: DiffSource, options: DiffOptions): RowDiffResult {
-  const { keyColumns, rowLimit } = options;
+  const { keyColumns, compareColumns, columnMappings, rowLimit } = options;
 
   // Enforce row limit
   const leftRows = left.rows.slice(0, rowLimit);
@@ -113,13 +165,18 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
   // Collect all columns from both sides
   const leftColNames = left.columns.map(c => c.name);
   const rightColNames = right.columns.map(c => c.name);
-  const allColumnsSet = new Set([...leftColNames, ...rightColNames]);
-  const allColumns = [...allColumnsSet];
-  const nonKeyColumns = allColumns.filter(col => !keyColumns.includes(col));
-  const leftTypes = new Map(left.columns.map(column => [column.name, column.dataType]));
-  const rightTypes = new Map(right.columns.map(column => [column.name, column.dataType]));
+  const sourceLeftTypes = new Map(left.columns.map(column => [column.name, column.dataType]));
+  const sourceRightTypes = new Map(right.columns.map(column => [column.name, column.dataType]));
+  const mappings = columnMappings ?? legacyColumnMappings(leftColNames, rightColNames, keyColumns, compareColumns);
+  const allColumns = mappings.map(mapping => mapping.label);
+  const keyLabels = new Set(mappings.filter(mapping =>
+    mapping.left && mapping.right && keyColumns.includes(mapping.left) && keyColumns.includes(mapping.right)
+  ).map(mapping => mapping.label));
+  const nonKeyMappings = mappings.filter(mapping => !keyLabels.has(mapping.label));
+  const leftTypes = new Map(mappings.map(mapping => [mapping.label, mapping.left ? sourceLeftTypes.get(mapping.left) : undefined]));
+  const rightTypes = new Map(mappings.map(mapping => [mapping.label, mapping.right ? sourceRightTypes.get(mapping.right) : undefined]));
   const numericKeyColumns = new Set(keyColumns.filter(column =>
-    isNumericColumnType(leftTypes.get(column)) && isNumericColumnType(rightTypes.get(column))
+    isNumericColumnType(sourceLeftTypes.get(column)) && isNumericColumnType(sourceRightTypes.get(column))
   ));
 
   // Build index for right side (key -> row)
@@ -141,19 +198,26 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
 
     if (rightRow) {
       matchedKeys.add(key);
-      // Compare non-key columns
+      // Compare the selected non-key columns
       const changedColumns: string[] = [];
-      for (const col of nonKeyColumns) {
-        if (!cellsEqual(leftRow[col], rightRow[col], leftTypes.get(col), rightTypes.get(col))) {
-          changedColumns.push(col);
+      for (const mapping of nonKeyMappings) {
+        const leftValue = mapping.left ? leftRow[mapping.left] : undefined;
+        const rightValue = mapping.right ? rightRow[mapping.right] : undefined;
+        if (!cellsEqual(leftValue, rightValue, leftTypes.get(mapping.label), rightTypes.get(mapping.label))) {
+          changedColumns.push(mapping.label);
         }
       }
-      matched.push({ key, left: leftRow, right: rightRow, changedColumns });
+      matched.push({
+        key,
+        left: projectRow(leftRow, mappings, 'left'),
+        right: projectRow(rightRow, mappings, 'right'),
+        changedColumns,
+      });
       if (changedColumns.length === 0) {
         unchanged++;
       }
     } else {
-      leftOnly.push(leftRow);
+      leftOnly.push(projectRow(leftRow, mappings, 'left'));
     }
   }
 
@@ -162,7 +226,7 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
   for (const row of rightRows) {
     const key = buildRowKey(row, keyColumns, numericKeyColumns);
     if (!matchedKeys.has(key)) {
-      rightOnly.push(row);
+      rightOnly.push(projectRow(row, mappings, 'right'));
     }
   }
 
@@ -180,6 +244,34 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
       removed: leftOnly.length,
     },
   };
+}
+
+function legacyColumnMappings(
+  leftColumns: string[],
+  rightColumns: string[],
+  keyColumns: string[],
+  compareColumns?: string[],
+): import('./diffTypes').DiffColumnMapping[] {
+  const availableColumns = new Set([...leftColumns, ...rightColumns]);
+  const requestedColumns = compareColumns
+    ? [...keyColumns, ...compareColumns].filter(column => availableColumns.has(column))
+    : [...leftColumns, ...rightColumns];
+  return [...new Set(requestedColumns)].map(label => ({
+    label,
+    left: leftColumns.includes(label) ? label : undefined,
+    right: rightColumns.includes(label) ? label : undefined,
+  }));
+}
+
+function projectRow(
+  row: Record<string, unknown>,
+  mappings: import('./diffTypes').DiffColumnMapping[],
+  side: 'left' | 'right',
+): Record<string, unknown> {
+  return Object.fromEntries(mappings.map(mapping => [
+    mapping.label,
+    mapping[side] ? row[mapping[side]!] : undefined,
+  ]));
 }
 
 /**

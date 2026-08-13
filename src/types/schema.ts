@@ -132,3 +132,14 @@ export interface TableStatistic {
    */
   badWhen?: 'higher' | 'lower';
 }
+
+/**
+ * Normalized keys every driver should emit from getTableStatistics. A value
+ * may be null when the engine cannot provide the metric.
+ *
+ * This is a presence contract, not a cross-engine comparability contract.
+ * In particular, total_size can describe compressed disk, relation pages, or
+ * in-memory allocation depending on the engine. Cross-type diffing must use
+ * its separate semantic allowlist.
+ */
+export const COMMON_STAT_KEYS = ['row_count', 'total_size', 'last_modified'] as const;

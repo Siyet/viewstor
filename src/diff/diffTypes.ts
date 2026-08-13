@@ -12,7 +12,21 @@ export interface DiffSource {
 
 export interface DiffOptions {
   keyColumns: string[];
+  /**
+   * Columns included in the row-level comparison. When omitted, the diff keeps
+   * the legacy behaviour and compares the union of both result sets.
+   */
+  compareColumns?: string[];
+  /** Explicit left/right column pairs selected for row-level comparison. */
+  columnMappings?: DiffColumnMapping[];
   rowLimit: number;
+}
+
+export interface DiffColumnMapping {
+  /** Label rendered in Row Diff; differing names use `left ↔ right`. */
+  label: string;
+  left?: string;
+  right?: string;
 }
 
 export interface RowDiffResult {

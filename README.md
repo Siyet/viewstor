@@ -169,9 +169,9 @@ Example: pin `SELECT ts, cpu FROM metrics` and `SELECT ts, mem FROM metrics`, op
 Compare data between tables — even across different connections (dev vs staging):
 
 - Right-click a table → **Compare With...** → pick another table from any connected database
-- **Row diff** — matches rows by primary key, highlights added/removed/changed cells side-by-side, zebra-striped rows
+- **Row diff** — matches rows by a compatible primary key from either side, or by user-selected columns shared by both sources; highlights added/removed/changed cells side-by-side with zebra-striped rows. ClickHouse MergeTree keys are resolved from `system.columns`
 - **Schema diff** — compare column names, types, nullability, PK status, plus indexes, constraints, triggers, and sequences
-- **Statistics diff** — same-type comparisons show each driver's complete metric set. Cross-type comparisons show only metrics with explicitly compatible semantics (currently row count), disclose that PostgreSQL counts may be estimated, and report incompatible metrics as hidden instead of presenting misleading deltas
+- **Statistics diff** — same-type comparisons show each driver's complete metric set. All drivers normalize the presence of `row_count`, `total_size`, and `last_modified` where meaningful, using `null` when an engine cannot provide a value. Cross-type comparisons show only metrics with explicitly compatible semantics (currently row count), disclose that PostgreSQL counts may be estimated, and hide incompatible storage metrics instead of presenting misleading deltas
 - **Custom SQL** — editable queries per side under the collapsible "SQL" block, with Synced toggle + lock indicator for mirrored edits
 - Tab headers show colored count badges (e.g. `Schema Diff •6`); filter chips per tab (click to solo, Shift+click to toggle)
 - Export diff as CSV or JSON

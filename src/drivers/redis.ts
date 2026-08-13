@@ -2,7 +2,7 @@ import Redis from 'ioredis';
 import { DatabaseDriver } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, MAX_RESULT_ROWS } from '../types/query';
-import { SchemaObject, TableInfo } from '../types/schema';
+import { SchemaObject, TableInfo, TableStatistic } from '../types/schema';
 import { wrapError } from '../utils/errors';
 
 export class RedisDriver implements DatabaseDriver {
@@ -156,6 +156,50 @@ export class RedisDriver implements DatabaseDriver {
       rowCount: rows.length,
       executionTimeMs: Date.now() - start,
     };
+  }
+
+  async getTableStatistics(name: string): Promise<TableStatistic[]> {
+    let type: string | null = null;
+    try {
+      type = await this.client!.type(name);
+    } catch { /* TYPE unavailable through ACL — keep type-dependent metrics missing */ }
+
+    let rowCount: number | null = null;
+    try {
+      switch (type) {
+        case 'string': rowCount = 1; break;
+        case 'list': rowCount = await this.client!.llen(name); break;
+        case 'set': rowCount = await this.client!.scard(name); break;
+        case 'zset': rowCount = await this.client!.zcard(name); break;
+        case 'hash': rowCount = await this.client!.hlen(name); break;
+        case 'stream': rowCount = await this.client!.xlen(name); break;
+      }
+    } catch { /* Cardinality command unavailable through ACL — keep it missing */ }
+
+    let totalSize: number | null = null;
+    try {
+      totalSize = await this.client!.memory('USAGE', name) as number | null;
+    } catch { /* MEMORY USAGE unavailable on older Redis */ }
+
+    let ttl: number | null = null;
+    try {
+      const rawTtl = await this.client!.ttl(name);
+      ttl = rawTtl >= 0 ? rawTtl : null;
+    } catch { /* TTL unavailable through ACL */ }
+
+    let encoding: string | null = null;
+    try {
+      encoding = await this.client!.object('ENCODING', name) as string | null;
+    } catch { /* OBJECT ENCODING unavailable */ }
+
+    return [
+      { key: 'row_count', label: 'Element count', value: rowCount, unit: 'count' },
+      { key: 'total_size', label: 'Memory usage', value: totalSize, unit: 'bytes' },
+      { key: 'last_modified', label: 'Last modified', value: null, unit: 'date' },
+      { key: 'type', label: 'Type', value: type === 'none' ? null : type, unit: 'text' },
+      { key: 'ttl', label: 'TTL (seconds)', value: ttl, unit: 'count' },
+      { key: 'encoding', label: 'Encoding', value: encoding, unit: 'text' },
+    ];
   }
 
   private async scanKeys(limit: number): Promise<string[]> {

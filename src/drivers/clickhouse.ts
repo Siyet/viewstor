@@ -183,22 +183,31 @@ export class ClickHouseDriver implements DatabaseDriver {
   async getTableInfo(name: string, schema?: string): Promise<TableInfo> {
     const db = schema || 'default';
     const result = await this.client!.query({
-      query: `DESCRIBE TABLE ${quoteIdentifier(db)}.${quoteIdentifier(name)}`,
+      query: `SELECT name, type, default_kind, default_expression, comment, is_in_primary_key
+              FROM system.columns
+              WHERE database = {db:String} AND table = {table:String}
+              ORDER BY position`,
       format: 'JSONEachRow',
+      query_params: { db, table: name },
     });
     const colRows = await result.json<{
       name: string;
       type: string;
-      default_type: string;
+      default_kind: string;
       default_expression: string;
       comment: string;
+      is_in_primary_key: number | string;
     }[]>();
 
     const columns: ColumnInfo[] = colRows.map(row => ({
       name: row.name,
       dataType: row.type,
       nullable: row.type.startsWith('Nullable'),
-      isPrimaryKey: false,
+      // MergeTree tables use ORDER BY as the primary key when no explicit
+      // PRIMARY KEY is declared. system.columns exposes that resolved key,
+      // unlike DESCRIBE TABLE, so Compare Tables can match ClickHouse rows
+      // without asking the user to guess the key columns.
+      isPrimaryKey: Number(row.is_in_primary_key) === 1,
       defaultValue: row.default_expression || undefined,
       comment: row.comment || undefined,
     }));
@@ -282,33 +291,50 @@ export class ClickHouseDriver implements DatabaseDriver {
     }[]>();
     const row = rows[0];
 
-    // Part stats are only populated for MergeTree-family engines.
-    let activeParts: number | null = null;
-    let totalParts: number | null = null;
-    try {
-      const partsRes = await this.client!.query({
-        query: `SELECT
-                  countIf(active) AS active_parts,
-                  count() AS total_parts
-                FROM system.parts
-                WHERE database = {db:String} AND table = {name:String}`,
-        format: 'JSONEachRow',
-        query_params: { db, name },
-      });
-      const partsRows = await partsRes.json<{ active_parts: string | number; total_parts: string | number }[]>();
-      if (partsRows[0]) {
-        activeParts = parseInt(String(partsRows[0].active_parts), 10);
-        totalParts = parseInt(String(partsRows[0].total_parts), 10);
-        if (!Number.isFinite(activeParts)) activeParts = null;
-        if (!Number.isFinite(totalParts)) totalParts = null;
-      }
-    } catch { /* system.parts unavailable for non-MergeTree tables */ }
-
     const toNumber = (value: unknown): number | null => {
       if (value === null || value === undefined) return null;
       const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
       return Number.isFinite(parsed) ? parsed : null;
     };
+
+    // system.tables.total_rows is NULL for views. Statistics comparison still
+    // needs a useful count, so use an exact query only when the fast metadata
+    // value is unavailable. Keep NULL on query errors rather than reporting a
+    // misleading zero.
+    let rowCount = toNumber(row?.total_rows);
+    if (rowCount === null && row) {
+      const countResult = await this.execute(
+        `SELECT COUNT(*) AS cnt FROM ${quoteIdentifier(db)}.${quoteIdentifier(name)}`,
+      );
+      if (!countResult.error) rowCount = toNumber(countResult.rows[0]?.cnt);
+    }
+
+    // Part stats are only populated for MergeTree-family engines.
+    let activeParts: number | null = null;
+    let totalParts: number | null = null;
+    let lastModified: string | null = null;
+    try {
+      const partsRes = await this.client!.query({
+        query: `SELECT
+                  countIf(active) AS active_parts,
+                  count() AS total_parts,
+                  formatDateTime(maxIf(modification_time, active), '%FT%TZ', 'UTC') AS last_modified
+                FROM system.parts
+                WHERE database = {db:String} AND table = {name:String}`,
+        format: 'JSONEachRow',
+        query_params: { db, name },
+      });
+      const partsRows = await partsRes.json<{ active_parts: string | number; total_parts: string | number; last_modified: string | null }[]>();
+      if (partsRows[0]) {
+        activeParts = parseInt(String(partsRows[0].active_parts), 10);
+        totalParts = parseInt(String(partsRows[0].total_parts), 10);
+        if (!Number.isFinite(activeParts)) activeParts = null;
+        if (!Number.isFinite(totalParts)) totalParts = null;
+        lastModified = partsRows[0].last_modified && partsRows[0].last_modified !== '1970-01-01T00:00:00Z'
+          ? partsRows[0].last_modified
+          : null;
+      }
+    } catch { /* system.parts unavailable for non-MergeTree tables */ }
 
     const totalBytes = toNumber(row?.total_bytes);
     const uncompressedBytes = toNumber(row?.total_bytes_uncompressed);
@@ -317,7 +343,7 @@ export class ClickHouseDriver implements DatabaseDriver {
       : null;
 
     return [
-      { key: 'row_count', label: 'Row count', value: toNumber(row?.total_rows), unit: 'count' },
+      { key: 'row_count', label: 'Row count', value: rowCount, unit: 'count' },
       { key: 'total_size', label: 'Total size (compressed)', value: totalBytes, unit: 'bytes' },
       { key: 'uncompressed_size', label: 'Total size (uncompressed)', value: uncompressedBytes, unit: 'bytes' },
       { key: 'compression_ratio', label: 'Compression ratio', value: compressionRatio, unit: 'text' },
@@ -327,6 +353,7 @@ export class ClickHouseDriver implements DatabaseDriver {
       { key: 'lifetime_bytes', label: 'Lifetime bytes inserted', value: toNumber(row?.lifetime_bytes), unit: 'bytes' },
       { key: 'engine', label: 'Engine', value: row?.engine ?? null, unit: 'text' },
       { key: 'metadata_modified', label: 'Metadata modified', value: row?.metadata_modification_time ?? null, unit: 'date' },
+      { key: 'last_modified', label: 'Latest active part write', value: lastModified, unit: 'date' },
     ];
   }
 
