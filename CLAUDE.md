@@ -143,7 +143,7 @@ Binary WKB (PostGIS hex) is **not** parsed — drivers should return WKT or GeoJ
 
 ### ER Diagram
 
-Relationship hover highlighting and tooltips use the same `3×` threshold as arrowheads.
+Relationship hover highlighting and tooltips use the same `3×` threshold as arrowheads. Toolbar search matches table, view, and column names; multiple matching tables are highlighted on the full graph, while a unique match opens that table's direct-neighbour graph.
 
 `src/er/erDataTransform.ts` — pure transformation from nested `SchemaObject[]` + `ForeignKeyInfo[]` to flat graph tables and views. Extracts direct column children, optional database comments, and `indexNames`; preserves schema-qualified ids and object kind; recognizes `(PK)` badges; marks source columns of visible relationships as foreign keys; and removes relationships whose endpoints are outside the selected schema scope. PostgreSQL and ClickHouse populate column comments in their batched schema queries; PostgreSQL and SQLite schema nodes already expose index names.
 

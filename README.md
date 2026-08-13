@@ -102,6 +102,7 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 Right-click a connected connection, database, or schema → **Show ER Diagram**:
 
 - Tables and views share one continuous canvas and always render as complete cards with columns: PostgreSQL schemas and ClickHouse databases occupy separate tinted regions, while engines without namespaces keep a plain canvas; views use a dashed purple border
+- Search matches table, view, and column names; multiple matching tables are highlighted on the full diagram, while a unique match opens that table's direct-neighbour graph
 - Foreign-key lines include column mappings and `ON DELETE` / `ON UPDATE` details; arrowheads, relationship hover highlighting, and relationship tooltips appear from `3×` zoom
 - Scroll anywhere on the canvas to zoom, including empty space beyond the graph; target-based easing stays responsive to trackpads
 - Cards highlight and mark primary keys as `PK`, source foreign-key columns as `FK`, and indexed columns as `IDX`. Combined roles are preserved, such as `FK, IDX`

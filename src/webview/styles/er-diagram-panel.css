@@ -31,6 +31,46 @@ body {
 .status { margin-left: auto; }
 .toolbar vscode-button { flex: 0 0 auto; white-space: nowrap; }
 
+.toolbar-search {
+  min-width: 210px;
+  max-width: 360px;
+  flex: 1 1 280px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.toolbar-search vscode-textfield {
+  min-width: 160px;
+  width: 100%;
+}
+
+.search-status {
+  flex: 0 0 auto;
+  color: var(--viewstor-text-dimmed);
+  font-size: var(--viewstor-font-meta-size);
+  white-space: nowrap;
+}
+
+.relationships-toggle {
+  opacity: .58;
+  filter: saturate(.65);
+  transition: opacity 100ms ease-out, filter 100ms ease-out;
+}
+
+.relationships-toggle:hover,
+.relationships-toggle:focus-within,
+.relationships-toggle[aria-pressed="false"] {
+  opacity: .88;
+  filter: saturate(.85);
+}
+
+.toolbar-help {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .legend {
   position: absolute;
   z-index: 5;
@@ -168,7 +208,11 @@ main {
 
 .hidden { display: none; }
 
+@media (max-width: 900px) {
+  .toolbar-help { display: none; }
+}
+
 @media (max-width: 720px) {
-  .toolbar-help,
+  .search-status,
   .legend { display: none; }
 }

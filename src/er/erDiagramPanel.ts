@@ -101,7 +101,11 @@ export class ErDiagramPanelManager {
 <body>
   <div class="toolbar" style="${esc(accentBorder)}">
     <vscode-button id="refreshBtn" secondary icon="refresh">Refresh</vscode-button>
-    <vscode-button id="relationshipsBtn" secondary icon="type-hierarchy" aria-pressed="true">Hide relationships</vscode-button>
+    <div class="toolbar-search">
+      <vscode-textfield id="searchInput" placeholder="Search tables or columns…" aria-label="Search tables, views, and columns"></vscode-textfield>
+      <span id="searchStatus" class="search-status" aria-live="polite"></span>
+    </div>
+    <vscode-button id="relationshipsBtn" class="relationships-toggle" secondary icon="type-hierarchy" aria-pressed="true">Hide relationships</vscode-button>
     <span class="toolbar-help">Drag empty canvas or hold middle mouse to pan · scroll to zoom · double-click a table to isolate its neighbours · Esc to exit</span>
     <span id="status" class="status"></span>
   </div>

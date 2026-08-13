@@ -4,6 +4,7 @@ import * as path from 'path';
 
 const SCRIPT_PATH = path.join(__dirname, '..', 'webview', 'scripts', 'er-diagram-panel.js');
 const PANEL_PATH = path.join(__dirname, '..', 'er', 'erDiagramPanel.ts');
+const STYLE_PATH = path.join(__dirname, '..', 'webview', 'styles', 'er-diagram-panel.css');
 
 function readScript(): string {
   return fs.readFileSync(SCRIPT_PATH, 'utf-8');
@@ -93,7 +94,7 @@ describe('ER diagram interactions', () => {
     expect(script).toContain('regions = isolatedTableId ? []');
     expect(script).toContain('event.button === 0 && canStartCanvasPan(event)');
     expect(script).toContain('graphView.group.x += dx');
-    expect(script).toContain('event.key === \'Escape\'');
+    expect(script).toContain('event.key !== \'Escape\'');
     expect(script).toContain('chart.getZr().on(\'dblclick\', handleCanvasDoubleClick)');
     expect(script).toContain('if (!isolatedTableId || event.target) return;');
     expect(script).toContain('exitFocusedGraph();');
@@ -151,5 +152,26 @@ describe('ER diagram interactions', () => {
     for (const label of ['Table', 'View', 'Schema / database', 'Relationship', 'Primary key', 'Foreign key', 'Indexed', 'Required']) {
       expect(panel).toContain(label);
     }
+  });
+
+  it('searches tables and columns, highlighting multiple matches or isolating one', () => {
+    const panel = fs.readFileSync(PANEL_PATH, 'utf-8');
+    const script = readScript();
+    expect(panel).toContain('id="searchInput"');
+    expect(panel).toContain('placeholder="Search tables or columns…"');
+    expect(panel).toContain('id="searchStatus"');
+    expect(script).toContain('...entity.columns.map(column => column.name)');
+    expect(script).toContain('return terms.every(term => searchable.includes(term))');
+    expect(script).toContain('if (matches.length === 1)');
+    expect(script).toContain('isolatedTableId = tableId');
+    expect(script).toContain('searchMatchIds = new Set(matches)');
+    expect(script).toContain('searchMatchIds.has(record.node.id) ? 1 : 0.18');
+  });
+
+  it('renders the relationship toggle as a lower-emphasis action', () => {
+    const panel = fs.readFileSync(PANEL_PATH, 'utf-8');
+    const style = fs.readFileSync(STYLE_PATH, 'utf-8');
+    expect(panel).toContain('class="relationships-toggle"');
+    expect(style).toMatch(/\.relationships-toggle \{[^}]*opacity: \.58;[^}]*filter: saturate\(\.65\);/s);
   });
 });
