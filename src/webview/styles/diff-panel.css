@@ -663,30 +663,5 @@ vscode-tab-panel[hidden] {
   font-size: 10px;
 }
 
-/* ---- Cell selection + context menu (parity with Result Grid) ----
- * Borders drawn via inset box-shadow so the 2px edges don't change cell
- * height/width (classic border-box issue). Four CSS custom properties
- * combine into one box-shadow declaration so per-edge classes stack. */
-.diff-table td.cell-selected,
-.diff-schema-table td.cell-selected {
-  background: color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important;
-  --sh-top: 0 0 0 0 transparent;
-  --sh-bottom: 0 0 0 0 transparent;
-  --sh-left: 0 0 0 0 transparent;
-  --sh-right: 0 0 0 0 transparent;
-  box-shadow:
-    inset var(--sh-top),
-    inset var(--sh-bottom),
-    inset var(--sh-left),
-    inset var(--sh-right);
-}
-.diff-table td.sel-top,
-.diff-schema-table td.sel-top { --sh-top: 0 2px 0 0 var(--vscode-focusBorder); }
-.diff-table td.sel-bottom,
-.diff-schema-table td.sel-bottom { --sh-bottom: 0 -2px 0 0 var(--vscode-focusBorder); }
-.diff-table td.sel-left,
-.diff-schema-table td.sel-left { --sh-left: 2px 0 0 0 var(--vscode-focusBorder); }
-.diff-table td.sel-right,
-.diff-schema-table td.sel-right { --sh-right: -2px 0 0 0 var(--vscode-focusBorder); }
-
-/* Context-menu styles live in src/webview/styles/context-menu.css (#94). */
+/* Cell selection + context menu styles now live in shared modules:
+ * src/webview/styles/data-grid.css (#94) + context-menu.css (#94). */

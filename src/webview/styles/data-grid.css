@@ -1,0 +1,23 @@
+/* Shared data-grid selection styles for Viewstor webviews (#94).
+ *
+ * Borders drawn via inset box-shadow so the 2px edges don't change cell
+ * height/width. Four CSS custom properties combine into one box-shadow
+ * declaration so per-edge classes stack cleanly. */
+
+td.cell-selected {
+  background: color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important;
+  --sh-top: 0 0 0 0 transparent;
+  --sh-bottom: 0 0 0 0 transparent;
+  --sh-left: 0 0 0 0 transparent;
+  --sh-right: 0 0 0 0 transparent;
+  box-shadow:
+    inset var(--sh-top),
+    inset var(--sh-bottom),
+    inset var(--sh-left),
+    inset var(--sh-right);
+}
+
+td.sel-top { --sh-top: 0 2px 0 0 var(--vscode-focusBorder); }
+td.sel-bottom { --sh-bottom: 0 -2px 0 0 var(--vscode-focusBorder); }
+td.sel-left { --sh-left: 2px 0 0 0 var(--vscode-focusBorder); }
+td.sel-right { --sh-right: -2px 0 0 0 var(--vscode-focusBorder); }
