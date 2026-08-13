@@ -1,14 +1,19 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { ErDiagramData } from './erDataTransform';
+import { ErDiagramData, ErTable } from './erDataTransform';
+import { ConnectionTreeItem } from '../views/connectionTree';
+import { findTableContextAction, TABLE_CONTEXT_ACTIONS } from '../views/tableContextActions';
 
 export interface ErDiagramShowOptions {
+  connectionId: string;
+  databaseName?: string;
   color?: string;
 }
 
 interface ErDiagramPanelState {
   panel: vscode.WebviewPanel;
   loadData: () => Promise<ErDiagramData>;
+  options: ErDiagramShowOptions;
   data?: ErDiagramData;
   loading: boolean;
 }
@@ -23,7 +28,7 @@ export class ErDiagramPanelManager {
     key: string,
     title: string,
     loadData: () => Promise<ErDiagramData>,
-    options?: ErDiagramShowOptions,
+    options: ErDiagramShowOptions,
   ): void {
     const existing = this.panels.get(key);
     if (existing) {
@@ -41,7 +46,7 @@ export class ErDiagramPanelManager {
         localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, 'dist'))],
       },
     );
-    const state: ErDiagramPanelState = { panel, loadData, loading: false };
+    const state: ErDiagramPanelState = { panel, loadData, options, loading: false };
     this.panels.set(key, state);
     panel.webview.html = this.buildHtml(panel.webview, options);
 
@@ -49,12 +54,14 @@ export class ErDiagramPanelManager {
     panel.webview.onDidReceiveMessage(async message => {
       if (message.type === 'ready') {
         if (state.data) {
-          await panel.webview.postMessage({ type: 'setData', data: state.data });
+          await this.postData(state);
         } else {
           await this.reload(state);
         }
       } else if (message.type === 'refresh') {
         await this.reload(state);
+      } else if (message.type === 'tableAction') {
+        await this.runTableAction(state, message);
       }
     });
   }
@@ -65,7 +72,7 @@ export class ErDiagramPanelManager {
     await state.panel.webview.postMessage({ type: 'loading' });
     try {
       state.data = await state.loadData();
-      await state.panel.webview.postMessage({ type: 'setData', data: state.data });
+      await this.postData(state);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await state.panel.webview.postMessage({ type: 'error', message });
@@ -74,15 +81,64 @@ export class ErDiagramPanelManager {
     }
   }
 
-  private buildHtml(webview: vscode.Webview, options?: ErDiagramShowOptions): string {
+  private async postData(state: ErDiagramPanelState): Promise<void> {
+    await state.panel.webview.postMessage({
+      type: 'setData',
+      data: state.data,
+      tableActions: TABLE_CONTEXT_ACTIONS,
+    });
+  }
+
+  private async runTableAction(
+    state: ErDiagramPanelState,
+    message: { command?: unknown; tableId?: unknown },
+  ): Promise<void> {
+    if (typeof message.command !== 'string' || typeof message.tableId !== 'string') return;
+    const table = state.data?.tables.find(candidate => candidate.id === message.tableId);
+    if (!table || !findTableContextAction(message.command, table.kind)) return;
+
+    const item = this.tableTreeItem(state.options, table);
+    try {
+      await vscode.commands.executeCommand(message.command, item);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(vscode.l10n.t('Failed to run table action: {0}', detail));
+    }
+  }
+
+  private tableTreeItem(options: ErDiagramShowOptions, table: ErTable): ConnectionTreeItem {
+    const item = new ConnectionTreeItem(table.name, vscode.TreeItemCollapsibleState.Collapsed);
+    item.connectionId = options.connectionId;
+    item.databaseName = options.databaseName;
+    item.contextValue = table.kind;
+    item.schemaObject = {
+      name: table.name,
+      type: table.kind,
+      schema: table.schema,
+      children: table.columns.map(column => ({
+        name: column.name,
+        type: 'column',
+        schema: table.schema,
+        detail: column.dataType,
+        comment: column.comment,
+        indexNames: column.indexNames,
+        notNullable: column.notNullable,
+      })),
+    };
+    return item;
+  }
+
+  private buildHtml(webview: vscode.Webview, options: ErDiagramShowOptions): string {
     const distUri = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
     const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
     const layoutUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'er-diagram-layout.js'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'er-diagram-panel.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'er-diagram-panel.css'));
     const tokensUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'tokens.css'));
+    const contextMenuStyleUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'context-menu.css'));
     const codiconUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'codicon.css'));
     const shellUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'webview-shell.js'));
+    const contextMenuUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'context-menu.js'));
     const elementsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'vscode-elements.js'));
     const accentBorder = options?.color ? `border-top: 2px solid ${options.color};` : '';
 
@@ -94,6 +150,7 @@ export class ErDiagramPanelManager {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src ${webview.cspSource};">
 <link id="vscode-codicon-stylesheet" rel="stylesheet" href="${codiconUri}">
 <link rel="stylesheet" href="${tokensUri}">
+<link rel="stylesheet" href="${contextMenuStyleUri}">
 <link rel="stylesheet" href="${styleUri}">
 <script src="${shellUri}"></script>
 <script type="module" src="${elementsUri}"></script>
@@ -127,6 +184,7 @@ export class ErDiagramPanelManager {
     </section>
   </main>
   <script src="${echartsUri}"></script>
+  <script src="${contextMenuUri}"></script>
   <script src="${layoutUri}"></script>
   <script src="${scriptUri}"></script>
 </body>

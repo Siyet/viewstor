@@ -1,4 +1,4 @@
-/* global echarts, acquireVsCodeApi, ViewstorErLayout */
+/* global echarts, acquireVsCodeApi, ViewstorContextMenu, ViewstorErLayout */
 (function () {
   'use strict';
 
@@ -54,6 +54,7 @@
   let searchTimer;
   let searchMatchIds;
   let searchIsolatedTableId;
+  let tableActions = [];
   let cardTextStyleCache = new Map();
 
   function theme(name, fallback) {
@@ -468,6 +469,7 @@
       cardRecords.set(node.id, record);
       group.on('mousemove', event => handleCardHover(record, event));
       group.on('mouseout', handleCardOut);
+      group.on('contextmenu', event => handleCardContextMenu(record, event));
       group.on('dblclick', event => {
         event.cancelBubble = true;
         const nextTableId = isolatedTableId === node.id ? undefined : node.id;
@@ -662,6 +664,40 @@
       searchTimer = undefined;
       applySearch(searchInput.value);
     }, SEARCH_DEBOUNCE_MS);
+  }
+
+  function tableContextMenuItems(record) {
+    const items = [];
+    let previousGroup;
+    for (const action of tableActions) {
+      if (!Array.isArray(action.kinds) || !action.kinds.includes(record.node.kind)) continue;
+      if (previousGroup && previousGroup !== action.group) items.push({ separator: true });
+      items.push({
+        label: action.label,
+        destructive: Boolean(action.destructive),
+        onClick: () => vscode.postMessage({
+          type: 'tableAction',
+          command: action.command,
+          tableId: record.node.id,
+        }),
+      });
+      previousGroup = action.group;
+    }
+    return items;
+  }
+
+  function handleCardContextMenu(record, event) {
+    if (typeof ViewstorContextMenu === 'undefined') return;
+    const nativeEvent = event.event || event;
+    if (typeof nativeEvent.preventDefault === 'function') nativeEvent.preventDefault();
+    if (typeof nativeEvent.stopPropagation === 'function') nativeEvent.stopPropagation();
+    event.cancelBubble = true;
+    hideHoverTooltip();
+    ViewstorContextMenu.open({
+      x: Number.isFinite(nativeEvent.clientX) ? nativeEvent.clientX : event.offsetX,
+      y: Number.isFinite(nativeEvent.clientY) ? nativeEvent.clientY : event.offsetY,
+      items: tableContextMenuItems(record),
+    });
   }
 
   function handleCardHover(record, event) {
@@ -1206,6 +1242,7 @@
       refreshBtn.disabled = false;
     } else if (message.type === 'setData') {
       data = message.data || { tables: [], foreignKeys: [] };
+      tableActions = Array.isArray(message.tableActions) ? message.tableActions : [];
       renderChart();
       if (String(searchInput.value || '').trim()) applySearch(searchInput.value);
       refreshBtn.disabled = false;

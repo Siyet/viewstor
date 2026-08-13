@@ -103,6 +103,7 @@ Right-click a connected connection, database, or schema → **Show ER Diagram**:
 
 - Tables and views share one continuous canvas and always render as complete cards with columns: PostgreSQL schemas and ClickHouse databases occupy separate tinted regions, while engines without namespaces keep a plain canvas; views use a dashed purple border
 - Search matches table, view, and column names; multiple matching tables are highlighted on the full diagram, while a unique match opens that table's direct-neighbour graph
+- Right-click a table or view card for the same object actions as in the Connections tree; both surfaces share one action registry guarded by a synchronization test
 - Foreign-key lines include column mappings and `ON DELETE` / `ON UPDATE` details; lines are slightly muted below `3×`, where arrowheads, relationship hover highlighting, and relationship tooltips appear
 - Scroll anywhere on the canvas to zoom, including empty space beyond the graph; target-based easing stays responsive to trackpads
 - Cards highlight and mark primary keys as `PK`, source foreign-key columns as `FK`, and indexed columns as `IDX`. Combined roles are preserved, such as `FK, IDX`

@@ -40,7 +40,11 @@ export function registerErDiagramCommands(context: vscode.ExtensionContext, ctx:
         key,
         vscode.l10n.t('ER Diagram — {0}', scopeName),
         loadData,
-        { color: ctx.connectionManager.getConnectionColor(connectionId) },
+        {
+          connectionId,
+          databaseName,
+          color: ctx.connectionManager.getConnectionColor(connectionId),
+        },
       );
     }),
   );

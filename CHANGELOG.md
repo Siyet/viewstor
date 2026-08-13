@@ -5,6 +5,7 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 ## [Unreleased]
 
 ### Added
+- ER table and view cards now expose the same context actions as their Connections tree counterparts through a shared action registry; a contract test prevents the declarative tree menu and webview menu from drifting apart.
 - Relationship lines use slightly lower opacity below `3×` ER-diagram zoom to reduce distant-view visual noise.
 - ER-diagram search matches table, view, and column names, highlights multiple matching tables, and opens the direct-neighbour graph for a unique match; the relationship visibility toggle now uses lower visual emphasis.
 - Relationship hover highlighting and tooltips now appear together with arrowheads from `3×` ER-diagram zoom.

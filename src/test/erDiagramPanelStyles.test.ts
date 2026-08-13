@@ -178,4 +178,17 @@ describe('ER diagram interactions', () => {
     expect(panel).toContain('class="relationships-toggle"');
     expect(style).toMatch(/\.relationships-toggle \{[^}]*opacity: \.58;[^}]*filter: saturate\(\.65\);/s);
   });
+
+  it('uses the shared context-menu primitive and host-provided table actions', () => {
+    const panel = fs.readFileSync(PANEL_PATH, 'utf-8');
+    const script = readScript();
+    expect(panel).toContain('styles\', \'context-menu.css');
+    expect(panel).toContain('scripts\', \'context-menu.js');
+    expect(panel).toContain('findTableContextAction(message.command, table.kind)');
+    expect(panel).toContain('vscode.commands.executeCommand(message.command, item)');
+    expect(script).toContain('group.on(\'contextmenu\'');
+    expect(script).toContain('ViewstorContextMenu.open({');
+    expect(script).toContain('type: \'tableAction\'');
+    expect(script).toContain('tableActions = Array.isArray(message.tableActions)');
+  });
 });
