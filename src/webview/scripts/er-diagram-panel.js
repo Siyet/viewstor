@@ -18,6 +18,8 @@
   const HOVER_TRANSITION_MS = 150;
   const ZOOM_HALF_LIFE_MS = 28;
   const ROLE_COLOR_ALPHA = 0.78;
+  const ARROW_ZOOM_THRESHOLD = 3;
+  const CARD_Z = 100;
   const CARD_FRAME_Z = 200;
   const CARD_TEXT_Z = 201;
 
@@ -28,6 +30,7 @@
   let currentZoom = 1;
   let initialZoom = 1;
   let farZoom = 0.5;
+  let arrowsVisible = false;
   let zoomAnimation;
   let zoomAnimationFrame;
   let statusTimer;
@@ -327,8 +330,8 @@
       symbolSize: nodeSymbolSize,
       label: { show: false },
       itemStyle: { opacity: 0, borderWidth: 0 },
-      edgeSymbol: ['none', 'arrow'],
-      edgeSymbolSize: [0, 8],
+      edgeSymbol: ['none', arrowsVisible ? 'arrow' : 'none'],
+      edgeSymbolSize: [0, arrowsVisible ? 8 : 0],
       lineStyle: {
         color: theme('--vscode-charts-blue', '#3794ff'),
         opacity: 0.35,
@@ -407,6 +410,7 @@
       group.__viewstorCardId = node.id;
 
       const rect = new echarts.graphic.Rect({
+        z: CARD_Z,
         z2: CARD_FRAME_Z,
         shape: cardShape(node),
         culling: true,
@@ -420,6 +424,7 @@
         cursor: 'pointer',
       });
       const text = new echarts.graphic.Text({
+        z: CARD_Z,
         z2: CARD_TEXT_Z,
         style: cardTextStyle(node),
         culling: true,
@@ -762,6 +767,7 @@
       hideHoverTooltip();
       if (typeof event.zoom === 'number') {
         currentZoom = Math.max(farZoom, Math.min(MAX_ZOOM, currentZoom * event.zoom));
+        updateArrowVisibility();
         updateRegionPresentation();
         setStatus();
       }
@@ -774,6 +780,19 @@
     chart.on('dblclick', handleChartDoubleClick);
     chart.getZr().on('dblclick', handleCanvasDoubleClick);
     installPanHandlers();
+  }
+
+  function updateArrowVisibility() {
+    const nextVisible = currentZoom >= ARROW_ZOOM_THRESHOLD;
+    if (nextVisible === arrowsVisible) return;
+    arrowsVisible = nextVisible;
+    chart.setOption({
+      series: [{
+        id: 'erGraph',
+        edgeSymbol: ['none', arrowsVisible ? 'arrow' : 'none'],
+        edgeSymbolSize: [0, arrowsVisible ? 8 : 0],
+      }],
+    });
   }
 
   function handleCanvasDoubleClick(event) {
@@ -868,6 +887,7 @@
     );
     calculateZoomLevels(bounds);
     currentZoom = initialZoom;
+    arrowsVisible = currentZoom >= ARROW_ZOOM_THRESHOLD;
     zoomAnimation = undefined;
     if (zoomAnimationFrame !== undefined) window.cancelAnimationFrame(zoomAnimationFrame);
     zoomAnimationFrame = undefined;

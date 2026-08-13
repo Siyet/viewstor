@@ -63,10 +63,19 @@ describe('ER diagram transitions', () => {
 
   it('keeps cards above relationships on the first focused-graph frame', () => {
     const script = readScript();
+    expect(script).toContain('const CARD_Z = 100');
     expect(script).toContain('const CARD_FRAME_Z = 200');
     expect(script).toContain('const CARD_TEXT_Z = 201');
-    expect(script).toMatch(/new echarts\.graphic\.Rect\(\{\s*z2: CARD_FRAME_Z,/);
-    expect(script).toMatch(/new echarts\.graphic\.Text\(\{\s*z2: CARD_TEXT_Z,/);
+    expect(script).toMatch(/new echarts\.graphic\.Rect\(\{\s*z: CARD_Z,\s*z2: CARD_FRAME_Z,/);
+    expect(script).toMatch(/new echarts\.graphic\.Text\(\{\s*z: CARD_Z,\s*z2: CARD_TEXT_Z,/);
+  });
+
+  it('shows relationship arrows only from 3x zoom', () => {
+    const script = readScript();
+    expect(script).toContain('const ARROW_ZOOM_THRESHOLD = 3');
+    expect(script).toContain('const nextVisible = currentZoom >= ARROW_ZOOM_THRESHOLD');
+    expect(script).toContain('edgeSymbol: [\'none\', arrowsVisible ? \'arrow\' : \'none\']');
+    expect(script).toContain('edgeSymbolSize: [0, arrowsVisible ? 8 : 0]');
   });
 });
 
