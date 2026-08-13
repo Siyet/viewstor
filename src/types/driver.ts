@@ -1,6 +1,6 @@
 import { ConnectionConfig } from './connection';
 import { QueryResult, SortColumn } from './query';
-import { SchemaObject, TableInfo, TableObjects, TableStatistic } from './schema';
+import { ForeignKeyInfo, SchemaObject, TableInfo, TableObjects, TableStatistic } from './schema';
 
 /**
  * Unified interface that all database drivers must implement.
@@ -25,6 +25,8 @@ export interface DatabaseDriver {
   getTableObjects?(name: string, schema?: string): Promise<TableObjects>;
   /** Returns table-level statistics (row count, sizes, vacuum info, etc.) for stats diff */
   getTableStatistics?(name: string, schema?: string): Promise<TableStatistic[]>;
+  /** Returns foreign-key relationships, optionally limited to one source schema. */
+  getForeignKeys?(schema?: string): Promise<ForeignKeyInfo[]>;
 }
 
 export interface CompletionItem {

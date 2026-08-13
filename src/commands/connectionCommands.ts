@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CommandContext, logAndShowError } from './shared';
+import { CommandContext, logAndShowError, wrapError } from './shared';
 import { ConnectionTreeItem } from '../views/connectionTree';
 import { ImportSource, parseImportFile } from '../services/importService';
 
@@ -46,7 +46,7 @@ export function registerConnectionCommands(context: vscode.ExtensionContext, ctx
           () => connectionManager.connect(item.connectionId!)
         );
       } catch (err) {
-        logAndShowError(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
+        logAndShowError(vscode.l10n.t('Connection failed: {0}', wrapError(err)));
       }
     }),
 
@@ -66,7 +66,7 @@ export function registerConnectionCommands(context: vscode.ExtensionContext, ctx
         try {
           await connectionManager.connect(item.connectionId);
         } catch (err) {
-          logAndShowError(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
+          logAndShowError(vscode.l10n.t('Connection failed: {0}', wrapError(err)));
           return;
         }
       }

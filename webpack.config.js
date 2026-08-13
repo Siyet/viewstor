@@ -35,11 +35,17 @@ module.exports = (_env, argv) => {
     },
     plugins: [
       new webpack.DefinePlugin({ __DEV__: JSON.stringify(isDev) }),
+      // `pg` lazily references `pg-native` only when the caller opts in via `pg.native`.
+      // We never do — ignore the module so webpack stops warning about the missing peer.
+      new webpack.IgnorePlugin({ resourceRegExp: /^pg-native$/ }),
       new CopyPlugin({
         patterns: [
           { from: 'src/webview/styles', to: 'styles' },
           { from: 'src/webview/scripts', to: 'scripts' },
           { from: 'node_modules/echarts/dist/echarts.min.js', to: 'scripts/echarts.min.js' },
+          { from: 'node_modules/leaflet/dist/leaflet.js', to: 'scripts/leaflet.js' },
+          { from: 'node_modules/leaflet/dist/leaflet.css', to: 'styles/leaflet.css' },
+          { from: 'node_modules/leaflet/dist/images', to: 'styles/images' },
           { from: 'node_modules/@vscode-elements/elements/dist/bundled.js', to: 'scripts/vscode-elements.js' },
           { from: 'node_modules/@vscode/codicons/dist/codicon.css', to: 'styles/codicon.css' },
           { from: 'node_modules/@vscode/codicons/dist/codicon.ttf', to: 'styles/codicon.ttf' },
@@ -63,6 +69,7 @@ module.exports = (_env, argv) => {
     },
     plugins: [
       new webpack.DefinePlugin({ __DEV__: JSON.stringify(isDev) }),
+      new webpack.IgnorePlugin({ resourceRegExp: /^pg-native$/ }),
       new webpack.BannerPlugin({ banner: '#!/usr/bin/env node', raw: true }),
     ],
   },

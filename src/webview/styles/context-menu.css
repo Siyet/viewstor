@@ -1,0 +1,45 @@
+/*
+ * Shared styles for ViewstorContextMenu (#94).
+ *
+ * Used by both the Result Panel and the Diff Panel; replaces the
+ * parallel `.ctx-menu` / `.diff-ctx-menu` rules that previously had to
+ * stay hand-synced.
+ */
+
+.viewstor-ctx-menu {
+  position: fixed;
+  background: var(--vscode-menu-background, var(--vscode-dropdown-background));
+  border: 1px solid var(--vscode-menu-border, var(--viewstor-border-subtle, var(--vscode-panel-border)));
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+  padding: 4px 0;
+  min-width: 160px;
+}
+
+.viewstor-ctx-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.viewstor-ctx-menu button:hover {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+}
+
+.viewstor-ctx-menu button.viewstor-ctx-menu-destructive {
+  color: var(--vscode-errorForeground);
+}
+
+.viewstor-ctx-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
+}

@@ -85,8 +85,6 @@
   "Column for horizontal axis. For timeseries charts, use a timestamp column.": "Coluna para o eixo horizontal. Para gráficos de séries temporais, use uma coluna de timestamp.",
   "Numeric columns for vertical axis — the values to plot.": "Colunas numéricas para o eixo vertical — os valores a plotar.",
   "Split data into separate series by this column (e.g. by region or status).": "Dividir dados em séries separadas por esta coluna (ex.: por região ou status).",
-  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Requires \"Run on Server\".": "Como agregar valores Y: contar linhas, soma/média/mín/máx de uma coluna. Requer \"Run on Server\".",
-  "Group timestamps into intervals. Requires a time-type X axis. Auto-enables Full Data.": "Agrupar timestamps em intervalos. Requer um eixo X do tipo tempo. Ativa Full Data automaticamente.",
   "Custom interval: 2h = 2 hours, 15m = 15 minutes, 3d = 3 days.": "Intervalo personalizado: 2h = 2 horas, 15m = 15 minutos, 3d = 3 dias.",
   "Column with labels for chart segments (pie slices, funnel stages).": "Coluna com rótulos para segmentos do gráfico (fatias de pizza, etapas do funil).",
   "Numeric column with values for each segment.": "Coluna numérica com valores para cada segmento.",
@@ -95,10 +93,11 @@
   "Single numeric metric to display on the gauge.": "Métrica numérica única a exibir no medidor.",
   "Minimum value on the gauge scale.": "Valor mínimo na escala do medidor.",
   "Maximum value on the gauge scale.": "Valor máximo na escala do medidor.",
-  "Execute aggregation query on the database — processes all data server-side.": "Executar consulta de agregação no banco de dados — processa todos os dados no servidor.",
   "Auto-update chart when the linked table changes page, sort, or query.": "Atualizar automaticamente o gráfico quando a tabela vinculada mudar de página, ordenação ou consulta.",
-  "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "Buscar todas as linhas (sem LIMIT) usando apenas as colunas necessárias para o gráfico.",
-  "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data ativado automaticamente — a agregação precisa de todas as linhas, não apenas da página atual.",
   "Chart query failed: {0}": "Falha na consulta do gráfico: {0}",
-  "Running chart query...": "Executando consulta do gráfico..."
+  "Running chart query...": "Executando consulta do gráfico...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "Apenas consultas somente leitura (SELECT / WITH / EXPLAIN / SHOW / VALUES) são permitidas na barra SQL da tabela.",
+  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Use with \"Show full DB data\" to execute server-side.": "Como agregar valores Y: contar linhas, soma/média/mín/máx de uma coluna. Requer \"Run on Server\".",
+  "Group timestamps into intervals. Requires a time-type X axis.": "Agrupar timestamps em intervalos. Requer um eixo X do tipo tempo. Ativa Full Data automaticamente.",
+  "Run the chart query directly against the database — uses aggregation when a function or time bucket is set, otherwise pulls all rows (no LIMIT). Clicking again while a query is running cancels the previous one.": "Executa a consulta do gráfico diretamente no banco de dados — agregação quando uma função ou bucket temporal está definido, caso contrário todas as linhas (sem LIMIT). Clicar novamente durante a execução cancela a consulta anterior."
 }

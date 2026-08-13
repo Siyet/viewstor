@@ -1,0 +1,33 @@
+[
+  {
+    "name": "events",
+    "numPartitions": 3,
+    "replicationFactor": 1,
+    "messages": [
+      { "key": "1", "value": {"id": 1, "type": "login",    "user_id": 1, "ts": "2025-04-01T10:00:00Z"} },
+      { "key": "1", "value": {"id": 2, "type": "view",     "user_id": 1, "ts": "2025-04-01T10:00:05Z", "path": "/home"} },
+      { "key": "2", "value": {"id": 3, "type": "purchase", "user_id": 2, "ts": "2025-04-01T10:02:00Z", "amount": 42.0} },
+      { "key": "2", "value": {"id": 4, "type": "error",    "user_id": 2, "ts": "2025-04-01T10:03:00Z", "code": 500} }
+    ]
+  },
+  {
+    "name": "orders",
+    "numPartitions": 2,
+    "replicationFactor": 1,
+    "messages": [
+      { "key": "order:1", "value": {"id": 1, "customer_id": 1, "amount": 99.95, "status": "paid"} },
+      { "key": "order:2", "value": {"id": 2, "customer_id": 2, "amount": 150.00,"status": "cancelled"} },
+      { "key": "order:3", "value": {"id": 3, "customer_id": 3, "amount": 220.50,"status": "paid"} }
+    ]
+  },
+  {
+    "name": "logs",
+    "numPartitions": 1,
+    "replicationFactor": 1,
+    "messages": [
+      { "key": null, "value": "INFO app started" },
+      { "key": null, "value": "WARN slow query" },
+      { "key": null, "value": "ERROR connection reset" }
+    ]
+  }
+]

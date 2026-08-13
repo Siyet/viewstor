@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CommandContext, clearQueryDecorations, showQueryResult, logQueryToOutput, logAndShowError, generateId, incrementQueryResultCounter, getOutputChannel } from './shared';
+import { CommandContext, clearQueryDecorations, showQueryResult, logQueryToOutput, logAndShowError, generateId, incrementQueryResultCounter, getOutputChannel, getRequiredDriver, wrapError } from './shared';
 import { enhanceColumnError, getStatementAtOffset, firstSqlTokenOffset, parseTablesFromQuery } from '../utils/queryHelpers';
 import { dbg } from '../utils/debug';
 
@@ -8,9 +8,7 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
 
   // Wire up TempFileManager callbacks
   tempFileManager.setOnSqlExecuted(async (sqlCtx, sql) => {
-    const driver = sqlCtx.databaseName
-      ? await connectionManager.getDriverForDatabase(sqlCtx.connectionId, sqlCtx.databaseName)
-      : connectionManager.getDriver(sqlCtx.connectionId);
+    const driver = await getRequiredDriver(connectionManager, sqlCtx.connectionId, sqlCtx.databaseName);
     if (!driver) return;
     const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
     const errors: string[] = [];
@@ -87,15 +85,13 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
         try {
           await connectionManager.connect(connectionId);
         } catch (err) {
-          logAndShowError(vscode.l10n.t('Connection failed: {0}', err instanceof Error ? err.message : String(err)));
+          logAndShowError(vscode.l10n.t('Connection failed: {0}', wrapError(err)));
           return;
         }
       }
 
       const databaseName = queryEditorProvider.getDatabaseNameFromUri(editor.document.uri);
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) {
         vscode.window.showWarningMessage(vscode.l10n.t('Not connected. Please connect first.'));
         return;
@@ -285,15 +281,12 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
           cachedResult: !result.error ? { columns: result.columns, rows: cachedRows } : undefined,
         });
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        logAndShowError(`${errorMsg}\n\n---\n${shortQuery}`);
+        logAndShowError(`${wrapError(err)}\n\n---\n${shortQuery}`);
       }
     }),
 
     vscode.commands.registerCommand('viewstor._executeSqlStatements', async (connectionId: string, sql: string, executionContext: string, tableName?: string, databaseName?: string) => {
-      const driver = databaseName
-        ? await connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : connectionManager.getDriver(connectionId);
+      const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;
 
       const statements = sql.split(';').map(s => s.trim()).filter(Boolean);
@@ -328,7 +321,7 @@ export function registerQueryCommands(context: vscode.ExtensionContext, ctx: Com
           await driver.cancelQuery();
           vscode.window.showInformationMessage(vscode.l10n.t('Query cancelled.'));
         } catch (err) {
-          vscode.window.showWarningMessage(vscode.l10n.t('Cancel failed: {0}', err instanceof Error ? err.message : String(err)));
+          vscode.window.showWarningMessage(vscode.l10n.t('Cancel failed: {0}', wrapError(err)));
         }
       }
     }),

@@ -85,8 +85,6 @@
   "Column for horizontal axis. For timeseries charts, use a timestamp column.": "عمود المحور الأفقي. لمخططات السلاسل الزمنية، استخدم عمود الطابع الزمني.",
   "Numeric columns for vertical axis — the values to plot.": "أعمدة رقمية للمحور الرأسي — القيم المراد رسمها.",
   "Split data into separate series by this column (e.g. by region or status).": "تقسيم البيانات إلى سلاسل منفصلة حسب هذا العمود (مثلاً حسب المنطقة أو الحالة).",
-  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Requires \"Run on Server\".": "كيفية تجميع قيم Y: عدّ الصفوف، مجموع/متوسط/أدنى/أقصى لعمود. يتطلب \"Run on Server\".",
-  "Group timestamps into intervals. Requires a time-type X axis. Auto-enables Full Data.": "تجميع الطوابع الزمنية في فترات. يتطلب محور X من نوع الوقت. يفعّل Full Data تلقائيًا.",
   "Custom interval: 2h = 2 hours, 15m = 15 minutes, 3d = 3 days.": "فترة مخصصة: 2h = ساعتان، 15m = 15 دقيقة، 3d = 3 أيام.",
   "Column with labels for chart segments (pie slices, funnel stages).": "عمود التسميات لأجزاء المخطط (شرائح الدائرة، مراحل القمع).",
   "Numeric column with values for each segment.": "عمود رقمي بقيم لكل جزء.",
@@ -95,10 +93,11 @@
   "Single numeric metric to display on the gauge.": "مقياس رقمي واحد لعرضه على المؤشر.",
   "Minimum value on the gauge scale.": "الحد الأدنى لمقياس المؤشر.",
   "Maximum value on the gauge scale.": "الحد الأقصى لمقياس المؤشر.",
-  "Execute aggregation query on the database — processes all data server-side.": "تنفيذ استعلام التجميع في قاعدة البيانات — معالجة جميع البيانات على الخادم.",
   "Auto-update chart when the linked table changes page, sort, or query.": "تحديث المخطط تلقائيًا عند تغيير الصفحة أو الترتيب أو الاستعلام في الجدول المرتبط.",
-  "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "جلب جميع الصفوف (بدون LIMIT) باستخدام الأعمدة المطلوبة للمخطط فقط.",
-  "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "تم تفعيل Full Data تلقائيًا — التجميع يحتاج جميع الصفوف، وليس الصفحة الحالية فقط.",
   "Chart query failed: {0}": "فشل استعلام المخطط: {0}",
-  "Running chart query...": "جارٍ تنفيذ استعلام المخطط..."
+  "Running chart query...": "جارٍ تنفيذ استعلام المخطط...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "يُسمح فقط بالاستعلامات للقراءة فقط (SELECT / WITH / EXPLAIN / SHOW / VALUES) في شريط SQL للجدول.",
+  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Use with \"Show full DB data\" to execute server-side.": "كيفية تجميع قيم Y: عدّ الصفوف، مجموع/متوسط/أدنى/أقصى لعمود. يتطلب \"Run on Server\".",
+  "Group timestamps into intervals. Requires a time-type X axis.": "تجميع الطوابع الزمنية في فترات. يتطلب محور X من نوع الوقت. يفعّل Full Data تلقائيًا.",
+  "Run the chart query directly against the database — uses aggregation when a function or time bucket is set, otherwise pulls all rows (no LIMIT). Clicking again while a query is running cancels the previous one.": "تشغيل استعلام الرسم البياني مباشرة على قاعدة البيانات — تجميع إذا تم تحديد دالة أو فترة زمنية، وإلا يتم جلب كل الصفوف (بدون LIMIT). النقر مرة أخرى أثناء التشغيل يلغي الاستعلام السابق."
 }

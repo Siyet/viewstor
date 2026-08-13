@@ -6,6 +6,7 @@ import { ConnectionConfig, ConnectionState, ConnectionFolder } from '../types/co
 import { DatabaseDriver } from '../types/driver';
 import { SchemaObject } from '../types/schema';
 import { createDriver } from '../drivers';
+import { AnonymizationPolicy, resolveAnonymizationPolicy } from '../mcp/anonymizer';
 
 const STORAGE_KEY = 'viewstor.connections';
 const FOLDERS_KEY = 'viewstor.connectionFolders';
@@ -176,6 +177,24 @@ export class ConnectionManager {
 
   getDriver(id: string): DatabaseDriver | undefined {
     return this.drivers.get(id);
+  }
+
+  /** Return a usable driver, reconnecting a disconnected connection when needed. */
+  async ensureDriver(connectionId: string, database?: string): Promise<DatabaseDriver> {
+    const state = this.connections.get(connectionId);
+    if (!state) throw new Error('Connection not found');
+
+    if (!database || state.config.database === database) {
+      let driver = this.drivers.get(connectionId);
+      if (!driver) {
+        await this.connect(connectionId);
+        driver = this.drivers.get(connectionId);
+      }
+      if (!driver) throw new Error('Connection driver unavailable');
+      return driver;
+    }
+
+    return this.getDriverForDatabase(connectionId, database);
   }
 
   /** Get or create a cached driver for a specific database within a multi-DB connection */
@@ -384,7 +403,7 @@ export class ConnectionManager {
     this._onDidChange.fire();
   }
 
-  async updateFolder(id: string, updates: Partial<Pick<ConnectionFolder, 'name' | 'color' | 'readonly' | 'sortOrder'>>): Promise<void> {
+  async updateFolder(id: string, updates: Partial<Pick<ConnectionFolder, 'name' | 'color' | 'readonly' | 'sortOrder' | 'agentAnonymization' | 'agentAnonymizationStrategy'>>): Promise<void> {
     const folder = this.folders.get(id);
     if (!folder) return;
     Object.assign(folder, updates);
@@ -433,6 +452,13 @@ export class ConnectionManager {
       return this.folders.get(state.config.folderId)?.readonly || false;
     }
     return false;
+  }
+
+  /** Resolve the effective anonymization policy, walking folder inheritance. */
+  getAnonymizationPolicy(id: string): AnonymizationPolicy {
+    const state = this.connections.get(id);
+    if (!state) return { mode: 'off', strategy: 'hash' };
+    return resolveAnonymizationPolicy(state.config, fid => this.folders.get(fid));
   }
 
   dispose() {

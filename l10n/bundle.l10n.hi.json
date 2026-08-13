@@ -85,8 +85,6 @@
   "Column for horizontal axis. For timeseries charts, use a timestamp column.": "क्षैतिज अक्ष के लिए कॉलम। टाइमसीरीज़ चार्ट के लिए टाइमस्टैम्प कॉलम का उपयोग करें।",
   "Numeric columns for vertical axis — the values to plot.": "ऊर्ध्वाधर अक्ष के लिए संख्यात्मक कॉलम — प्लॉट करने के मान।",
   "Split data into separate series by this column (e.g. by region or status).": "इस कॉलम के अनुसार डेटा को अलग श्रृंखलाओं में विभाजित करें (जैसे क्षेत्र या स्थिति के अनुसार)।",
-  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Requires \"Run on Server\".": "Y मानों को कैसे एकत्रित करें: पंक्तियाँ गिनें, कॉलम का योग/औसत/न्यूनतम/अधिकतम। \"Run on Server\" आवश्यक है।",
-  "Group timestamps into intervals. Requires a time-type X axis. Auto-enables Full Data.": "टाइमस्टैम्प को अंतरालों में समूहित करें। समय-प्रकार X अक्ष आवश्यक है। स्वचालित रूप से Full Data सक्रिय करता है।",
   "Custom interval: 2h = 2 hours, 15m = 15 minutes, 3d = 3 days.": "कस्टम अंतराल: 2h = 2 घंटे, 15m = 15 मिनट, 3d = 3 दिन।",
   "Column with labels for chart segments (pie slices, funnel stages).": "चार्ट खंडों के लेबल वाला कॉलम (पाई स्लाइस, फ़नल चरण)।",
   "Numeric column with values for each segment.": "प्रत्येक खंड के मानों वाला संख्यात्मक कॉलम।",
@@ -95,10 +93,11 @@
   "Single numeric metric to display on the gauge.": "गेज पर प्रदर्शित करने के लिए एकल संख्यात्मक मेट्रिक।",
   "Minimum value on the gauge scale.": "गेज स्केल पर न्यूनतम मान।",
   "Maximum value on the gauge scale.": "गेज स्केल पर अधिकतम मान।",
-  "Execute aggregation query on the database — processes all data server-side.": "डेटाबेस पर एकत्रीकरण क्वेरी निष्पादित करें — सभी डेटा सर्वर-साइड प्रोसेस करता है।",
   "Auto-update chart when the linked table changes page, sort, or query.": "लिंक की गई टेबल का पेज, सॉर्ट या क्वेरी बदलने पर चार्ट स्वचालित अपडेट करें।",
-  "Fetch all rows (no LIMIT) using only the columns needed for the chart.": "चार्ट के लिए आवश्यक कॉलमों का उपयोग करके सभी पंक्तियाँ प्राप्त करें (LIMIT के बिना)।",
-  "Full Data enabled automatically — aggregation needs all rows, not just the current page.": "Full Data स्वचालित रूप से सक्रिय — एकत्रीकरण के लिए केवल वर्तमान पेज नहीं, सभी पंक्तियाँ आवश्यक हैं।",
   "Chart query failed: {0}": "चार्ट क्वेरी विफल: {0}",
-  "Running chart query...": "चार्ट क्वेरी चल रही है..."
+  "Running chart query...": "चार्ट क्वेरी चल रही है...",
+  "Only read-only queries (SELECT / WITH / EXPLAIN / SHOW / VALUES) are allowed in the table SQL bar.": "टेबल SQL बार में केवल रीड-ओनली क्वेरीज़ (SELECT / WITH / EXPLAIN / SHOW / VALUES) की अनुमति है।",
+  "How to aggregate Y values: count rows, sum/avg/min/max of a column. Use with \"Show full DB data\" to execute server-side.": "Y मानों को कैसे एकत्रित करें: पंक्तियाँ गिनें, कॉलम का योग/औसत/न्यूनतम/अधिकतम। \"Run on Server\" आवश्यक है।",
+  "Group timestamps into intervals. Requires a time-type X axis.": "टाइमस्टैम्प को अंतरालों में समूहित करें। समय-प्रकार X अक्ष आवश्यक है। स्वचालित रूप से Full Data सक्रिय करता है।",
+  "Run the chart query directly against the database — uses aggregation when a function or time bucket is set, otherwise pulls all rows (no LIMIT). Clicking again while a query is running cancels the previous one.": "चार्ट क्वेरी को सीधे डेटाबेस पर चलाएं — फ़ंक्शन या टाइम बकेट सेट होने पर एग्रीगेशन, अन्यथा सभी पंक्तियाँ (बिना LIMIT के)। क्वेरी चलने के दौरान दोबारा क्लिक करने पर पिछली क्वेरी रद्द हो जाती है।"
 }

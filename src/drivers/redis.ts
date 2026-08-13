@@ -3,6 +3,7 @@ import { DatabaseDriver } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, MAX_RESULT_ROWS } from '../types/query';
 import { SchemaObject, TableInfo } from '../types/schema';
+import { wrapError } from '../utils/errors';
 
 export class RedisDriver implements DatabaseDriver {
   private client: Redis | undefined;
@@ -50,7 +51,7 @@ export class RedisDriver implements DatabaseDriver {
         rows: [],
         rowCount: 0,
         executionTimeMs: Date.now() - start,
-        error: err instanceof Error ? err.message : String(err),
+        error: wrapError(err),
       };
     }
   }

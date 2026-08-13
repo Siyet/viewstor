@@ -32,6 +32,7 @@ F5 in VS Code → Extension Development Host. Reload Window picks up new `dist/`
 Required methods: `connect`, `disconnect`, `ping`, `execute`, `getSchema`, `getTableInfo`, `getTableData`.
 
 Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff), `getTableStatistics` (row count, sizes, vacuum info, scan counters — used by stats diff tab; PG uses `pg_table_size`/`pg_indexes_size` + `pg_stat_user_tables`, CH uses `system.tables` + `system.parts`, SQLite uses `COUNT(*)` + optional `dbstat` vtable).
+Optional: `getForeignKeys` returns schema-qualified source/target tables and ordered column pairs for ER diagrams. PostgreSQL uses `information_schema.referential_constraints` + paired `key_column_usage`; SQLite groups `PRAGMA foreign_key_list()` rows by FK id.
 
 Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
 
@@ -63,6 +64,8 @@ All form / panel webviews share a common UI stack (issue #86):
 - **`@vscode-elements/elements`** — VS Code Web Components (`<vscode-textfield>`, `<vscode-single-select>`, `<vscode-checkbox>`, `<vscode-button>`, `<vscode-collapsible>`, `<vscode-icon>`, `<vscode-tabs>`, `<vscode-textarea>`, etc.). Bundled file copied to `dist/scripts/vscode-elements.js`; loaded as `<script type="module">`. Custom elements expose `.value` / `.checked` properties and emit `change` / `input` events just like native form controls.
 - **`@vscode/codicons`** — icon font copied to `dist/styles/codicon.css` + `codicon.ttf`. Use via `<vscode-icon name="..." />` (slot `content-before` / `content-after` for buttons) or directly with `<i class="codicon codicon-..."></i>`.
 - **`src/webview/scripts/webview-shell.js`** — loaded first in every webview HEAD; sets `window.__viewstorShellLoaded` marker. Centralizes the bundle path in case the loading strategy changes.
+- **`src/webview/scripts/context-menu.js` + `src/webview/styles/context-menu.css`** — shared right-click menu primitive (#94). IIFE installs `window.ViewstorContextMenu` with `open({x, y, items}) → { el, close }` and `close()`. Items are `{ label, onClick, destructive? }` or `{ separator: true }`. Handles viewport clamping, click-outside (mousedown capture), and Escape. Opening a second menu closes the first. Also exports via `module.exports` for Node-side tests (see `src/test/contextMenu.test.ts`, loaded in `node:vm`). Diff Panel loads it via `<link>`+`<script src>`; Result Panel inlines the same source via `fs.readFileSync` on first `buildResultHtml` call (triple-path resolution: bundled `dist/scripts/…`, source `src/webview/scripts/…`, or tsc-compiled `dist/test/views/` climbing back to source) and caches the result for the rest of the session — lazy so extension activation never touches disk.
+- **`src/webview/scripts/color-picker.js`** — shared color-picker widget used by the Connection and Folder forms (#94). Installs `window.ViewstorColorPicker` with `hslToHex(h,s,l)`, a `COLOR_PALETTE` of the 12 VS Code terminal ANSI theme colors, and `attach({ textEl, pickerEl, swatchEl, clearBtn?, randomBtn?, paletteEl? }) → { setValue, getValue }`. Keeps the hex↔picker↔swatch sync, palette population, and Random/Clear handlers in one place so the two forms don't drift.
 - **`src/webview/styles/tokens.css`** — design tokens. Typography scale, spacing grid, semantic colors (`--viewstor-row-added/removed/changed/zebra`, `--viewstor-text-dimmed`, `--viewstor-border-subtle`, `--viewstor-badge-bg-*`, `--viewstor-form-max-width`). All derived from `--vscode-*` so themes apply automatically; high-contrast theme overrides via `@media (forced-colors: active)`.
 - **CSP** — every panel sets `Content-Security-Policy` allowing only `cspSource` for img/style/font/script. Inline styles allowed (`style-src 'unsafe-inline'`) so per-element inline `style=` works.
 
@@ -85,7 +88,7 @@ Page sizes: [50, 100, 500, 1000], default 100.
 
 Messages: changePage, changePageSize, reloadWithSort, saveEdits, openJsonInTab, exportAllData, refreshCount, cancelQuery, runCustomQuery.
 
-Webview JS features: row numbers (sticky left), column sorting, drag-select with resize handle, unified selection border (sel-top/bottom/left/right), search with Enter navigation, context menu (copy as CSV/TSV/MD/JSON), JSON editor popup, export dialog, loading overlay with cancel button, PG array display with `{curly braces}`.
+Webview JS features: row numbers (sticky left), column sorting, drag-select with resize handle, unified selection border (sel-top/bottom/left/right), search with Enter navigation, context menu (copy as CSV/TSV/MD/JSON), JSON editor popup, export dialog, loading overlay with cancel button, PG array display with `{curly braces}`. Zebra striping via `--viewstor-row-zebra` on even rows (new-row tint and hover override). Toolbar items grouped into logical clusters (status | search | export/visualize | row actions | pagination) with `toolbar-sep` dividers.
 
 Table mode (connectionId + tableName) → server-side pagination + export all from DB.
 Query mode → client-side data + export in-memory rows.
@@ -108,7 +111,7 @@ Chart types and Grafana mapping:
 - category charts: pie → piechart, funnel/treemap/sunburst → no Grafana equivalent
 - gauge → gauge, boxplot/candlestick/radar → no Grafana equivalent
 
-Webview: `src/webview/scripts/chart-panel.js` (config sidebar + ECharts init), `src/webview/styles/chart-panel.css` (VS Code theme vars).
+Webview: `src/webview/scripts/chart-panel.js` (config sidebar + ECharts init), `src/webview/styles/chart-panel.css` (design tokens from `tokens.css`). Built on `@vscode-elements/elements` (`vscode-single-select` / `vscode-checkbox` / `vscode-textfield` / `vscode-button` / `vscode-icon`) + codicons + shared `tokens.css`, matching the connection form and diff panel patterns.
 
 Messages: buildOption (webview → host, triggers `buildEChartsOption` or `buildMultiSourceEChartsOption`), setOption (host → webview), exportGrafana, copyGrafanaJson, saveGrafanaJson, pushToGrafana, showGrafanaJson, requestPinnedQueries, pinnedQueries, requestDataSourceColumns, dataSourceColumns.
 
@@ -126,6 +129,29 @@ Settings: `viewstor.grafanaUrl`, `viewstor.grafanaApiKey` for direct Grafana pus
 `src/commands/diffCommands.ts` — `viewstor.compareWith` (context menu on tables), `viewstor.compareData` (command palette). Auto-detects PK columns; prompts user if no PK found. Fetches data + objects + statistics from both sources whenever both drivers support `getTableStatistics` (cross-type comparisons included — `DiffPanelManager` passes `crossType` to `computeStatsDiff`, which intersects keys and surfaces hidden counts via an info banner), computes diff, opens panel.
 
 Settings: `viewstor.diffRowLimit` (default 10000, max 100000).
+
+### Map View
+`src/map/mapDataTransform.ts` — pure functions: `detectCoordMode()` picks single-column (by type/name hint) or `lat`/`lng` pair; `parseGeoValue()` decodes GeoJSON Point, WKT `POINT(lng lat)`, `{lat,lng}` objects, `[lng,lat]` arrays, PG brace arrays `{lng,lat}`, JSON strings of the above; `extractPoints()` runs rows through the configured mode; `suggestLabelColumn()` picks a marker label column by priority (`name > title > label > description > code > id`). No vscode dependency, fully unit-tested.
+
+`src/map/mapPanel.ts` — `MapPanelManager`, webview panel for Leaflet map. Bundles `leaflet.js` + `leaflet.css` + marker images via webpack `CopyPlugin` into `dist/scripts/` and `dist/styles/images/`. Patches `L.Icon.Default` paths to `webview.asWebviewUri(...)` so markers render under the `vscode-webview:` scheme. CSP allows `https:` for OpenStreetMap tiles. Messages: `setPoints` (host → webview), `ready`/`changeMode`/`changeLabel` (webview → host). Limits rendering to 10,000 points (configurable via `MapShowOptions.pointLimit`).
+
+`src/commands/mapCommands.ts` — `viewstor.showOnMap`. Triggered by the 🗺 button in the result panel toolbar. Shows a warning if no coordinate format is detected.
+
+Webview: `src/webview/scripts/map-panel.js` (Leaflet init, OpenStreetMap tiles, marker tooltips + row popups), `src/webview/styles/map-panel.css` (VS Code theme vars for popups).
+
+Binary WKB (PostGIS hex) is **not** parsed — drivers should return WKT or GeoJSON when possible. Clustering and "color by value" are not implemented yet.
+
+### ER Diagram
+
+Relationship lines use lower base opacity below `3×`; hover highlighting and tooltips use the same threshold as arrowheads. Toolbar search matches table, view, and column names and mirrors matches in a dropdown with matching columns; result type labels reuse the legend's blue table and purple view colors. Multiple matching tables are highlighted on the full graph, while a unique or selected result opens that table's direct-neighbour graph. Refresh and relationship visibility are icon-only actions pinned to the toolbar's right edge with explanatory tooltips; the relationship icon is crossed out while edges are hidden. Internal zoom, render-mode, and focused-node diagnostics are not shown. Table/view cards use the shared webview context-menu primitive and the canonical action registry in `src/views/tableContextActions.ts`; a contract test keeps that registry synchronized with the Connections tree contributions in `package.json`.
+
+`src/er/erDataTransform.ts` — pure transformation from nested `SchemaObject[]` + `ForeignKeyInfo[]` to flat graph tables and views. Extracts direct column children, optional database comments, and `indexNames`; preserves schema-qualified ids and object kind; recognizes `(PK)` badges; marks source columns of visible relationships as foreign keys; and removes relationships whose endpoints are outside the selected schema scope. PostgreSQL and ClickHouse populate column comments in their batched schema queries; PostgreSQL and SQLite schema nodes already expose index names.
+
+`src/er/erDiagramPanel.ts` — `ErDiagramPanelManager`, an ECharts graph webview built on shared `tokens.css`, `@vscode-elements/elements`, and codicons. One panel/cache per connection + database + schema scope. The entire scope appears on one continuous canvas without a sidebar or selection layers. Named PostgreSQL schemas (and ClickHouse databases) are laid out as separate, softly tinted non-overlapping regions with scale-independent labels; engines without namespaces, such as SQLite, keep a plain canvas. Tables and views always render as complete cards with left-aligned columns; there is no compact name-only LOD. Target-based exponential smoothing drives the native ECharts graph controller. Visible cards are custom local ZRender groups (`Rect` + rich `Text`) parented directly to the native graph view, while transparent graph symbols remain as edge anchors. Cards have an explicit higher `z` layer than relationships, and relationship arrowheads appear only from `3×` zoom. The camera applies one inherited transform to every frame and glyph; steady zoom never patches card geometry or typography. Cards append combined `PK`, `FK`, and `IDX` roles with muted colors; hovering a column shows its optional database comment, FK role, and index names in a custom DOM tooltip. Table/edge adjacency emphasis uses a 150 ms `cubicOut` animation to fade unrelated nodes and links. The toolbar can hide/show relationships and a canvas legend documents graph notation. Double-click switches to a centred direct-neighbour graph from fresh layout coordinates; repeating it on the centre, double-clicking blank canvas, or pressing Escape restores the full scope. Capture-phase wheel and blank-canvas pan handlers call the native graph controller so nodes, edges, cards, regions, and hit-testing remain synchronized across the full canvas.
+
+`src/webview/scripts/er-diagram-layout.js` — deterministic, relationship-aware ordering plus a collision-free serpentine shelf layout for variable-size nodes. `focusLayout()` keeps a selected table at the origin and distributes direct neighbours over collision-free concentric rings. It derives a readable fitted zoom from graph bounds and viewport size. The layout is shared with Node-side regression tests through a CommonJS export.
+
+`src/commands/erDiagramCommands.ts` — `viewstor.showErDiagram`, available on connected connection, database, and schema tree nodes. PostgreSQL and SQLite provide FK edges; other drivers render table structure with an unsupported-relations status.
 
 ### SQL Autocomplete
 `src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).
@@ -173,6 +199,27 @@ Usage in Claude Code config:
 { "mcpServers": { "viewstor": { "command": "node", "args": ["/path/to/viewstor/dist/mcp-server.js"] } } }
 ```
 
+### Agent Anonymization
+`src/mcp/anonymizer.ts` — pure, vscode-independent module that masks PII in rows returned through MCP tools. Applied at both MCP boundaries (in-process + standalone) after drivers return rows and before responses are serialized, so drivers stay agnostic.
+
+Policy fields on `ConnectionConfig` / `ConnectionFolder`:
+- `agentAnonymization`: `'off' | 'heuristic' | 'strict'` (inherited from folder when unset; defaults to `off`)
+- `agentAnonymizationStrategy`: `'hash' | 'shape' | 'null' | 'redacted'` (defaults to `hash`)
+
+`ConnectionManager.getAnonymizationPolicy(id)` / `ConnectionStore.getAnonymizationPolicy(id)` resolve the effective policy via folder inheritance with a cycle guard (mirrors `isConnectionReadonly` / `getConnectionColor`).
+
+Heuristic mode matches column names against `DEFAULT_SENSITIVE_COLUMN_PATTERNS` (email/phone/tel/mobile/ssn/passport/password/iban/card/cvv/token/secret/api_key/auth/addr/first_name/last_name/full_name/dob/birthday). Names are normalized (underscores/hyphens → spaces) so `user_email` matches `\bemail\b`. Strict mode masks every column whose `dataType` is text-like (`text`, `varchar(*)`, `character varying(*)`, `char`, `citext`, `json`, `jsonb`, `bytea`, `blob`, `nvarchar`, `nchar`, `String`, `longtext`, `mediumtext`, `tinytext`) regardless of name — unknown types default to sensitive.
+
+Strategies:
+- `hash` — SHA-256 truncated to 8 hex chars. Deterministic, so agents can still JOIN on masked keys.
+- `shape` — format-preserving: emails → `x@y.xxx`, phones → digits replaced with `0`, Luhn-valid card digit runs → `x`, generic alphanumerics → `x` with separators preserved. Non-string values fall back to hash.
+- `null` — replaces cell with `null`.
+- `redacted` — replaces cell with empty string.
+
+`scrubErrorMessage(msg, policy)` scrubs well-known PII shapes (emails, Luhn-valid digit runs) out of driver error messages so constraint errors don't leak raw values.
+
+Zero-allocation fast path: when `mode === 'off'` or no columns match, the original rows array is returned by reference (no copy, no mutation).
+
 ### Services
 `src/services/exportService.ts` — ExportService static methods: toCsv (configurable delimiter/quotes/null/header/lineEnding), toTsv, toJson, toMarkdownTable, toPlainTextTable.
 
@@ -195,6 +242,7 @@ Usage in Claude Code config:
 | `schemaCommands.ts` | `showDDL`, `copyName`, rename/create/drop objects, `reportIssue` |
 | `exportCommands.ts` | Export (CSV/TSV/JSON/Markdown), visualize, Grafana, MCP query |
 | `diffCommands.ts` | `compareWith` (context menu), `compareData` (command palette) |
+| `erDiagramCommands.ts` | `showErDiagram` for connection/database/schema tree scopes |
 
 All commands support `databaseName` parameter for multi-DB connections.
 

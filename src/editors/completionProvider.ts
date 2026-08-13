@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { CompletionItem as DriverCompletion } from '../types/driver';
 import { QueryEditorProvider } from './queryEditor';
+import { SchemaCache } from './schemaCache';
 import { dbg } from '../utils/debug';
 
 const SQL_KEYWORDS = [
@@ -22,13 +23,15 @@ const SQL_KEYWORDS = [
 ];
 
 export class SqlCompletionProvider implements vscode.CompletionItemProvider {
-  private cache = new Map<string, DriverCompletion[]>();
-  private cacheTimers = new Map<string, NodeJS.Timeout>();
+  private readonly schemaCache: SchemaCache;
 
   constructor(
-    private readonly connectionManager: ConnectionManager,
+    connectionManager: ConnectionManager,
     private readonly queryEditorProvider: QueryEditorProvider,
-  ) {}
+    schemaCache?: SchemaCache,
+  ) {
+    this.schemaCache = schemaCache ?? new SchemaCache(connectionManager);
+  }
 
   async provideCompletionItems(
     document: vscode.TextDocument,
@@ -134,50 +137,13 @@ export class SqlCompletionProvider implements vscode.CompletionItemProvider {
   }
 
   private async getDbItems(connectionId: string, databaseName?: string): Promise<DriverCompletion[]> {
-    const cacheKey = databaseName ? `${connectionId}:${databaseName}` : connectionId;
-    if (this.cache.has(cacheKey)) return this.cache.get(cacheKey)!;
-
-    let driver;
-    try {
-      driver = databaseName
-        ? await this.connectionManager.getDriverForDatabase(connectionId, databaseName)
-        : this.connectionManager.getDriver(connectionId);
-    } catch {
-      return [];
-    }
-    dbg('completion', 'getDbItems driver:', !!driver, 'hasGetCompletions:', !!driver?.getCompletions);
-    if (!driver?.getCompletions) return [];
-
-    try {
-      const items = await driver.getCompletions();
-      this.cache.set(cacheKey, items);
-      const oldTimer = this.cacheTimers.get(cacheKey);
-      if (oldTimer) clearTimeout(oldTimer);
-      this.cacheTimers.set(cacheKey, setTimeout(() => {
-        this.cache.delete(cacheKey);
-        this.cacheTimers.delete(cacheKey);
-      }, 60000));
-      return items;
-    } catch {
-      return [];
-    }
+    const items = await this.schemaCache.get(connectionId, databaseName);
+    dbg('completion', 'getDbItems items:', items.length);
+    return items;
   }
 
   clearCache(connectionId?: string) {
-    if (connectionId) {
-      // Clear exact key and any database-scoped keys (connectionId:database)
-      for (const key of [...this.cache.keys()]) {
-        if (key === connectionId || key.startsWith(connectionId + ':')) {
-          this.cache.delete(key);
-          const timer = this.cacheTimers.get(key);
-          if (timer) { clearTimeout(timer); this.cacheTimers.delete(key); }
-        }
-      }
-    } else {
-      this.cache.clear();
-      for (const timer of this.cacheTimers.values()) clearTimeout(timer);
-      this.cacheTimers.clear();
-    }
+    this.schemaCache.clear(connectionId);
   }
 }
 

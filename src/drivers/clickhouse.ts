@@ -4,6 +4,7 @@ import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
+import { wrapError } from '../utils/errors';
 
 export class ClickHouseDriver implements DatabaseDriver {
   private client: ClickHouseClient | undefined;
@@ -80,7 +81,7 @@ export class ClickHouseDriver implements DatabaseDriver {
         rows: [],
         rowCount: 0,
         executionTimeMs: Date.now() - start,
-        error: err instanceof Error ? err.message : String(err),
+        error: wrapError(err),
       };
     }
   }
@@ -116,11 +117,13 @@ export class ClickHouseDriver implements DatabaseDriver {
     const allTables = await tablesResult.json<{ database: string; name: string; engine: string; total_rows: number; total_bytes: number }[]>();
 
     const colsResult = await this.client!.query({
-      query: 'SELECT database, table, name, type FROM system.columns WHERE database IN ({dbs:Array(String)})',
+      query: 'SELECT database, table, name, type, comment FROM system.columns WHERE database IN ({dbs:Array(String)})',
       format: 'JSONEachRow',
       query_params: { dbs: dbNames },
     });
-    const allCols = await colsResult.json<{ database: string; table: string; name: string; type: string }[]>();
+    const allCols = await colsResult.json<{
+      database: string; table: string; name: string; type: string; comment: string;
+    }[]>();
 
     // Build columns map: "db.table" -> SchemaObject[]
     const colsMap = new Map<string, SchemaObject[]>();
@@ -132,6 +135,7 @@ export class ClickHouseDriver implements DatabaseDriver {
         type: 'column' as const,
         schema: c.database,
         detail: c.type,
+        comment: c.comment || undefined,
       });
     }
 

@@ -1,7 +1,46 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { QueryResult, QueryColumn } from '../types/query';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import path from 'path';
+import type { TempFileManager } from '../services/tempFileManager';
+
+// Shared context-menu primitive (#94). Loaded lazily on first buildResultHtml
+// call so module evaluation (and extension activation) stays side-effect-free
+// even if the asset is missing from an unusual layout — e.g. a tsc-compiled
+// test tree where `dist/test/views/` has no sibling `scripts/` or `webview/`.
+let cachedCtxMenuScript: string | null = null;
+let cachedCtxMenuCss: string | null = null;
+
+function loadWebviewAsset(relative: string): string {
+  const candidates = [
+    // Bundled runtime: extension.js sits next to dist/scripts and dist/styles.
+    path.join(__dirname, relative),
+    // Source / test mode: src/views/ → src/webview/{scripts,styles}.
+    path.join(__dirname, '..', 'webview', relative),
+    // tsc-compiled tests: dist/test/views/ → project/src/webview/{scripts,styles}.
+    path.join(__dirname, '..', '..', '..', 'src', 'webview', relative),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      // Defuse any `</script>` / `</style>` / `<!--` sequences so the asset is
+      // safe to inline inside the panel's existing <style> and <script> tags.
+      return fs.readFileSync(candidate, 'utf-8')
+        .replace(/<\/(script|style)/gi, '<\\/$1')
+        .replace(/<!--/g, '<\\!--');
+    }
+  }
+  throw new Error(`[viewstor] shared webview asset not found: ${relative}`);
+}
+
+function getCtxMenuScript(): string {
+  if (cachedCtxMenuScript === null) cachedCtxMenuScript = loadWebviewAsset('scripts/context-menu.js');
+  return cachedCtxMenuScript;
+}
+function getCtxMenuCss(): string {
+  if (cachedCtxMenuCss === null) cachedCtxMenuCss = loadWebviewAsset('styles/context-menu.css');
+  return cachedCtxMenuCss;
+}
 
 export interface ShowOptions {
   connectionId?: string;
@@ -60,12 +99,12 @@ const LOADING_CSS = `
 export class ResultPanelManager {
   private panels = new Map<string, vscode.WebviewPanel>();
   private messageDisposables = new Map<string, vscode.Disposable>();
-  private _tempFileManager: any = null;
+  private _tempFileManager: TempFileManager | null = null;
   private _chartNotifier: ((panelKey: string, columns: QueryColumn[], rows: Record<string, unknown>[], query?: string) => void) | null = null;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
-  setTempFileManager(t: any) { this._tempFileManager = t; }
+  setTempFileManager(t: TempFileManager) { this._tempFileManager = t; }
 
   /** Set callback to notify chart panel of data changes */
   setChartNotifier(fn: (panelKey: string, columns: QueryColumn[], rows: Record<string, unknown>[], query?: string) => void) {
@@ -131,14 +170,24 @@ export class ResultPanelManager {
       switch (msg.type) {
         case 'changePage':
           if (isTableMode) {
-            vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, msg.page, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            if (msg.customQuery) {
+              vscode.commands.executeCommand('viewstor._runCustomTableQuery',
+                ctx.connectionId, ctx.tableName, ctx.schema, msg.customQuery, msg.pageSize, ctx.databaseName, panelKey, msg.page);
+            } else {
+              vscode.commands.executeCommand('viewstor._fetchPage',
+                ctx.connectionId, ctx.tableName, ctx.schema, msg.page, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            }
           }
           break;
         case 'changePageSize':
           if (isTableMode) {
-            vscode.commands.executeCommand('viewstor._fetchPage',
-              ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            if (msg.customQuery) {
+              vscode.commands.executeCommand('viewstor._runCustomTableQuery',
+                ctx.connectionId, ctx.tableName, ctx.schema, msg.customQuery, msg.pageSize, ctx.databaseName, panelKey, 0);
+            } else {
+              vscode.commands.executeCommand('viewstor._fetchPage',
+                ctx.connectionId, ctx.tableName, ctx.schema, 0, msg.pageSize, msg.orderBy, ctx.databaseName, panelKey);
+            }
           }
           break;
         case 'reloadWithSort':
@@ -224,6 +273,15 @@ export class ResultPanelManager {
             tableName: ctx.tableName,
             schema: ctx.schema,
             resultPanelKey: panelKey,
+          });
+          break;
+        case 'showOnMap':
+          vscode.commands.executeCommand('viewstor.showOnMap', {
+            columns: msg.columns,
+            rows: msg.rows,
+            color: ctx.color,
+            tableName: ctx.tableName,
+            schema: ctx.schema,
           });
           break;
       }
@@ -321,7 +379,11 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
 <style>
   * { box-sizing: border-box; }
   body { font-family: var(--vscode-font-family); padding:0; margin:0; font-size:13px; display:flex; flex-direction:column; height:100vh; }
-  .toolbar { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorder} }
+  .toolbar { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorder} }
+  .toolbar-group { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; min-width:0; }
+  .toolbar-group-search { flex:0 1 220px; }
+  .toolbar-spacer { flex:1 1 16px; min-width:0; }
+  .toolbar-sep { width:1px; height:16px; background:var(--viewstor-border-subtle, var(--vscode-panel-border, currentColor)); flex-shrink:0; }
   .footer { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:12px; border-top:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorderBottom} }
   .toolbar select, .footer select { background:var(--vscode-dropdown-background); color:var(--vscode-dropdown-foreground); border:1px solid var(--vscode-dropdown-border); padding:2px 6px; font-size:12px; border-radius:2px; }
   .toolbar button, .footer button { background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground); border:none; padding:2px 8px; font-size:12px; cursor:pointer; border-radius:2px; }
@@ -335,20 +397,36 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   th { position:sticky; top:0; background:var(--vscode-editor-background); font-weight:600; z-index:1; cursor:pointer; position:relative; }
   th .col-resize-handle { position:absolute; top:0; right:-2px; width:5px; height:100%; cursor:col-resize; z-index:4; }
   th .col-resize-handle:hover { background:var(--vscode-focusBorder); }
-  .row-num, .row-num-header { position:sticky; left:0; z-index:2; background:var(--vscode-editor-background); color:var(--vscode-descriptionForeground); text-align:right; padding:4px 8px; border-right:2px solid var(--vscode-panel-border); min-width:40px; max-width:none; font-size:11px; cursor:default; user-select:none; }
+  .row-num, .row-num-header { position:sticky; left:0; z-index:2; background:var(--vscode-editor-background) !important; color:var(--vscode-descriptionForeground); text-align:right; padding:4px 8px; border-right:2px solid var(--vscode-panel-border); min-width:40px; max-width:none; font-size:11px; cursor:default; user-select:none; }
   .row-num-header { z-index:3; top:0; font-weight:600; cursor:default; }
   th:hover { background:var(--vscode-list-hoverBackground); }
   th small { color:var(--vscode-descriptionForeground); font-weight:normal; }
   th .sort-icon { margin-left:4px; font-size:10px; opacity:0.7; }
-  tr:hover { background:var(--vscode-list-hoverBackground); }
-  td.selected { background:color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important; }
-  td.sel-top { border-top:2px solid var(--vscode-focusBorder) !important; }
-  td.sel-bottom { border-bottom:2px solid var(--vscode-focusBorder) !important; }
-  td.sel-left { border-left:2px solid var(--vscode-focusBorder) !important; }
-  td.sel-right { border-right:2px solid var(--vscode-focusBorder) !important; }
-  .ctx-menu { position:fixed; background:var(--vscode-menu-background, var(--vscode-dropdown-background)); border:1px solid var(--vscode-menu-border, var(--vscode-panel-border)); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,0.3); z-index:50; padding:4px 0; min-width:160px; }
-  .ctx-menu button { display:block; width:100%; text-align:left; padding:6px 12px; background:none; border:none; color:var(--vscode-menu-foreground, var(--vscode-foreground)); font-size:12px; cursor:pointer; }
-  .ctx-menu button:hover { background:var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground)); }
+  tbody tr:nth-child(even) td { background:var(--viewstor-row-zebra, color-mix(in srgb, var(--vscode-foreground) 4%, transparent)); }
+  tbody tr.new-row td { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
+  tr.new-row:nth-child(even) td { background:color-mix(in srgb, var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)), var(--vscode-foreground) 6%); }
+  tbody tr:hover td, tbody tr.new-row:hover td { background:var(--vscode-list-hoverBackground); }
+  /* Selection borders via inset box-shadow so the cell's layout size
+     doesn't change when classes toggle (borders would add ~2px each side
+     and shift the row). Same pattern as diff-panel.css. */
+  td.selected {
+    background:color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 30%, transparent) !important;
+    --sh-top: 0 0 0 0 transparent;
+    --sh-bottom: 0 0 0 0 transparent;
+    --sh-left: 0 0 0 0 transparent;
+    --sh-right: 0 0 0 0 transparent;
+    box-shadow:
+      inset var(--sh-top),
+      inset var(--sh-bottom),
+      inset var(--sh-left),
+      inset var(--sh-right);
+  }
+  td.sel-top { --sh-top: 0 2px 0 0 var(--vscode-focusBorder); }
+  td.sel-bottom { --sh-bottom: 0 -2px 0 0 var(--vscode-focusBorder); }
+  td.sel-left { --sh-left: 2px 0 0 0 var(--vscode-focusBorder); }
+  td.sel-right { --sh-right: -2px 0 0 0 var(--vscode-focusBorder); }
+  /* Context-menu styles come from the shared module (#94). */
+  ${getCtxMenuCss()}
   td.has-handle { overflow:visible !important; }
   .resize-handle { position:absolute; bottom:-5px; right:-5px; width:8px; height:8px; background:var(--vscode-focusBorder); cursor:crosshair; z-index:5; border:2px solid var(--vscode-editor-background); border-radius:1px; }
   .null-val { color:var(--vscode-descriptionForeground); font-style:italic; }
@@ -356,7 +434,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   td.editable { cursor:text; }
   td.search-hit { background:color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c0055) 60%, transparent) !important; }
   td.search-focus { outline:2px solid var(--vscode-editor-findMatchBorder, var(--vscode-focusBorder)) !important; background:color-mix(in srgb, var(--vscode-editor-findMatchBackground, #515c6a) 70%, transparent) !important; }
-  .search-input { padding:2px 6px; font-size:12px; border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); background:var(--vscode-input-background); color:var(--vscode-input-foreground); border-radius:2px; width:160px; outline:none; }
+  .search-input { padding:2px 6px; font-size:12px; border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); background:var(--vscode-input-background); color:var(--vscode-input-foreground); border-radius:2px; width:160px; max-width:100%; min-width:0; outline:none; }
   .search-input:focus { border-color:var(--vscode-focusBorder); }
   .search-count { font-size:11px; min-width:30px; }
   td.editing { padding:0; }
@@ -365,9 +443,8 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   ${LOADING_CSS}
   td.editing input, td.editing select { width:100%; padding:4px 8px; border:2px solid var(--vscode-focusBorder); background:var(--vscode-input-background); color:var(--vscode-input-foreground); font-family:inherit; font-size:inherit; outline:none; }
   td.modified { border-left:3px solid var(--vscode-inputValidation-warningBorder); }
-  tr.new-row { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
   tr.out-of-query-row { opacity:0.4; }
-  td.invalid-cell { border-left:3px solid var(--vscode-inputValidation-errorBorder, #f44); background:var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); }
+  td.invalid-cell { border-left:3px solid var(--vscode-inputValidation-errorBorder, #f44); background:var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)) !important; }
   .default-val { color:var(--vscode-descriptionForeground); font-style:italic; }
   .popup { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:60vw; max-height:70vh; background:var(--vscode-editor-background); border:1px solid var(--vscode-panel-border); border-radius:4px; box-shadow:0 4px 20px rgba(0,0,0,0.4); z-index:100; display:flex; flex-direction:column; }
   .popup-header { padding:8px 12px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--vscode-panel-border); }
@@ -396,27 +473,52 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   .tk-key { color:var(--vscode-debugTokenExpression-name, #9cdcfe); }
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:99; }
   .hidden { display:none; }
+  @media (max-width:640px) {
+    .toolbar { align-items:flex-start; }
+    .toolbar-spacer, .toolbar-sep { display:none; }
+    .toolbar-group-search { flex:1 1 180px; }
+  }
+  @media (forced-colors:active) {
+    .toolbar-sep { background:CanvasText; }
+  }
 </style>
+<script>
+${getCtxMenuScript()}
+</script>
 </head>
 <body>
-  <div class="toolbar">
-    <span id="statsInfo">${result.executionTimeMs}ms${result.truncated ? ' · truncated' : ''}${result.affectedRows !== undefined ? ' · ' + result.affectedRows + ' affected' : ''}</span>
-    <input type="text" id="searchInput" class="search-input" placeholder="Search..." />
-    <span id="searchCount" class="search-count"></span>
-    <span style="flex:1"></span>
-    <button id="exportBtn">Export</button>
-    <button id="visualizeBtn" title="Visualize as chart">📊</button>
-    <button id="addRowBtn" class="hidden">+ Row</button>
-    <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
-    <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
-    <button id="refreshBtn" title="Refresh">↻</button>
-    <button id="discardBtn" class="hidden">Discard</button>
-    <button id="prevPage" disabled>&lt;</button>
-    <span id="pageInfo"></span>
-    <button id="nextPage">&gt;</button>
-    <label>Rows per page: <select id="pageSize">
-      ${PAGE_SIZE_OPTIONS.map(n => `<option value="${n}"${n === activePageSize ? ' selected' : ''}>${n}</option>`).join('')}
-    </select></label>
+  <div class="toolbar" role="toolbar" aria-label="Result controls">
+    <div class="toolbar-group toolbar-group-status" role="group" aria-label="Query status">
+      <span id="statsInfo">${result.executionTimeMs}ms${result.truncated ? ' · truncated' : ''}${result.affectedRows !== undefined ? ' · ' + result.affectedRows + ' affected' : ''}</span>
+    </div>
+    <div class="toolbar-sep" aria-hidden="true"></div>
+    <div class="toolbar-group toolbar-group-search" role="group" aria-label="Search results">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search..." />
+      <span id="searchCount" class="search-count"></span>
+    </div>
+    <span class="toolbar-spacer" aria-hidden="true"></span>
+    <div class="toolbar-group toolbar-group-export" role="group" aria-label="Export and visualize">
+      <button id="exportBtn">Export</button>
+      <button id="visualizeBtn" title="Visualize as chart">📊</button>
+      <button id="mapBtn" title="Show on map">🗺</button>
+    </div>
+    <div class="toolbar-sep" aria-hidden="true"></div>
+    <div class="toolbar-group toolbar-group-edit" role="group" aria-label="Edit rows">
+      <button id="addRowBtn" class="hidden">+ Row</button>
+      <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
+      <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
+      <button id="refreshBtn" title="Refresh">↻</button>
+      <button id="discardBtn" class="hidden">Discard</button>
+    </div>
+    <div class="toolbar-sep" aria-hidden="true"></div>
+    <div class="toolbar-group toolbar-group-pagination" role="group" aria-label="Pagination">
+      <button id="prevPage" disabled>&lt;</button>
+      <span id="pageInfo"></span>
+      <button id="nextPage">&gt;</button>
+      <label>Rows per page: <select id="pageSize">
+        ${PAGE_SIZE_OPTIONS.map(n => `<option value="${n}"${n === activePageSize ? ' selected' : ''}>${n}</option>`).join('')}
+      </select></label>
+    </div>
   </div>
   ${isTableMode ? `<div class="query-bar">
     <div class="query-editor-wrap">
@@ -640,23 +742,20 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
       th.addEventListener('click', (e) => { if (e.target.classList && e.target.classList.contains('col-resize-handle')) return; handleSortClick(Number(th.dataset.col), e.shiftKey); });
       th.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        closeContextMenu();
         const ci = Number(th.dataset.col);
-        ctxMenuEl = document.createElement('div');
-        ctxMenuEl.className = 'ctx-menu';
-        ctxMenuEl.style.left = e.clientX + 'px';
-        ctxMenuEl.style.top = e.clientY + 'px';
-        const selectBtn = document.createElement('button');
-        selectBtn.textContent = 'Select Column';
-        selectBtn.addEventListener('click', () => {
-          selectedCells.clear();
-          for (let r = 0; r < pageRows.length; r++) selectedCells.add(cellKey(r, ci));
-          anchorCell = { row: 0, col: ci };
-          updateSelectionUI();
-          closeContextMenu();
+        window.ViewstorContextMenu.open({
+          x: e.clientX,
+          y: e.clientY,
+          items: [{
+            label: 'Select Column',
+            onClick: () => {
+              selectedCells.clear();
+              for (let r = 0; r < pageRows.length; r++) selectedCells.add(cellKey(r, ci));
+              anchorCell = { row: 0, col: ci };
+              updateSelectionUI();
+            },
+          }],
         });
-        ctxMenuEl.appendChild(selectBtn);
-        document.body.appendChild(ctxMenuEl);
       });
       // Column resize handle
       var handle = th.querySelector('.col-resize-handle');
@@ -888,49 +987,27 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   }
 
   // --- Context menu ---
-  let ctxMenuEl = null;
+  // Click-outside / Escape are handled by the shared ViewstorContextMenu primitive.
+  function closeContextMenu() { window.ViewstorContextMenu.close(); }
   function showContextMenu(e) {
     e.preventDefault();
-    closeContextMenu();
     if (selectedCells.size === 0) return;
-    ctxMenuEl = document.createElement('div');
-    ctxMenuEl.className = 'ctx-menu';
-    ctxMenuEl.style.left = e.clientX + 'px';
-    ctxMenuEl.style.top = e.clientY + 'px';
-    const formats = [
-      { label: 'Copy', fmt: 'tsv' },
-      { label: 'Copy as One-row (SQL)', fmt: 'onerow-sq' },
-      { label: 'Copy as One-row (JSON)', fmt: 'onerow-dq' },
-      { label: 'Copy as CSV', fmt: 'csv' },
-      { label: 'Copy as TSV', fmt: 'tsv-explicit' },
-      { label: 'Copy as Markdown', fmt: 'md' },
-      { label: 'Copy as JSON', fmt: 'json' },
+    const items = [
+      { label: 'Copy', onClick: () => copySelection('tsv') },
+      { label: 'Copy as One-row (SQL)', onClick: () => copySelection('onerow-sq') },
+      { label: 'Copy as One-row (JSON)', onClick: () => copySelection('onerow-dq') },
+      { label: 'Copy as CSV', onClick: () => copySelection('csv') },
+      { label: 'Copy as TSV (Slack)', onClick: () => copySelection('tsv-explicit') },
+      { label: 'Copy as Markdown', onClick: () => copySelection('md') },
+      { label: 'Copy as JSON', onClick: () => copySelection('json') },
     ];
-    formats.forEach(f => {
-      const btn = document.createElement('button');
-      btn.textContent = f.label;
-      btn.addEventListener('click', () => { copySelection(f.fmt); closeContextMenu(); });
-      ctxMenuEl.appendChild(btn);
-    });
-    // Delete row option (only in table mode, not readonly, with PKs)
     if (!IS_READONLY && IS_TABLE_MODE && pkColumns.length > 0) {
-      var sep = document.createElement('div');
-      sep.style.cssText = 'height:1px;background:var(--vscode-menu-separatorBackground, var(--vscode-panel-border));margin:4px 0;';
-      ctxMenuEl.appendChild(sep);
-      var delBtn = document.createElement('button');
-      delBtn.textContent = 'Delete Row(s)';
-      delBtn.style.color = 'var(--vscode-errorForeground)';
-      delBtn.addEventListener('click', function() {
-        closeContextMenu();
-        sendDeleteRows();
-      });
-      ctxMenuEl.appendChild(delBtn);
+      items.push({ separator: true });
+      items.push({ label: 'Delete Row(s)', destructive: true, onClick: () => sendDeleteRows() });
     }
-    document.body.appendChild(ctxMenuEl);
+    window.ViewstorContextMenu.open({ x: e.clientX, y: e.clientY, items });
   }
-  function closeContextMenu() { if (ctxMenuEl) { ctxMenuEl.remove(); ctxMenuEl = null; } }
   document.getElementById('dataBody').addEventListener('contextmenu', showContextMenu);
-  document.addEventListener('click', closeContextMenu);
 
   function getSelectionData() {
     const cells = [...selectedCells].map(k => { const [r,c] = k.split(':').map(Number); return {r,c}; });
@@ -1077,6 +1154,31 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
       idx++;
     }
     return -1;
+  }
+
+  function parseOrderByFromQuery(query) {
+    var q = query.replace(/;+\\s*$/, '');
+    var orderPos = findOuterKw(q, /^\\s*ORDER\\s+BY\\b/i);
+    if (orderPos < 0) return [];
+    var afterOrder = q.substring(orderPos);
+    var kwMatch = afterOrder.match(/^\\s*ORDER\\s+BY\\s+/i);
+    if (!kwMatch) return [];
+    var rest = afterOrder.substring(kwMatch[0].length);
+    var limitPos = findOuterKw(rest, /^\\s*(LIMIT|OFFSET)\\b/i);
+    var clause = limitPos >= 0 ? rest.substring(0, limitPos) : rest;
+    var parts = clause.split(',');
+    var result = [];
+    for (var pi = 0; pi < parts.length; pi++) {
+      var raw = parts[pi].trim();
+      if (!raw) continue;
+      // Skip expressions / positional / qualified names — only simple "col [ASC|DESC]"
+      var m = raw.match(/^(?:"([^"]+)"|\`([^\`]+)\`|([A-Za-z_][A-Za-z0-9_]*))(?:\\s+(ASC|DESC))?\\s*$/i);
+      if (!m) continue;
+      var name = m[1] || m[2] || m[3];
+      var dir = (m[4] || 'ASC').toLowerCase();
+      result.push({ column: name, direction: dir });
+    }
+    return result;
   }
 
   function applySortToQuery(query, sorts) {
@@ -1501,6 +1603,11 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   }
   document.getElementById('refreshBtn').addEventListener('click', () => {
     if (IS_TABLE_MODE) {
+      if (queryInput && !queryInput.value.trim()) {
+        // User cleared the SQL bar — restore the default table query so they can keep editing from baseline
+        queryInput.value = ${safeJsonForScript(defaultQuery)};
+        updateQueryHighlight();
+      }
       if (queryInput && queryInput.value.trim()) {
         runCustomQuery();
       } else {
@@ -1513,6 +1620,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   document.getElementById('exportBtn').addEventListener('click', showExportPopup);
   document.getElementById('visualizeBtn').addEventListener('click', () => {
     vscode.postMessage({ type: 'visualize', columns, rows: pageRows });
+  });
+  document.getElementById('mapBtn').addEventListener('click', () => {
+    vscode.postMessage({ type: 'showOnMap', columns, rows: pageRows });
   });
   document.getElementById('exportClose').addEventListener('click', closeExportPopup);
   document.getElementById('exportConfirm').addEventListener('click', () => {
@@ -1534,13 +1644,17 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   document.getElementById('overlay').addEventListener('click', closeAllPopups);
 
   // --- Pagination (server-side for table mode) ---
+  function activeCustomQuery() {
+    var q = queryInput ? queryInput.value.trim() : '';
+    return q || undefined;
+  }
   function goPage(delta) {
     const np = currentPage + delta;
     if (np < 0 || np >= totalPages) return;
     if (pendingEdits.size > 0) { if (!confirm('Unsaved changes will be lost. Continue?')) return; }
     if (IS_TABLE_MODE) {
       showLoading();
-      vscode.postMessage({ type: 'changePage', page: np, pageSize, orderBy: sortColumns });
+      vscode.postMessage({ type: 'changePage', page: np, pageSize, orderBy: sortColumns, customQuery: activeCustomQuery() });
     }
   }
   document.getElementById('prevPage').addEventListener('click', () => goPage(-1));
@@ -1553,7 +1667,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     pageSize = Number(e.target.value);
     if (IS_TABLE_MODE) {
       showLoading();
-      vscode.postMessage({ type: 'changePageSize', pageSize, orderBy: sortColumns });
+      vscode.postMessage({ type: 'changePageSize', pageSize, orderBy: sortColumns, customQuery: activeCustomQuery() });
     }
   });
 
@@ -1614,6 +1728,8 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     if (userLimit > pageSize) {
       customExportQuery = q;
     }
+    // Mirror ORDER BY from user's SQL into header sort icons
+    sortColumns = parseOrderByFromQuery(q);
     showLoading();
     vscode.postMessage({ type: 'runCustomQuery', query: q, pageSize: pageSize });
   }
@@ -1748,6 +1864,10 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
     }
   }
 
+  // If initial query already has ORDER BY (e.g. via MCP customQuery), sync sort icons
+  if (queryInput && queryInput.value.trim() && sortColumns.length === 0) {
+    sortColumns = parseOrderByFromQuery(queryInput.value.trim());
+  }
   renderHeader();
   renderPage();
   if (!IS_READONLY) updateSaveButtons();

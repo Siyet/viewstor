@@ -2,8 +2,9 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
-import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, ForeignKeyInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
+import { wrapError } from '../utils/errors';
 
 // Lazy-load better-sqlite3 to avoid crashing the entire extension on ABI mismatch.
 // Top-level require of this native module runs at bundle load time, which means
@@ -63,7 +64,10 @@ export class SqliteDriver implements DatabaseDriver {
         const firstRow = rows.length > 0 ? rows[0] : undefined;
         const columns: QueryColumn[] = stmt.columns().map(col => ({
           name: col.name,
-          dataType: col.type || inferTypeFromValue(firstRow?.[col.name]),
+          // For computed columns `col.type` is null. Prefer SQL-expression-based inference
+          // (AVG/SUM/TOTAL return REAL even when the sampled value happens to be integer-valued)
+          // before falling back to the JS-value heuristic.
+          dataType: col.type || inferTypeFromExpression(trimmed, col.name) || inferTypeFromValue(firstRow?.[col.name]),
         }));
 
         const truncated = rows.length > MAX_RESULT_ROWS;
@@ -93,7 +97,7 @@ export class SqliteDriver implements DatabaseDriver {
         rows: [],
         rowCount: 0,
         executionTimeMs: Date.now() - start,
-        error: err instanceof Error ? err.message : String(err),
+        error: wrapError(err),
       };
     }
   }
@@ -281,6 +285,43 @@ export class SqliteDriver implements DatabaseDriver {
     return items;
   }
 
+  async getForeignKeys(): Promise<ForeignKeyInfo[]> {
+    const tables = this.db!.prepare(
+      'SELECT name FROM sqlite_master WHERE type = \'table\' AND name NOT LIKE \'sqlite_%\' ORDER BY name'
+    ).all() as Array<{ name: string }>;
+
+    const result: ForeignKeyInfo[] = [];
+    for (const { name } of tables) {
+      const rows = this.db!.prepare(`PRAGMA foreign_key_list(${quoteIdentifier(name)})`).all() as Array<{
+        id: number;
+        seq: number;
+        table: string;
+        from: string;
+        to: string | null;
+        on_delete: string;
+        on_update: string;
+      }>;
+      const groups = new Map<number, typeof rows>();
+      for (const row of rows) {
+        if (!groups.has(row.id)) groups.set(row.id, []);
+        groups.get(row.id)!.push(row);
+      }
+      for (const [id, group] of groups) {
+        group.sort((left, right) => left.seq - right.seq);
+        result.push({
+          name: `fk_${name}_${id}`,
+          sourceTable: name,
+          sourceColumns: group.map(row => row.from),
+          targetTable: group[0].table,
+          targetColumns: group.map(row => row.to ?? 'PRIMARY KEY'),
+          onDelete: group[0].on_delete !== 'NO ACTION' ? group[0].on_delete : undefined,
+          onUpdate: group[0].on_update !== 'NO ACTION' ? group[0].on_update : undefined,
+        });
+      }
+    }
+    return result;
+  }
+
   async getTableObjects(name: string): Promise<TableObjects> {
     // Indexes
     const rawIndexes = this.db!.prepare(`PRAGMA index_list(${quoteIdentifier(name)})`).all() as Array<{
@@ -448,6 +489,21 @@ function inferTypeFromValue(value: unknown): string {
   if (typeof value === 'number') return Number.isInteger(value) ? 'INTEGER' : 'REAL';
   if (typeof value === 'bigint') return 'INTEGER';
   return 'TEXT';
+}
+
+/**
+ * Infer type from a SQLite SELECT expression for a named output column.
+ * AVG / TOTAL / SUM always widen to REAL (per SQLite docs AVG and TOTAL are always REAL;
+ * SUM widens whenever any non-NULL operand is REAL — treating it as REAL is the safer default
+ * because a whole-number REAL result like 7.0 is indistinguishable from INTEGER 7 in JS).
+ */
+function inferTypeFromExpression(sql: string, columnName: string): string | undefined {
+  const escaped = columnName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(
+    `(AVG|TOTAL|SUM)\\s*\\([^()]*\\)\\s+AS\\s+(?:"|\`|\\[)?${escaped}(?:"|\`|\\])?`,
+    'i',
+  );
+  return re.test(sql) ? 'REAL' : undefined;
 }
 
 function formatRowCount(count: number): string {

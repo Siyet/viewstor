@@ -3,6 +3,7 @@ import * as path from 'path';
 import { ConnectionConfig, DatabaseType, DEFAULT_PORTS } from '../types/connection';
 import { ConnectionManager } from '../connections/connectionManager';
 import { createDriver } from '../drivers';
+import { wrapError } from '../utils/errors';
 
 export interface ConnectionFormDefaults {
   folderId?: string;
@@ -49,10 +50,11 @@ export class ConnectionFormPanel {
     const styleUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'styles', 'connection-form.css'));
     const shellUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'webview-shell.js'));
     const elementsUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'vscode-elements.js'));
+    const colorPickerUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'color-picker.js'));
     const scriptUri = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(distRoot, 'scripts', 'connection-form.js'));
 
     this.panel.webview.html = this.buildHtml(
-      { tokensUri, codiconUri, styleUri, shellUri, elementsUri, scriptUri },
+      { tokensUri, codiconUri, styleUri, shellUri, elementsUri, colorPickerUri, scriptUri },
       config,
       folderDefaults,
     );
@@ -113,7 +115,7 @@ export class ConnectionFormPanel {
       this.panel?.webview.postMessage({
         type: 'testResult',
         status: 'failure',
-        message: err instanceof Error ? err.message : String(err),
+        message: wrapError(err),
       });
     }
   }
@@ -159,6 +161,8 @@ export class ConnectionFormPanel {
       folderId: data.folderId || undefined,
       scope: (data.scope as 'user' | 'project') || 'user',
       safeMode: data.safeMode ? (data.safeMode as 'off' | 'warn' | 'block') : undefined,
+      agentAnonymization: data.agentAnonymization ? (data.agentAnonymization as 'off' | 'heuristic' | 'strict') : undefined,
+      agentAnonymizationStrategy: data.agentAnonymizationStrategy ? (data.agentAnonymizationStrategy as 'hash' | 'shape' | 'null' | 'redacted') : undefined,
       proxy: data.proxyType && data.proxyType !== 'none' ? {
         type: data.proxyType as 'ssh' | 'socks5' | 'http',
         sshHost: data.sshHost || undefined,
@@ -187,6 +191,7 @@ export class ConnectionFormPanel {
       styleUri: vscode.Uri;
       shellUri: vscode.Uri;
       elementsUri: vscode.Uri;
+      colorPickerUri: vscode.Uri;
       scriptUri: vscode.Uri;
     },
     config?: ConnectionConfig,
@@ -204,7 +209,7 @@ export class ConnectionFormPanel {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource};">
-  <link rel="stylesheet" href="${uris.codiconUri}">
+  <link id="vscode-codicon-stylesheet" rel="stylesheet" href="${uris.codiconUri}">
   <link rel="stylesheet" href="${uris.tokensUri}">
   <link rel="stylesheet" href="${uris.styleUri}">
   <script src="${uris.shellUri}"></script>
@@ -386,6 +391,30 @@ export class ConnectionFormPanel {
           <label for="hiddenSchemas">Hidden schemas <span class="viewstor-meta">(comma-separated)</span></label>
           <vscode-textfield id="hiddenSchemas" placeholder="pg_catalog, information_schema" value="${esc(c?.hiddenSchemas ? Object.values(c.hiddenSchemas).flat().join(', ') : '')}"></vscode-textfield>
         </div>
+
+        <div class="form-group">
+          <label for="agentAnonymization">Agent anonymization</label>
+          <vscode-single-select id="agentAnonymization">
+            <vscode-option value=""${!c?.agentAnonymization ? ' selected' : ''}>Default (inherit from folder)</vscode-option>
+            <vscode-option value="off"${c?.agentAnonymization === 'off' ? ' selected' : ''}>Off — return raw rows to agents</vscode-option>
+            <vscode-option value="heuristic"${c?.agentAnonymization === 'heuristic' ? ' selected' : ''}>Heuristic — mask by column name</vscode-option>
+            <vscode-option value="strict"${c?.agentAnonymization === 'strict' ? ' selected' : ''}>Strict — mask all text columns</vscode-option>
+          </vscode-single-select>
+          <div class="field-hint">
+            Masks PII in rows returned via MCP tools (Claude Code, Cursor, etc.). Heuristic matches column names like <code>email</code>, <code>phone</code>, <code>ssn</code>. Strict masks every text-like column.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="agentAnonymizationStrategy">Anonymization strategy</label>
+          <vscode-single-select id="agentAnonymizationStrategy">
+            <vscode-option value=""${!c?.agentAnonymizationStrategy ? ' selected' : ''}>Default (inherit from folder)</vscode-option>
+            <vscode-option value="hash"${c?.agentAnonymizationStrategy === 'hash' ? ' selected' : ''}>Hash — deterministic (JOIN-safe)</vscode-option>
+            <vscode-option value="shape"${c?.agentAnonymizationStrategy === 'shape' ? ' selected' : ''}>Shape — preserves format (x@y.z)</vscode-option>
+            <vscode-option value="null"${c?.agentAnonymizationStrategy === 'null' ? ' selected' : ''}>Null — replace with NULL</vscode-option>
+            <vscode-option value="redacted"${c?.agentAnonymizationStrategy === 'redacted' ? ' selected' : ''}>Redacted — empty string</vscode-option>
+          </vscode-single-select>
+        </div>
       </div>
     </vscode-collapsible>
 
@@ -399,6 +428,7 @@ export class ConnectionFormPanel {
     </div>
   </div>
 
+  <script src="${uris.colorPickerUri}"></script>
   <script src="${uris.scriptUri}"></script>
 </body>
 </html>`;
