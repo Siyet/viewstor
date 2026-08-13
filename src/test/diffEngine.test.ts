@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, formatStatValue, toggleFilter, exportDiffAsCsv, exportDiffAsJson, buildDefaultDiffQuery, isReadOnlyStatement } from '../diff/diffEngine';
-import { DiffSource, DiffOptions } from '../diff/diffTypes';
+import { stringifyCell, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, formatStatValue, toggleFilter, exportDiffAsCsv, exportDiffAsJson, buildDefaultDiffQuery, isReadOnlyStatement, computeNWayRowDiff, computeNWaySchemaDiff, computeNWayStatsDiff, nwayToLegacyRowDiff } from '../diff/diffEngine';
+import { DiffSource, DiffOptions, NWayDiffOptions } from '../diff/diffTypes';
 import { ColumnInfo, TableStatistic } from '../types/schema';
 
 // --- stringifyCell ---
@@ -848,5 +848,316 @@ describe('isReadOnlyStatement', () => {
   it('rejects empty / whitespace-only input', () => {
     expect(isReadOnlyStatement('')).toBe(false);
     expect(isReadOnlyStatement('   \n\t')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// N-way (multi-source) diff
+// ---------------------------------------------------------------------------
+
+function nwayOptions(keyColumns: string[], rowLimit = 10000, referenceIndex = 0): NWayDiffOptions {
+  return { keyColumns, rowLimit, referenceIndex };
+}
+
+describe('computeNWayRowDiff', () => {
+  it('throws when fewer than 2 sources', () => {
+    expect(() => computeNWayRowDiff([makeSource([])], nwayOptions(['id']))).toThrow();
+  });
+
+  it('2 sources produce identical results to computeRowDiff via adapter', () => {
+    const left = makeSource([
+      { id: 1, name: 'Alice', score: 90 },
+      { id: 2, name: 'Bob', score: 80 },
+      { id: 3, name: 'Carol', score: 70 },
+    ]);
+    const right = makeSource([
+      { id: 1, name: 'Alice', score: 90 },
+      { id: 2, name: 'Bob', score: 85 },
+      { id: 4, name: 'Dave', score: 60 },
+    ]);
+    const opts = defaultOptions(['id']);
+    const legacy = computeRowDiff(left, right, opts);
+    const nway = computeNWayRowDiff([left, right], opts);
+    const converted = nwayToLegacyRowDiff(nway);
+
+    expect(converted.summary).toEqual(legacy.summary);
+    expect(converted.allColumns.sort()).toEqual(legacy.allColumns.sort());
+    expect(converted.leftOnly.length).toBe(legacy.leftOnly.length);
+    expect(converted.rightOnly.length).toBe(legacy.rightOnly.length);
+    expect(converted.matched.length).toBe(legacy.matched.length);
+    expect(converted.truncated).toBe(legacy.truncated);
+  });
+
+  it('nwayToLegacyRowDiff throws for more than 2 sources', () => {
+    const s0 = makeSource([{ id: 1, name: 'A' }]);
+    const s1 = makeSource([{ id: 1, name: 'B' }]);
+    const s2 = makeSource([{ id: 1, name: 'C' }]);
+    const nway = computeNWayRowDiff([s0, s1, s2], nwayOptions(['id']));
+    expect(() => nwayToLegacyRowDiff(nway)).toThrow('exactly 2 sources');
+  });
+
+  it('3 sources: detects unchanged, changed, added, removed', () => {
+    const s0 = makeSource([
+      { id: 1, name: 'Alice' },
+      { id: 2, name: 'Bob' },
+      { id: 3, name: 'Carol' },
+    ]);
+    const s1 = makeSource([
+      { id: 1, name: 'Alice' },
+      { id: 2, name: 'Robert' },
+      { id: 5, name: 'Eve' },
+    ]);
+    const s2 = makeSource([
+      { id: 1, name: 'Alice' },
+      { id: 3, name: 'Caroline' },
+      { id: 6, name: 'Frank' },
+    ]);
+    const result = computeNWayRowDiff([s0, s1, s2], nwayOptions(['id']));
+
+    expect(result.sourceCount).toBe(3);
+    // id=1: unchanged across reference (s0) — s1 matches, s2 matches
+    const row1 = result.matched.find(m => m.key === '1');
+    expect(row1).toBeDefined();
+    expect(row1!.changedColumns).toHaveLength(0);
+
+    // id=2: changed (s1 has 'Robert', s2 doesn't have it → null in values[2])
+    const row2 = result.matched.find(m => m.key === '2');
+    expect(row2).toBeDefined();
+    expect(row2!.changedColumns).toContain('name');
+    expect(row2!.values[0]).toBeTruthy();
+    expect(row2!.values[1]).toBeTruthy();
+    expect(row2!.values[2]).toBeNull();
+
+    // id=3: in s0 and s2 but not s1 → matched (at least one non-ref present)
+    const row3 = result.matched.find(m => m.key === '3');
+    expect(row3).toBeDefined();
+    expect(row3!.values[1]).toBeNull();
+    expect(row3!.changedColumns).toContain('name');
+
+    // id=5: only in s1 → added
+    expect(result.summary.added).toBeGreaterThanOrEqual(1);
+
+    // id=6: only in s2 → added
+    expect(result.summary.removed).toBe(0);
+  });
+
+  it('row only in reference and no other source → removed', () => {
+    const s0 = makeSource([{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }]);
+    const s1 = makeSource([{ id: 1, name: 'Alice' }]);
+    const s2 = makeSource([{ id: 1, name: 'Alice' }]);
+    const result = computeNWayRowDiff([s0, s1, s2], nwayOptions(['id']));
+    expect(result.summary.removed).toBe(1);
+    expect(result.sourceOnly[0]).toHaveLength(1);
+    expect(result.sourceOnly[0][0]).toEqual({ id: 2, name: 'Bob' });
+  });
+
+  it('rows only in non-reference sources → added', () => {
+    const s0 = makeSource([{ id: 1, name: 'Alice' }]);
+    const s1 = makeSource([{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }]);
+    const s2 = makeSource([{ id: 1, name: 'Alice' }, { id: 3, name: 'Carol' }]);
+    const result = computeNWayRowDiff([s0, s1, s2], nwayOptions(['id']));
+    expect(result.summary.added).toBe(2);
+    expect(result.sourceOnly[1]).toHaveLength(1);
+    expect(result.sourceOnly[2]).toHaveLength(1);
+  });
+
+  it('custom referenceIndex works', () => {
+    const s0 = makeSource([{ id: 1, name: 'A' }]);
+    const s1 = makeSource([{ id: 1, name: 'B' }, { id: 2, name: 'C' }]);
+    const result = computeNWayRowDiff([s0, s1], nwayOptions(['id'], 10000, 1));
+    // Reference is s1, so id=1 matched (name differs), id=2 only in reference
+    expect(result.summary.removed).toBe(1);
+    expect(result.matched).toHaveLength(1);
+    expect(result.matched[0].changedColumns).toContain('name');
+  });
+
+  it('invalid referenceIndex throws', () => {
+    expect(() => computeNWayRowDiff(
+      [makeSource([]), makeSource([])],
+      nwayOptions(['id'], 10000, 5),
+    )).toThrow();
+  });
+
+  it('truncation flag set when any source exceeds rowLimit', () => {
+    const big = makeSource(Array.from({ length: 20 }, (_, i) => ({ id: i, v: i })));
+    const small = makeSource([{ id: 0, v: 0 }]);
+    const result = computeNWayRowDiff([big, small], nwayOptions(['id'], 10));
+    expect(result.truncated).toBe(true);
+  });
+
+  it('allColumns union of all sources', () => {
+    const s0 = makeSource([{ id: 1, a: 1 }], ['id', 'a']);
+    const s1 = makeSource([{ id: 1, b: 2 }], ['id', 'b']);
+    const s2 = makeSource([{ id: 1, c: 3 }], ['id', 'c']);
+    const result = computeNWayRowDiff([s0, s1, s2], nwayOptions(['id']));
+    expect(result.allColumns).toEqual(expect.arrayContaining(['id', 'a', 'b', 'c']));
+  });
+
+  it('5 sources (max pane count per issue spec)', () => {
+    const sources = Array.from({ length: 5 }, (_, i) =>
+      makeSource([{ id: 1, name: `src${i}` }]),
+    );
+    const result = computeNWayRowDiff(sources, nwayOptions(['id']));
+    expect(result.sourceCount).toBe(5);
+    expect(result.matched).toHaveLength(1);
+    expect(result.matched[0].changedColumns).toContain('name');
+    expect(result.matched[0].values).toHaveLength(5);
+  });
+});
+
+describe('computeNWaySchemaDiff', () => {
+  it('throws when fewer than 2 sources', () => {
+    expect(() => computeNWaySchemaDiff([[]])).toThrow();
+  });
+
+  it('identical schemas: no differences', () => {
+    const cols = [makeColumnInfo('id', 'integer', false, true), makeColumnInfo('name', 'text')];
+    const result = computeNWaySchemaDiff([cols, cols, cols]);
+    expect(result.sourceCount).toBe(3);
+    expect(result.columns).toHaveLength(2);
+    expect(result.columns.every(c => !c.hasDifferences)).toBe(true);
+    expect(result.columns.every(c => c.present.every(p => p))).toBe(true);
+  });
+
+  it('column present in only some sources', () => {
+    const s0 = [makeColumnInfo('id', 'integer'), makeColumnInfo('email', 'text')];
+    const s1 = [makeColumnInfo('id', 'integer')];
+    const s2 = [makeColumnInfo('id', 'integer'), makeColumnInfo('phone', 'varchar')];
+    const result = computeNWaySchemaDiff([s0, s1, s2]);
+    const emailCol = result.columns.find(c => c.name === 'email')!;
+    expect(emailCol.present).toEqual([true, false, false]);
+    expect(emailCol.hasDifferences).toBe(true);
+    const phoneCol = result.columns.find(c => c.name === 'phone')!;
+    expect(phoneCol.present).toEqual([false, false, true]);
+    expect(phoneCol.hasDifferences).toBe(true);
+  });
+
+  it('type difference across sources', () => {
+    const s0 = [makeColumnInfo('name', 'varchar(50)')];
+    const s1 = [makeColumnInfo('name', 'text')];
+    const s2 = [makeColumnInfo('name', 'varchar(50)')];
+    const result = computeNWaySchemaDiff([s0, s1, s2]);
+    expect(result.columns[0].hasDifferences).toBe(true);
+    expect(result.columns[0].types).toEqual(['varchar(50)', 'text', 'varchar(50)']);
+  });
+
+  it('2-source result is consistent with legacy computeSchemaDiff', () => {
+    const left = [makeColumnInfo('id', 'integer', false, true), makeColumnInfo('name', 'text')];
+    const right = [makeColumnInfo('id', 'bigint', false, true), makeColumnInfo('email', 'text')];
+    const legacy = computeSchemaDiff(left, right);
+    const nway = computeNWaySchemaDiff([left, right]);
+
+    expect(legacy.leftOnlyColumns.length).toBe(
+      nway.columns.filter(c => c.present[0] && !c.present[1]).length,
+    );
+    expect(legacy.rightOnlyColumns.length).toBe(
+      nway.columns.filter(c => !c.present[0] && c.present[1]).length,
+    );
+    expect(legacy.commonColumns.length).toBe(
+      nway.columns.filter(c => c.present[0] && c.present[1]).length,
+    );
+  });
+});
+
+describe('computeNWayStatsDiff', () => {
+  it('throws when fewer than 2 sources', () => {
+    expect(() => computeNWayStatsDiff([[]])).toThrow();
+  });
+
+  it('identical stats: no differences', () => {
+    const stats: TableStatistic[] = [
+      { key: 'row_count', label: 'Row count', value: 1000, unit: 'count' },
+    ];
+    const result = computeNWayStatsDiff([stats, stats, stats]);
+    expect(result.sourceCount).toBe(3);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].hasDifferences).toBe(false);
+    expect(result.items[0].values).toEqual([1000, 1000, 1000]);
+  });
+
+  it('key present in only some sources', () => {
+    const s0: TableStatistic[] = [
+      { key: 'row_count', label: 'Row count', value: 100, unit: 'count' },
+      { key: 'pg_only', label: 'PG only', value: 42, unit: 'count' },
+    ];
+    const s1: TableStatistic[] = [
+      { key: 'row_count', label: 'Row count', value: 200, unit: 'count' },
+      { key: 'ch_only', label: 'CH only', value: 99, unit: 'count' },
+    ];
+    const result = computeNWayStatsDiff([s0, s1]);
+    expect(result.items).toHaveLength(3);
+
+    const rowCount = result.items.find(i => i.key === 'row_count')!;
+    expect(rowCount.values).toEqual([100, 200]);
+    expect(rowCount.hasDifferences).toBe(true);
+
+    const pgOnly = result.items.find(i => i.key === 'pg_only')!;
+    expect(pgOnly.present).toEqual([true, false]);
+    expect(pgOnly.values).toEqual([42, null]);
+    expect(pgOnly.hasDifferences).toBe(true);
+  });
+
+  it('cross-type stats: intersection of keys has differences only for common keys', () => {
+    const pgStats: TableStatistic[] = [
+      { key: 'row_count', label: 'Row count', value: 1000, unit: 'count' },
+      { key: 'total_size', label: 'Total size', value: 8192, unit: 'bytes' },
+      { key: 'dead_tuples', label: 'Dead tuples', value: 5, unit: 'count' },
+    ];
+    const chStats: TableStatistic[] = [
+      { key: 'row_count', label: 'Row count', value: 1000, unit: 'count' },
+      { key: 'total_size', label: 'Total size', value: 4096, unit: 'bytes' },
+      { key: 'compression_ratio', label: 'Compression', value: 0.5, unit: 'percent' },
+    ];
+    const result = computeNWayStatsDiff([pgStats, chStats]);
+
+    const common = result.items.filter(i => i.present.every(p => p));
+    expect(common).toHaveLength(2);
+    expect(common.map(i => i.key).sort()).toEqual(['row_count', 'total_size']);
+
+    const rowCount = common.find(i => i.key === 'row_count')!;
+    expect(rowCount.hasDifferences).toBe(false);
+    const totalSize = common.find(i => i.key === 'total_size')!;
+    expect(totalSize.hasDifferences).toBe(true);
+
+    const pgOnlyItems = result.items.filter(i => i.present[0] && !i.present[1]);
+    expect(pgOnlyItems).toHaveLength(1);
+    expect(pgOnlyItems[0].key).toBe('dead_tuples');
+  });
+
+  it('preserves order: reference keys first, then others', () => {
+    const s0: TableStatistic[] = [
+      { key: 'b', label: 'B', value: 1, unit: 'count' },
+      { key: 'a', label: 'A', value: 2, unit: 'count' },
+    ];
+    const s1: TableStatistic[] = [
+      { key: 'c', label: 'C', value: 3, unit: 'count' },
+      { key: 'a', label: 'A', value: 2, unit: 'count' },
+    ];
+    const result = computeNWayStatsDiff([s0, s1]);
+    expect(result.items.map(i => i.key)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('3 sources with mixed presence', () => {
+    const s0: TableStatistic[] = [
+      { key: 'row_count', label: 'Rows', value: 100, unit: 'count' },
+    ];
+    const s1: TableStatistic[] = [
+      { key: 'row_count', label: 'Rows', value: 200, unit: 'count' },
+      { key: 'extra', label: 'Extra', value: 1, unit: 'count' },
+    ];
+    const s2: TableStatistic[] = [
+      { key: 'row_count', label: 'Rows', value: 100, unit: 'count' },
+    ];
+    const result = computeNWayStatsDiff([s0, s1, s2]);
+    const rowCount = result.items.find(i => i.key === 'row_count')!;
+    expect(rowCount.values).toEqual([100, 200, 100]);
+    expect(rowCount.hasDifferences).toBe(true);
+    const extra = result.items.find(i => i.key === 'extra')!;
+    expect(extra.present).toEqual([false, true, false]);
+  });
+
+  it('handles all undefined inputs', () => {
+    const result = computeNWayStatsDiff([undefined, undefined]);
+    expect(result.items).toHaveLength(0);
   });
 });

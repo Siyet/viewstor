@@ -107,3 +107,70 @@ export interface StatsDiffItem {
 export interface StatsDiffResult {
   items: StatsDiffItem[];
 }
+
+// --- N-way (multi-source) diff types ---
+
+export interface NWayDiffOptions extends DiffOptions {
+  /** Index of the reference source (default 0). All other sources are compared against it. */
+  referenceIndex?: number;
+}
+
+export interface NWayMatchedRow {
+  key: string;
+  /** One entry per source. null when the source does not contain this key. */
+  values: (Record<string, unknown> | null)[];
+  /** Columns that differ from the reference in at least one other source. */
+  changedColumns: string[];
+}
+
+export interface NWayRowDiffResult {
+  sourceCount: number;
+  allColumns: string[];
+  matched: NWayMatchedRow[];
+  /** sourceOnly[i] = rows from source i not present in the reference source. */
+  sourceOnly: Record<string, unknown>[][];
+  truncated: boolean;
+  summary: {
+    total: number;
+    unchanged: number;
+    changed: number;
+    /** Rows present in non-reference sources but absent from the reference. */
+    added: number;
+    /** Rows present only in the reference and absent from all other sources. */
+    removed: number;
+  };
+}
+
+export interface NWayColumnCompare {
+  name: string;
+  /** Data type per source (empty string when column is absent). */
+  types: string[];
+  nullables: boolean[];
+  isPKs: boolean[];
+  comments: (string | undefined)[];
+  /** Whether each source contains this column. */
+  present: boolean[];
+  hasDifferences: boolean;
+}
+
+export interface NWaySchemaDiffResult {
+  sourceCount: number;
+  columns: NWayColumnCompare[];
+}
+
+export interface NWayStatsDiffItem {
+  key: string;
+  label: string;
+  unit?: 'bytes' | 'count' | 'percent' | 'date' | 'text';
+  badWhen?: 'higher' | 'lower';
+  /** One value per source, null when the source does not report this metric. */
+  values: (number | string | null)[];
+  /** Whether each source contains this key. */
+  present: boolean[];
+  hasDifferences: boolean;
+}
+
+export interface NWayStatsDiffResult {
+  sourceCount: number;
+  items: NWayStatsDiffItem[];
+}
