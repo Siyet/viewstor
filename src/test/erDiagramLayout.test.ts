@@ -31,11 +31,11 @@ interface LayoutApi {
     nodes: Required<LayoutNode>[];
     bounds: { x: number; y: number; width: number; height: number };
   };
-  zoomLevels(
+  fittedZoom(
     bounds: { width: number; height: number },
     viewport: { width: number; height: number },
-    sizes: { overviewWidth: number; detailWidth: number },
-  ): { overview: number; detail: number };
+    sizes: { fitWidth: number; cardWidth: number },
+  ): number;
 }
 
 function loadLayout(): LayoutApi {
@@ -169,26 +169,23 @@ describe('ER diagram layout', () => {
     expectNoOverlap(result.nodes);
   });
 
-  it('keeps overview cards apart and reveals details at a closer zoom', () => {
+  it('derives a bounded initial zoom from the graph and viewport', () => {
     const api = loadLayout();
-    const levels = api.zoomLevels(
+    const zoom = api.fittedZoom(
       { width: 7800, height: 9800 },
       { width: 1468, height: 1000 },
-      { overviewWidth: 196, detailWidth: 326 },
+      { fitWidth: 196, cardWidth: 326 },
     );
 
-    expect(levels.overview).toBeGreaterThan(1);
-    expect(levels.detail).toBeGreaterThan(levels.overview);
-    expect(levels.detail).toBeLessThanOrEqual(18);
+    expect(zoom).toBeGreaterThan(1);
+    expect(zoom).toBeLessThanOrEqual(12);
   });
 
-  it('reserves enough layout space for cards at the early detail threshold', () => {
+  it('reserves enough fitted layout space for always-complete cards', () => {
     const api = loadLayout();
-    const overviewWidth = 196;
+    const fitCardWidth = 196;
     const detailWidth = 326;
-    const revealRatio = 1.08;
-    const enterRatio = 1.02;
-    const layoutScale = detailWidth / (overviewWidth * revealRatio);
+    const layoutScale = detailWidth / fitCardWidth;
     const detailHeights = [188, 296, 404, 224, 350, 170, 440, 260];
     const nodes = detailHeights.map((height, index) => ({
       id: `table_${index}`,
@@ -196,7 +193,7 @@ describe('ER diagram layout', () => {
       height: height * layoutScale,
     }));
     const result = api.layout(nodes, [], { aspectRatio: 1.6 });
-    const screenScale = (overviewWidth / detailWidth) * revealRatio * enterRatio;
+    const screenScale = fitCardWidth / detailWidth;
     const projected = result.nodes.map((node, index) => ({
       ...node,
       x: node.x * screenScale,

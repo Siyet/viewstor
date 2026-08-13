@@ -270,25 +270,18 @@
     };
   }
 
-  /**
-   * Choose a readable initial zoom and the point where full cards fit without
-   * overlap. Nodes stay pixel-sized in ECharts, so the relationship between
-   * graph bounds and viewport size must be reflected in the roam zoom.
-   */
-  function zoomLevels(bounds, viewport, sizes) {
+  /** Choose an initial camera zoom that fits complete cards without overlap. */
+  function fittedZoom(bounds, viewport, sizes) {
     const availableWidth = Math.max(320, viewport.width - 64);
     const availableHeight = Math.max(240, viewport.height - 64);
     const fittedScale = Math.max(0.01, Math.min(
       availableWidth / Math.max(1, bounds.width),
       availableHeight / Math.max(1, bounds.height),
     ));
-    const overview = Math.max(1, Math.min(12, sizes.overviewWidth / (sizes.detailWidth * fittedScale)));
-    let detail = Math.max(2.2, Math.min(18, 1 / fittedScale));
-    if (detail <= overview) detail = Math.min(24, overview * 1.6);
-    return { overview, detail };
+    return Math.max(1, Math.min(12, sizes.fitWidth / (sizes.cardWidth * fittedScale)));
   }
 
-  const api = { buildAdjacency, relationshipOrder, layout, focusLayout, zoomLevels };
+  const api = { buildAdjacency, relationshipOrder, layout, focusLayout, fittedZoom };
   if (root) root.ViewstorErLayout = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -10,50 +10,30 @@
   const refreshBtn = document.getElementById('refreshBtn');
   const relationshipsBtn = document.getElementById('relationshipsBtn');
 
-  const OVERVIEW_WIDTH = 196;
-  const OVERVIEW_HEIGHT = 44;
+  const FIT_CARD_WIDTH = 196;
   const DETAIL_WIDTH = 326;
-  const DETAIL_REVEAL_RATIO = 1.08;
-  const DETAIL_LAYOUT_SCALE = DETAIL_WIDTH / (OVERVIEW_WIDTH * DETAIL_REVEAL_RATIO);
-  const MAX_CARD_COLUMNS = 24;
-  const MIN_DETAIL_ZOOM = 2.2;
+  const CARD_LAYOUT_SCALE = DETAIL_WIDTH / FIT_CARD_WIDTH;
   const MAX_ZOOM = 24;
-  const MIN_OVERVIEW_SCALE = 0.12;
-  const LABEL_OVERVIEW_SCALE = 0.48;
-  const LABEL_OVERVIEW_ZOOM_DELTA = 0.4;
+  const MIN_ZOOM_SCALE = 0.12;
   const HOVER_TRANSITION_MS = 150;
   const ZOOM_HALF_LIFE_MS = 28;
-  const SEMANTIC_TRANSITION_MS = 140;
-  const DETAIL_EXIT_RATIO = 0.92;
-  const DETAIL_ENTER_RATIO = 1.02;
-  const MODE_HYSTERESIS = 0.08;
   const ROLE_COLOR_ALPHA = 0.78;
-  const MAP_RELATIONSHIP_OPACITY = 0.14;
   const CARD_FRAME_Z = 200;
   const CARD_TEXT_Z = 201;
-  const TABLE_PREVIEW_DELAY_MS = 3000;
 
   let chart;
   let data = { tables: [], foreignKeys: [] };
   let positionedNodes = [];
   let links = [];
   let currentZoom = 1;
-  let overviewZoom = 1;
+  let initialZoom = 1;
   let farZoom = 0.5;
-  let detailZoom = MIN_DETAIL_ZOOM;
-  let semanticMode = 'names';
-  let showingDetails = false;
-  let semanticTransitionTimer;
   let zoomAnimation;
   let zoomAnimationFrame;
   let statusTimer;
   let panPointer;
   let relationshipsVisible = true;
   let isolatedTableId;
-  let tablePreviewTimer;
-  let tablePreviewTarget;
-  let tablePreviewPoint;
-  let tablePreviewHideTimer;
   let cardLayer;
   let regionLayer;
   let regionPresentationRecords = [];
@@ -134,11 +114,9 @@
 
   function cardFor(entity) {
     const title = entity.name;
-    const shownColumns = entity.columns.slice(0, MAX_CARD_COLUMNS);
-    const hiddenColumns = Math.max(0, entity.columns.length - shownColumns.length);
+    const shownColumns = entity.columns;
     const detailLines = [`{title|${safeRichText(truncateText(title, 40))}}`, ...shownColumns.map(columnLine)];
-    if (hiddenColumns > 0) detailLines.push(`{more|+${hiddenColumns} more columns}`);
-    const contentRows = shownColumns.length + (hiddenColumns > 0 ? 1 : 0);
+    const contentRows = shownColumns.length;
     const detailHeight = Math.max(68, 44 + contentRows * 18);
     const isView = entity.kind === 'view';
 
@@ -152,9 +130,7 @@
       detailHeight,
       detailContentHeight: 24 + contentRows * 18,
       columns: shownColumns,
-      allColumns: entity.columns,
       symbol: 'rect',
-      overviewLabelText: `{overviewTitle|${safeRichText(truncateText(title, 30))}}`,
       detailLabelText: detailLines.join('\n'),
       columnCount: entity.columns.length,
       cardStyle: {
@@ -208,39 +184,20 @@
   function nodeSymbolSize(_value, params) {
     const node = params && params.data;
     if (!node || node.anchor) return 0;
-    const details = semanticMode === 'details';
-    return details
-      ? [DETAIL_WIDTH / detailZoom, node.detailHeight / detailZoom]
-      : [OVERVIEW_WIDTH / overviewZoom, OVERVIEW_HEIGHT / overviewZoom];
+    return [DETAIL_WIDTH / initialZoom, node.detailHeight / initialZoom];
   }
 
-  function cardTextStyles(details) {
-    const cacheKey = details ? 'details' : 'overview';
-    if (cardTextStyleCache.has(cacheKey)) return cardTextStyleCache.get(cacheKey);
+  function cardTextStyles() {
+    if (cardTextStyleCache.has('details')) return cardTextStyleCache.get('details');
     const foreground = theme('--vscode-foreground', '#cccccc');
     const dimmed = theme('--vscode-descriptionForeground', '#999999');
     const primary = mutedRoleColor('--vscode-terminal-ansiYellow', '#b8a66c');
     const foreign = mutedRoleColor('--vscode-terminal-ansiMagenta', '#a979a7');
     const indexed = mutedRoleColor('--vscode-charts-blue', '#4f89bd');
-    // The card content group is normalized to overviewZoom. Detail metrics are
-    // normalized to detailZoom inside that same group. Camera zoom then applies
-    // one inherited transform to the rectangle and every glyph together.
-    const textScale = details ? overviewZoom / detailZoom : 1;
+    const textScale = 1;
     const result = {
-      padding: details
-        ? [scaled(7, textScale), scaled(12, textScale)]
-        : [scaled(4, textScale), scaled(10, textScale)],
+      padding: [scaled(7, textScale), scaled(12, textScale)],
       rich: {
-        overviewTitle: {
-          width: scaled(OVERVIEW_WIDTH - 24, textScale),
-          overflow: 'truncate',
-          ellipsis: '…',
-          fill: foreground,
-          fontWeight: 600,
-          fontSize: scaled(16, textScale),
-          lineHeight: scaled(24, textScale),
-          align: 'center',
-        },
         title: {
           width: scaled(DETAIL_WIDTH - 30, textScale),
           overflow: 'truncate',
@@ -334,54 +291,49 @@
           lineHeight: scaled(18, textScale),
           align: 'left',
         },
-        more: {
-          fill: dimmed,
-          fontStyle: 'italic',
-          fontSize: scaled(10, textScale),
-          lineHeight: scaled(18, textScale),
-          align: 'left',
-        },
       },
     };
-    cardTextStyleCache.set(cacheKey, result);
+    cardTextStyleCache.set('details', result);
     return result;
   }
 
-  function cardTextStyle(node, details) {
-    const metrics = cardTextStyles(details);
+  function cardTextStyle(node) {
+    const metrics = cardTextStyles();
     return {
-      text: details ? node.detailLabelText : node.overviewLabelText,
+      text: node.detailLabelText,
       x: 0,
       y: 0,
       align: 'center',
       verticalAlign: 'middle',
       padding: metrics.padding,
       rich: metrics.rich,
-      opacity: semanticMode === 'map' ? 0 : 1,
+      opacity: 1,
     };
   }
 
-  function cardShape(node, details) {
-    const scale = details ? overviewZoom / detailZoom : 1;
-    const width = (details ? DETAIL_WIDTH : OVERVIEW_WIDTH) * scale;
-    const height = (details ? node.detailHeight : OVERVIEW_HEIGHT) * scale;
-    return { x: -width / 2, y: -height / 2, width, height, r: 0 };
+  function cardShape(node) {
+    return {
+      x: -DETAIL_WIDTH / 2,
+      y: -node.detailHeight / 2,
+      width: DETAIL_WIDTH,
+      height: node.detailHeight,
+      r: 0,
+    };
   }
 
-  function semanticVisualPatch() {
-    const details = semanticMode === 'details';
+  function graphVisuals() {
     return {
       id: 'erGraph',
       symbolSize: nodeSymbolSize,
       label: { show: false },
       itemStyle: { opacity: 0, borderWidth: 0 },
-      edgeSymbol: ['none', details ? 'arrow' : 'none'],
-      edgeSymbolSize: [0, details ? 8 : 0],
+      edgeSymbol: ['none', 'arrow'],
+      edgeSymbolSize: [0, 8],
       lineStyle: {
         color: theme('--vscode-charts-blue', '#3794ff'),
-        opacity: details ? 0.5 : semanticMode === 'names' ? 0.18 : MAP_RELATIONSHIP_OPACITY,
-        width: details ? 1.4 : 1,
-        curveness: details ? 0.06 : 0,
+        opacity: 0.35,
+        width: 1.4,
+        curveness: 0.06,
       },
       emphasis: {
         focus: 'adjacency',
@@ -396,55 +348,6 @@
         lineStyle: { opacity: 0.025 },
       },
     };
-  }
-
-  function modeForZoom(zoom, currentMode = semanticMode) {
-    const nameThreshold = overviewZoom * LABEL_OVERVIEW_SCALE;
-    const nameExitThreshold = Math.max(
-      0,
-      nameThreshold * (1 - MODE_HYSTERESIS) - LABEL_OVERVIEW_ZOOM_DELTA,
-    );
-    const nameEnterThreshold = nameThreshold * (1 + MODE_HYSTERESIS);
-    if (currentMode === 'details' && zoom >= detailZoom * DETAIL_EXIT_RATIO) return 'details';
-    if (currentMode !== 'details' && zoom >= detailZoom * DETAIL_ENTER_RATIO) return 'details';
-    if (currentMode === 'names' && zoom >= nameExitThreshold) return 'names';
-    if (currentMode === 'map' && zoom < nameEnterThreshold) return 'map';
-    if (zoom >= nameThreshold) return 'names';
-    return 'map';
-  }
-
-  function clearSemanticTransition() {
-    if (semanticTransitionTimer !== undefined) window.clearTimeout(semanticTransitionTimer);
-    semanticTransitionTimer = undefined;
-  }
-
-  function updateSemanticDisplay(force) {
-    if (!chart || positionedNodes.length === 0) return;
-    const nextMode = modeForZoom(currentZoom);
-    const modeChanged = nextMode !== semanticMode;
-    if (!force && !modeChanged) {
-      setStatus();
-      return;
-    }
-    if (modeChanged) clearSemanticTransition();
-    if (modeChanged) resetCardFocus();
-    const enteringDetails = nextMode === 'details' && modeChanged;
-    semanticMode = nextMode;
-    if (modeChanged) showingDetails = nextMode === 'details' && !enteringDetails;
-    chart.setOption({ series: [semanticVisualPatch()] });
-    transitionCards(nextMode, enteringDetails);
-    hideHoverTooltip();
-    setStatus();
-
-    if (enteringDetails) {
-      semanticTransitionTimer = window.setTimeout(() => {
-        semanticTransitionTimer = undefined;
-        if (semanticMode !== 'details') return;
-        showingDetails = true;
-        showDetailCardText();
-        setStatus();
-      }, SEMANTIC_TRANSITION_MS);
-    }
   }
 
   function removeCardLayer() {
@@ -483,7 +386,6 @@
 
     cardLayer = new echarts.graphic.Group({ name: 'viewstor-er-cards' });
     buildAdjacency();
-    const details = semanticMode === 'details';
     // ECharts' view group also contains its initial fit transform. Cancel that
     // once at the reference zoom, then let every later camera transform flow
     // through the whole card group unchanged.
@@ -506,7 +408,7 @@
 
       const rect = new echarts.graphic.Rect({
         z2: CARD_FRAME_Z,
-        shape: cardShape(node, details),
+        shape: cardShape(node),
         culling: true,
         style: {
           fill: node.cardStyle.fill,
@@ -519,7 +421,7 @@
       });
       const text = new echarts.graphic.Text({
         z2: CARD_TEXT_Z,
-        style: cardTextStyle(node, details && showingDetails),
+        style: cardTextStyle(node),
         culling: true,
         cursor: 'pointer',
       });
@@ -609,50 +511,11 @@
     const series = chart.getModel().getSeriesByIndex(0);
     const graphView = series && chart.getViewOfSeriesModel(series);
     if (!graphView || !graphView.group) return;
-    const zoomRatio = currentZoom / overviewZoom;
+    const zoomRatio = currentZoom / initialZoom;
     const cardScaleX = zoomRatio / Math.max(0.0001, Math.abs(graphView.group.scaleX || 1));
     const cardScaleY = zoomRatio / Math.max(0.0001, Math.abs(graphView.group.scaleY || 1));
     for (const record of cardRecords.values()) {
       record.group.attr({ scaleX: cardScaleX, scaleY: cardScaleY });
-    }
-  }
-
-  function transitionCards(nextMode, enteringDetails) {
-    const details = nextMode === 'details';
-    for (const record of cardRecords.values()) {
-      const { node, rect, text } = record;
-      if (!enteringDetails) {
-        const currentOpacity = typeof text.style.opacity === 'number' ? text.style.opacity : 1;
-        text.stopAnimation();
-        text.attr({ style: { ...cardTextStyle(node, false), opacity: currentOpacity } });
-      }
-      rect.stopAnimation();
-      rect.animateTo({ shape: cardShape(node, details) }, {
-        duration: SEMANTIC_TRANSITION_MS,
-        easing: 'cubicOut',
-      });
-      if (nextMode === 'map') {
-        text.animateTo({ style: { opacity: 0 } }, {
-          duration: SEMANTIC_TRANSITION_MS,
-          easing: 'cubicOut',
-        });
-      } else if (!details) {
-        text.animateTo({ style: { opacity: 1 } }, {
-          duration: SEMANTIC_TRANSITION_MS,
-          easing: 'cubicOut',
-        });
-      }
-    }
-  }
-
-  function showDetailCardText() {
-    for (const record of cardRecords.values()) {
-      record.text.stopAnimation();
-      record.text.attr({ style: { ...cardTextStyle(record.node, true), opacity: 0 } });
-      record.text.animateTo({ style: { opacity: 1 } }, {
-        duration: SEMANTIC_TRANSITION_MS,
-        easing: 'cubicOut',
-      });
     }
   }
 
@@ -661,7 +524,7 @@
       duration: HOVER_TRANSITION_MS,
       easing: 'cubicOut',
     });
-    record.text.animateTo({ style: { opacity: semanticMode === 'map' ? 0 : opacity } }, {
+    record.text.animateTo({ style: { opacity } }, {
       duration: HOVER_TRANSITION_MS,
       easing: 'cubicOut',
     });
@@ -692,15 +555,9 @@
     if (cardOutTimer !== undefined) window.clearTimeout(cardOutTimer);
     cardOutTimer = undefined;
     focusCards(adjacency.get(record.node.id) || new Set([record.node.id]), record.index);
-    if (!showingDetails) {
-      scheduleTablePreview(record.node, event);
-      return;
-    }
-    cancelTablePreview();
     const local = record.group.transformCoordToLocal(event.offsetX, event.offsetY);
-    const detailScale = overviewZoom / detailZoom;
-    const firstColumnTop = -record.node.detailContentHeight * detailScale / 2 + 24 * detailScale;
-    const columnIndex = Math.floor((local[1] - firstColumnTop) / (18 * detailScale));
+    const firstColumnTop = -record.node.detailContentHeight / 2 + 24;
+    const columnIndex = Math.floor((local[1] - firstColumnTop) / 18);
     const column = record.node.columns[columnIndex];
     if (!column) {
       hideHoverTooltip();
@@ -735,7 +592,6 @@
       y: event.clientY,
     };
     chartEl.classList.add('panning');
-    cancelTablePreview();
     hideHoverTooltip();
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -907,7 +763,7 @@
       if (typeof event.zoom === 'number') {
         currentZoom = Math.max(farZoom, Math.min(MAX_ZOOM, currentZoom * event.zoom));
         updateRegionPresentation();
-        updateSemanticDisplay();
+        setStatus();
       }
     });
     chart.on('mousemove', handleChartHover);
@@ -926,18 +782,14 @@
   }
 
   function calculateZoomLevels(bounds) {
-    const levels = ViewstorErLayout.zoomLevels(bounds, {
+    initialZoom = ViewstorErLayout.fittedZoom(bounds, {
       width: chartEl.clientWidth,
       height: chartEl.clientHeight,
     }, {
-      overviewWidth: OVERVIEW_WIDTH,
-      detailWidth: DETAIL_WIDTH,
+      fitWidth: FIT_CARD_WIDTH,
+      cardWidth: DETAIL_WIDTH,
     });
-    overviewZoom = levels.overview;
-    farZoom = Math.max(0.5, overviewZoom * MIN_OVERVIEW_SCALE);
-    // Never let the overview card become wider than its detail card before
-    // the LOD switch (notably in a small double-click focused graph).
-    detailZoom = Math.min(levels.detail, overviewZoom * DETAIL_REVEAL_RATIO);
+    farZoom = Math.max(0.5, initialZoom * MIN_ZOOM_SCALE);
   }
 
   function graphScope() {
@@ -985,18 +837,16 @@
     }
     emptyEl.classList.add('hidden');
 
-    cancelTablePreview();
     hideHoverTooltip();
     cardTextStyleCache = new Map();
     const scope = graphScope();
     const cards = scope.tables.map(cardFor);
-    // Full cards appear shortly after the compact overview. Reserve their
-    // screen-space footprint in the layout up front, otherwise the earlier
-    // LOD transition makes neighbouring cards touch or overlap.
+    // The initial fit uses a compact target footprint, while the cards are
+    // always complete. Reserve enough layout space for those full cards.
     const layoutCards = cards.map(card => ({
       ...card,
-      width: card.width * DETAIL_LAYOUT_SCALE,
-      height: card.height * DETAIL_LAYOUT_SCALE,
+      width: card.width * CARD_LAYOUT_SCALE,
+      height: card.height * CARD_LAYOUT_SCALE,
     }));
     links = scope.foreignKeys.map(linkFor);
     const aspectRatio = Math.max(0.75, chartEl.clientWidth / Math.max(1, chartEl.clientHeight));
@@ -1017,10 +867,7 @@
       anchorNode('__er_anchor_br', bounds.x + bounds.width, bounds.y + bounds.height),
     );
     calculateZoomLevels(bounds);
-    currentZoom = overviewZoom;
-    semanticMode = modeForZoom(currentZoom);
-    showingDetails = false;
-    clearSemanticTransition();
+    currentZoom = initialZoom;
     zoomAnimation = undefined;
     if (zoomAnimationFrame !== undefined) window.cancelAnimationFrame(zoomAnimationFrame);
     zoomAnimationFrame = undefined;
@@ -1031,7 +878,7 @@
       // one transform and frame/text can never drift apart.
       animation: true,
       animationDuration: 0,
-      animationDurationUpdate: SEMANTIC_TRANSITION_MS,
+      animationDurationUpdate: 0,
       animationEasingUpdate: 'cubicOut',
       animationThreshold: 5000,
       stateAnimation: {
@@ -1040,7 +887,7 @@
       },
       tooltip: { show: false },
       series: [{
-        ...semanticVisualPatch(),
+        ...graphVisuals(),
         type: 'graph',
         layout: 'none',
         data: positionedNodes,
@@ -1048,7 +895,7 @@
         roam: true,
         draggable: false,
         cursor: 'default',
-        zoom: overviewZoom,
+        zoom: initialZoom,
         scaleLimit: { min: farZoom, max: MAX_ZOOM },
         nodeScaleRatio: 1,
       }],
@@ -1059,13 +906,11 @@
 
   function handleChartHover(params) {
     if (!params || !params.data || !params.event || panPointer) {
-      cancelTablePreview();
       hideHoverTooltip();
       return;
     }
 
     if (params.dataType === 'edge') {
-      cancelTablePreview();
       const related = new Set([params.data.source, params.data.target]);
       focusCards(related);
       const lines = [];
@@ -1076,73 +921,18 @@
       return;
     }
 
-    cancelTablePreview();
     hideHoverTooltip();
-  }
-
-  function scheduleTablePreview(table, event) {
-    const point = { x: event.offsetX, y: event.offsetY };
-    const pointerMoved = tablePreviewPoint
-      && Math.hypot(point.x - tablePreviewPoint.x, point.y - tablePreviewPoint.y) > 4;
-    if (tablePreviewTarget === table.id && !pointerMoved) return;
-
-    cancelTablePreview();
-    hideHoverTooltip();
-    tablePreviewTarget = table.id;
-    tablePreviewPoint = point;
-    tablePreviewTimer = window.setTimeout(() => {
-      if (tablePreviewTarget !== table.id || showingDetails || panPointer) return;
-      showTablePreviewTooltip(table, point);
-      tablePreviewTimer = undefined;
-    }, TABLE_PREVIEW_DELAY_MS);
-  }
-
-  function cancelTablePreview() {
-    if (tablePreviewTimer !== undefined) window.clearTimeout(tablePreviewTimer);
-    tablePreviewTimer = undefined;
-    tablePreviewTarget = undefined;
-    tablePreviewPoint = undefined;
   }
 
   function handleChartOut() {
-    cancelTablePreview();
     resetCardFocus();
-    if (hoverTooltipEl.classList.contains('table-preview')) {
-      tablePreviewHideTimer = window.setTimeout(hideHoverTooltip, 120);
-    } else {
-      hideHoverTooltip();
-    }
+    hideHoverTooltip();
   }
 
   function handleChartDoubleClick(params) {
     if (!params || params.dataType === 'edge' || !params.data || params.data.anchor) return;
     isolatedTableId = isolatedTableId === params.data.id ? undefined : params.data.id;
     renderChart();
-  }
-
-  function showTablePreviewTooltip(table, point) {
-    if (!hoverTooltipEl || !Array.isArray(table.allColumns)) return;
-    if (tablePreviewHideTimer !== undefined) window.clearTimeout(tablePreviewHideTimer);
-    const titleEl = document.createElement('span');
-    titleEl.className = 'hover-tooltip-title';
-    titleEl.textContent = table.id;
-
-    const columnsEl = document.createElement('div');
-    columnsEl.className = 'hover-tooltip-columns';
-    for (const column of table.allColumns) {
-      const nameEl = document.createElement('span');
-      const role = columnVisualRole(column);
-      nameEl.className = `hover-tooltip-column${role === 'normal' ? '' : ` ${role}`}`;
-      nameEl.textContent = `${column.name}${column.notNullable && !column.primaryKey ? '*' : ''}`;
-      const typeEl = document.createElement('span');
-      typeEl.className = `hover-tooltip-type${role === 'normal' ? '' : ` ${role}`}`;
-      typeEl.textContent = `${column.dataType}${columnMarkers(column)}`;
-      columnsEl.append(nameEl, typeEl);
-    }
-    hoverTooltipEl.replaceChildren(titleEl, columnsEl);
-    hoverTooltipEl.classList.add('table-preview');
-    hoverTooltipEl.classList.remove('hidden');
-    positionTooltip(point.x, point.y);
   }
 
   function showHoverTooltip(title, body, event) {
@@ -1154,7 +944,6 @@
     titleEl.className = 'hover-tooltip-title';
     titleEl.textContent = title;
     hoverTooltipEl.replaceChildren(titleEl, document.createTextNode(body));
-    hoverTooltipEl.classList.remove('table-preview');
     hoverTooltipEl.classList.remove('hidden');
     positionTooltip(event.offsetX, event.offsetY);
   }
@@ -1171,11 +960,8 @@
   }
 
   function hideHoverTooltip() {
-    if (tablePreviewHideTimer !== undefined) window.clearTimeout(tablePreviewHideTimer);
-    tablePreviewHideTimer = undefined;
     if (hoverTooltipEl) {
       hoverTooltipEl.classList.add('hidden');
-      hoverTooltipEl.classList.remove('table-preview');
     }
   }
 
@@ -1197,10 +983,7 @@
   function renderStatus() {
     const support = data.foreignKeysUnsupported ? ' · relationships unsupported by driver' : '';
     const zoom = positionedNodes.length > 0 ? ` · ${currentZoom.toFixed(1)}×` : '';
-    const densityMode = semanticMode === 'details'
-      ? showingDetails ? 'columns' : 'opening'
-      : semanticMode;
-    const density = positionedNodes.length > 0 ? ` · ${densityMode}` : '';
+    const density = positionedNodes.length > 0 ? ' · columns' : '';
     const visibleTables = Math.max(0, positionedNodes.length - 4);
     const tableCount = isolatedTableId ? `${visibleTables}/${data.tables.length}` : String(data.tables.length);
     const focus = isolatedTableId ? ` · focused: ${isolatedTableId}` : '';
@@ -1212,7 +995,6 @@
     relationshipsVisible = !relationshipsVisible;
     relationshipsBtn.textContent = relationshipsVisible ? 'Hide relationships' : 'Show relationships';
     relationshipsBtn.setAttribute('aria-pressed', String(relationshipsVisible));
-    cancelTablePreview();
     hideHoverTooltip();
     if (chart && positionedNodes.length > 0) {
       chart.setOption({ series: [{ id: 'erGraph', links: relationshipsVisible ? links : [] }] });
@@ -1237,7 +1019,7 @@
       chart.resize();
       rebaseCardLayer();
       updateRegionPresentation();
-    }, SEMANTIC_TRANSITION_MS);
+    }, HOVER_TRANSITION_MS);
   }
 
   function setEmpty(message) {
@@ -1247,13 +1029,6 @@
 
   refreshBtn.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
   relationshipsBtn.addEventListener('click', toggleRelationships);
-  hoverTooltipEl.addEventListener('mouseenter', () => {
-    if (hoverTooltipEl.classList.contains('table-preview') && tablePreviewHideTimer !== undefined) {
-      window.clearTimeout(tablePreviewHideTimer);
-      tablePreviewHideTimer = undefined;
-    }
-  });
-  hoverTooltipEl.addEventListener('mouseleave', hideHoverTooltip);
   window.addEventListener('keydown', event => {
     if (event.key === 'Escape' && isolatedTableId) {
       event.preventDefault();

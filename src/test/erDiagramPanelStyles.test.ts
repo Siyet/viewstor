@@ -10,28 +10,22 @@ function readScript(): string {
 }
 
 describe('ER diagram transitions', () => {
-  it('uses fast hover and semantic card animations', () => {
+  it('uses fast hover animations without semantic card transitions', () => {
     const script = readScript();
     const duration = script.match(/const HOVER_TRANSITION_MS = (\d+);/);
-    const semanticDuration = script.match(/const SEMANTIC_TRANSITION_MS = (\d+);/);
 
     expect(duration, 'hover transition constant not found').not.toBeNull();
     expect(Number(duration![1])).toBeGreaterThanOrEqual(100);
     expect(Number(duration![1])).toBeLessThanOrEqual(200);
-    expect(semanticDuration, 'semantic transition constant not found').not.toBeNull();
-    expect(Number(semanticDuration![1])).toBeGreaterThanOrEqual(100);
-    expect(Number(semanticDuration![1])).toBeLessThanOrEqual(200);
     expect(script).toMatch(/animationDuration:\s*0/);
-    expect(script).toMatch(/animationDurationUpdate:\s*SEMANTIC_TRANSITION_MS/);
+    expect(script).toMatch(/animationDurationUpdate:\s*0/);
     expect(script).toMatch(/animationEasingUpdate:\s*'cubicOut'/);
     expect(script).toMatch(/stateAnimation:\s*\{[^}]*duration:\s*HOVER_TRANSITION_MS[^}]*easing:\s*'cubicOut'/s);
+    expect(script).not.toContain('SEMANTIC_TRANSITION_MS');
   });
 
-  it('switches LOD only at hysteretic thresholds and scales each card as one local group', () => {
+  it('always renders complete cards as one local group', () => {
     const script = readScript();
-    expect(script).toContain('detailZoom * DETAIL_ENTER_RATIO');
-    expect(script).toContain('detailZoom * DETAIL_EXIT_RATIO');
-    expect(script).toContain('if (!force && !modeChanged)');
     expect(script).toContain('new echarts.graphic.Group');
     expect(script).toContain('new echarts.graphic.Rect');
     expect(script).toContain('new echarts.graphic.Text');
@@ -42,26 +36,16 @@ describe('ER diagram transitions', () => {
     expect(script).toContain('culling: true');
     expect(script).toContain('function rebaseCardLayer()');
     expect(script).toContain('window.addEventListener(\'resize\', resizeChart)');
-    expect(script).toContain('cardTextStyleCache.has(cacheKey)');
-    expect(script).toContain('const DETAIL_REVEAL_RATIO = 1.08');
-    expect(script).toContain('overviewZoom * DETAIL_REVEAL_RATIO');
-    expect(script).toContain('const DETAIL_LAYOUT_SCALE = DETAIL_WIDTH / (OVERVIEW_WIDTH * DETAIL_REVEAL_RATIO)');
-    expect(script).toContain('width: card.width * DETAIL_LAYOUT_SCALE');
-    expect(script).toContain('height: card.height * DETAIL_LAYOUT_SCALE');
+    expect(script).toContain('cardTextStyleCache.has(\'details\')');
+    expect(script).toContain('const CARD_LAYOUT_SCALE = DETAIL_WIDTH / FIT_CARD_WIDTH');
+    expect(script).toContain('width: card.width * CARD_LAYOUT_SCALE');
+    expect(script).toContain('height: card.height * CARD_LAYOUT_SCALE');
     expect(script).toContain('ViewstorErLayout.layout(layoutCards, links');
-    expect(script).toContain('const LABEL_OVERVIEW_SCALE = 0.48');
-    expect(script).toContain('const LABEL_OVERVIEW_ZOOM_DELTA = 0.4');
-    expect(script).toContain('nameThreshold * (1 - MODE_HYSTERESIS) - LABEL_OVERVIEW_ZOOM_DELTA');
-    expect(script).not.toContain('visualScale');
-    expect(script).not.toContain('detailProgress');
-  });
-
-  it('reveals detail text after the card opening transition', () => {
-    const script = readScript();
-    expect(script).toContain('const enteringDetails = nextMode === \'details\'');
-    expect(script).toContain('showingDetails = nextMode === \'details\' && !enteringDetails');
-    expect(script).toContain('semanticTransitionTimer = window.setTimeout');
-    expect(script).toContain('}, SEMANTIC_TRANSITION_MS)');
+    expect(script).toContain('text: node.detailLabelText');
+    expect(script).not.toContain('semanticMode');
+    expect(script).not.toContain('overviewLabelText');
+    expect(script).not.toContain('MAX_CARD_COLUMNS');
+    expect(script).not.toContain('more columns');
   });
 
   it('fades custom cards and native relationships with fast state animations', () => {
@@ -72,10 +56,9 @@ describe('ER diagram transitions', () => {
     expect(script).toMatch(/blur:\s*\{[\s\S]*?lineStyle:\s*\{\s*opacity:/);
   });
 
-  it('keeps relationships readable after far zoom hides table names', () => {
+  it('uses one readable relationship style at every zoom', () => {
     const script = readScript();
-    expect(script).toContain('const MAP_RELATIONSHIP_OPACITY = 0.14');
-    expect(script).toContain('semanticMode === \'names\' ? 0.18 : MAP_RELATIONSHIP_OPACITY');
+    expect(script).toMatch(/lineStyle:\s*\{[^}]*opacity:\s*0\.35[^}]*width:\s*1\.4/s);
   });
 
   it('keeps cards above relationships on the first focused-graph frame', () => {
@@ -88,13 +71,6 @@ describe('ER diagram transitions', () => {
 });
 
 describe('ER diagram interactions', () => {
-  it('uses a three-second delayed full-table preview', () => {
-    const script = readScript();
-    expect(script).toMatch(/const TABLE_PREVIEW_DELAY_MS = 3000;/);
-    expect(script).toContain('showTablePreviewTooltip(table, point)');
-    expect(script).toContain('allColumns: entity.columns');
-  });
-
   it('supports relationship visibility, focused graphs, and blank-canvas primary pan', () => {
     const script = readScript();
     expect(script).toContain('links: relationshipsVisible ? links : []');
@@ -124,17 +100,16 @@ describe('ER diagram interactions', () => {
   it('keeps steady zoom free of card style patches and graph data rebuilds', () => {
     const script = readScript();
     const visualPatch = script.slice(
-      script.indexOf('function semanticVisualPatch()'),
-      script.indexOf('function modeForZoom'),
+      script.indexOf('function graphVisuals()'),
+      script.indexOf('function removeCardLayer'),
     );
     expect(visualPatch).not.toMatch(/\bdata:/);
     expect(visualPatch).not.toMatch(/\blinks:/);
-    const semanticUpdate = script.slice(
-      script.indexOf('function updateSemanticDisplay'),
-      script.indexOf('function removeCardLayer'),
+    const roamHandler = script.slice(
+      script.indexOf('chart.on(\'graphRoam\''),
+      script.indexOf('chart.on(\'mousemove\''),
     );
-    expect(semanticUpdate).toContain('if (!force && !modeChanged)');
-    expect(semanticUpdate).not.toContain('scaleChanged');
+    expect(roamHandler).not.toContain('setOption');
   });
 
   it('renders PK, FK, and indexed column markers', () => {
@@ -150,7 +125,7 @@ describe('ER diagram interactions', () => {
   it('uses concise object and namespace labels', () => {
     const script = readScript();
     expect(script).toContain('const title = entity.name;');
-    expect(script).toContain('fontSize: scaled(16, textScale)');
+    expect(script).toContain('fontSize: scaled(12, textScale)');
     expect(script).toContain('text: region.name');
     expect(script).not.toContain('`${kind} · ${region.name}`');
   });

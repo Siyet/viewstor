@@ -143,13 +143,6 @@ main {
   pointer-events: none;
 }
 
-.hover-tooltip.table-preview {
-  min-width: 320px;
-  max-width: 520px;
-  padding: 9px 11px;
-  pointer-events: auto;
-}
-
 .hover-tooltip-title {
   display: block;
   margin-bottom: 3px;
@@ -158,38 +151,6 @@ main {
   font-weight: 600;
 }
 
-.hover-tooltip-columns {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(110px, auto);
-  column-gap: 18px;
-  font-family: var(--viewstor-font-mono);
-}
-
-.hover-tooltip-column,
-.hover-tooltip-type {
-  min-width: 0;
-  padding: 2px 0;
-  overflow-wrap: anywhere;
-}
-
-.hover-tooltip-type { color: var(--viewstor-text-dimmed); }
-.hover-tooltip-column.pk,
-.hover-tooltip-type.pk {
-  color: color-mix(in srgb, var(--vscode-terminal-ansiYellow, #d7ba7d) 78%, var(--vscode-editorWidget-background) 22%);
-  font-weight: 700;
-}
-
-.hover-tooltip-column.fk,
-.hover-tooltip-type.fk {
-  color: color-mix(in srgb, var(--vscode-terminal-ansiMagenta, #c586c0) 78%, var(--vscode-editorWidget-background) 22%);
-  font-weight: 700;
-}
-
-.hover-tooltip-column.indexed,
-.hover-tooltip-type.indexed {
-  color: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 78%, var(--vscode-editorWidget-background) 22%);
-  font-weight: 600;
-}
 
 .empty-state {
   position: absolute;
