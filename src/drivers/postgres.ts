@@ -3,7 +3,7 @@ import { DatabaseDriver } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
 import { CompletionItem } from '../types/driver';
-import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo, ForeignKeyInfo } from '../types/schema';
 import { createSSHTunnel, createSocks5Connection, TunnelInfo } from '../connections/tunnel';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import { wrapError } from '../utils/errors';
@@ -169,6 +169,10 @@ export class PostgresDriver implements DatabaseDriver {
     const columnsRes = await this.client!.query(`
       SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.udt_name, c.is_nullable,
              c.column_default,
+             col_description(
+               (quote_ident(c.table_schema) || '.' || quote_ident(c.table_name))::regclass::oid,
+               c.ordinal_position::int
+             ) AS comment,
              CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_pk
       FROM information_schema.columns c
       LEFT JOIN (
@@ -240,6 +244,7 @@ export class PostgresDriver implements DatabaseDriver {
         type: 'column',
         schema: row.table_schema,
         detail,
+        comment: row.comment ?? undefined,
         indexNames: indexNames && indexNames.length > 0 ? indexNames : undefined,
         notNullable: notNullable || undefined,
       });
@@ -616,6 +621,62 @@ export class PostgresDriver implements DatabaseDriver {
       WHERE n.nspname = $1 AND c.relname = $2
     `, [schema, name]);
     return new Set(res.rows.map((r: { attname: string }) => r.attname));
+  }
+
+  async getForeignKeys(schema?: string): Promise<ForeignKeyInfo[]> {
+    const res = await this.client!.query(`
+      SELECT tc.constraint_name,
+             tc.table_schema AS source_schema,
+             tc.table_name AS source_table,
+             array_agg(source_col.column_name ORDER BY source_col.ordinal_position) AS source_columns,
+             target_col.table_schema AS target_schema,
+             target_col.table_name AS target_table,
+             array_agg(target_col.column_name ORDER BY source_col.ordinal_position) AS target_columns,
+             rc.delete_rule,
+             rc.update_rule
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.referential_constraints rc
+        ON rc.constraint_catalog = tc.constraint_catalog
+       AND rc.constraint_schema = tc.constraint_schema
+       AND rc.constraint_name = tc.constraint_name
+      JOIN information_schema.key_column_usage source_col
+        ON source_col.constraint_catalog = tc.constraint_catalog
+       AND source_col.constraint_schema = tc.constraint_schema
+       AND source_col.constraint_name = tc.constraint_name
+      JOIN information_schema.key_column_usage target_col
+        ON target_col.constraint_catalog = rc.unique_constraint_catalog
+       AND target_col.constraint_schema = rc.unique_constraint_schema
+       AND target_col.constraint_name = rc.unique_constraint_name
+       AND target_col.ordinal_position = source_col.position_in_unique_constraint
+      WHERE tc.constraint_type = 'FOREIGN KEY'
+        AND ($1::text IS NULL OR tc.table_schema = $1)
+      GROUP BY tc.constraint_name, tc.table_schema, tc.table_name,
+               target_col.table_schema, target_col.table_name,
+               rc.delete_rule, rc.update_rule
+      ORDER BY tc.table_schema, tc.table_name, tc.constraint_name
+    `, [schema ?? null]);
+
+    return res.rows.map((row: {
+      constraint_name: string;
+      source_schema: string;
+      source_table: string;
+      source_columns: unknown;
+      target_schema: string;
+      target_table: string;
+      target_columns: unknown;
+      delete_rule: string | null;
+      update_rule: string | null;
+    }) => ({
+      name: row.constraint_name,
+      sourceSchema: row.source_schema,
+      sourceTable: row.source_table,
+      sourceColumns: toStringArray(row.source_columns),
+      targetSchema: row.target_schema,
+      targetTable: row.target_table,
+      targetColumns: toStringArray(row.target_columns),
+      onDelete: row.delete_rule ?? undefined,
+      onUpdate: row.update_rule ?? undefined,
+    }));
   }
 
   async getTableObjects(name: string, schema = 'public'): Promise<TableObjects> {

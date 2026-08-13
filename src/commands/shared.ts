@@ -11,6 +11,7 @@ import { TempFileManager } from '../services/tempFileManager';
 import { QueryFileManager } from '../services/queryFileManager';
 import { DiffPanelManager } from '../diff/diffPanel';
 import { MapPanelManager } from '../map/mapPanel';
+import { ErDiagramPanelManager } from '../er/erDiagramPanel';
 import { DatabaseDriver } from '../types/driver';
 import { splitStatements, firstSqlTokenOffset } from '../utils/queryHelpers';
 import { wrapError } from '../utils/errors';
@@ -45,6 +46,7 @@ export interface CommandContext {
   queryFileManager: QueryFileManager;
   diffPanelManager: DiffPanelManager;
   mapPanelManager: MapPanelManager;
+  erDiagramPanelManager: ErDiagramPanelManager;
 }
 
 // --- Shared mutable state ---

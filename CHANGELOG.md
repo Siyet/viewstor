@@ -2,7 +2,23 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.5.0] — 2026-08-13
+
+### Added
+- **Interactive ER diagrams** — open a diagram from a connected connection, database, or schema and explore tables, views, columns, indexes, and foreign-key relationships on one continuous canvas. PostgreSQL and SQLite provide native relationship metadata; ClickHouse renders its available structure and database regions without inventing unsupported foreign keys ([#6](https://github.com/Siyet/viewstor/issues/6)).
+- Namespace regions group PostgreSQL schemas and ClickHouse databases. Complete table cards distinguish views with purple dashed borders and mark `PK`, `FK`, `IDX`, required columns, comments, and index names.
+- Search covers tables, views, and columns. Multiple results highlight matching cards; a unique or selected result opens its direct-neighbour graph. Results reuse the legend's blue table and purple view colors.
+- Table and view cards expose the same context actions as the Connections tree through a shared action registry.
+
+### Changed
+- Zoom and pan use one synchronized camera transform for card frames, text, spacing, edges, regions, and hit-testing. Blank-canvas left-drag, middle-drag, and wheel zoom work across the full canvas.
+- Relationship lines stay below cards, are muted below `3×`, and reveal arrowheads, hover emphasis, and tooltips from `3×`. Hover fades unrelated objects with a short transition.
+- The compact toolbar provides search plus icon-only Refresh and relationship controls with explanatory tooltips. The relationship icon is crossed out while edges are hidden; internal rendering diagnostics are no longer shown.
+
+### Fixed
+- Prevented table-card overlap and relationship lines crossing card contents in both the full diagram and isolated neighbour graphs.
+- Restored double-click isolation and blank-canvas/Escape return to the full graph, including correct layout immediately after switching views.
+- Made zoomed cards scale as unified graphics so frames and typography no longer resize at different times or produce the previous “jelly” effect.
 
 ## [0.4.0] — 2026-04-29
 

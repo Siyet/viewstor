@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-Guidance for Claude Code when working with this repository.
+Guidance for Codex when working with this repository.
 
 ## What is Viewstor
 
@@ -186,7 +186,7 @@ Relationship lines use lower base opacity below `3×`; hover highlighting and to
 All auto-connect. Returns structured JSON or `{ error }`.
 
 ### Standalone MCP Server
-`src/mcp-server/index.ts` — stdio-based MCP server for CLI agents (Claude Code, etc.). Built as separate webpack entry → `dist/mcp-server.js`. Uses `@modelcontextprotocol/sdk`. Does NOT import `vscode`.
+`src/mcp-server/index.ts` — stdio-based MCP server for CLI agents (Codex, etc.). Built as separate webpack entry → `dist/mcp-server.js`. Uses `@modelcontextprotocol/sdk`. Does NOT import `vscode`.
 
 `src/mcp-server/connectionStore.ts` — reads connections from `~/.viewstor/connections.json` (user) and `.vscode/viewstor.json` (project). Manages driver lifecycle.
 
@@ -194,7 +194,7 @@ All auto-connect. Returns structured JSON or `{ error }`.
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter. `ConnectionStore.ensureDriverForDatabase()` mirrors `ConnectionManager.getDriverForDatabase()` — caches per `connectionId:database`, reuses host/user/password/ssl. VS Code MCP commands accept `database` as a trailing optional arg.
 
-Usage in Claude Code config:
+Usage in Codex config:
 ```json
 { "mcpServers": { "viewstor": { "command": "node", "args": ["/path/to/viewstor/dist/mcp-server.js"] } } }
 ```
