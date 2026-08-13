@@ -31,13 +31,214 @@ interface DiffState {
 
 export type { DiffState };
 
+export interface TablePickResult {
+  connectionId: string;
+  tableName: string;
+  schema?: string;
+  databaseName?: string;
+  connectionName: string;
+}
+
+export type PickTableFn = (placeholder: string) => Promise<TablePickResult | undefined>;
+
+interface PendingDiffState {
+  panel: vscode.WebviewPanel;
+  leftPick?: TablePickResult;
+  rightPick?: TablePickResult;
+  pickTable: PickTableFn;
+  disposable: vscode.Disposable;
+}
+
 export class DiffPanelManager {
   private readonly diffs = new Map<string, DiffState>();
+  private pendingDiff: PendingDiffState | undefined;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly connectionManager?: ConnectionManager,
   ) {}
+
+  showPending(pickTable: PickTableFn) {
+    if (this.pendingDiff) {
+      this.pendingDiff.panel.reveal();
+      return;
+    }
+
+    const panel = vscode.window.createWebviewPanel(
+      'viewstor.diff',
+      'Compare Data',
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, 'dist'))],
+      },
+    );
+
+    const state: PendingDiffState = {
+      panel,
+      pickTable,
+      disposable: new vscode.Disposable(() => {}),
+    };
+    this.pendingDiff = state;
+
+    panel.onDidDispose(() => {
+      state.disposable.dispose();
+      if (this.pendingDiff === state) this.pendingDiff = undefined;
+    });
+
+    panel.webview.html = this.buildPendingHtml(panel.webview, state);
+    state.disposable = this.registerPendingMessageHandler(state);
+  }
+
+  private registerPendingMessageHandler(state: PendingDiffState): vscode.Disposable {
+    return state.panel.webview.onDidReceiveMessage(async (msg) => {
+      if (msg.type !== 'pickTable') return;
+      const side: 'left' | 'right' = msg.side;
+
+      const placeholder = side === 'left'
+        ? vscode.l10n.t('Select LEFT table')
+        : vscode.l10n.t('Select RIGHT table');
+
+      const pick = await state.pickTable(placeholder);
+      if (!pick) return;
+      if (this.pendingDiff !== state) return;
+
+      if (side === 'left') state.leftPick = pick;
+      else state.rightPick = pick;
+
+      state.panel.webview.postMessage({
+        type: 'tableSelected',
+        side,
+        label: `${pick.connectionName} → ${pick.tableName}`,
+      });
+
+      if (state.leftPick && state.rightPick) {
+        await this.transitionPendingToFull(state);
+      }
+    });
+  }
+
+  private async transitionPendingToFull(state: PendingDiffState): Promise<void> {
+    const left = state.leftPick!;
+    const right = state.rightPick!;
+    const cm = this.connectionManager;
+    if (!cm) return;
+
+    state.panel.webview.postMessage({ type: 'pendingLoading' });
+
+    const rowLimit = vscode.workspace.getConfiguration('viewstor').get<number>('diffRowLimit', 10000);
+
+    try {
+      const getDriver = async (pick: TablePickResult) => {
+        if (pick.databaseName) {
+          return cm.getDriverForDatabase(pick.connectionId, pick.databaseName);
+        }
+        return cm.getDriver(pick.connectionId);
+      };
+
+      const leftDriver = await getDriver(left);
+      const rightDriver = await getDriver(right);
+      if (!leftDriver || !rightDriver) {
+        vscode.window.showErrorMessage(vscode.l10n.t('Could not get database driver.'));
+        this.resetPendingPanel(state);
+        return;
+      }
+
+      if (this.pendingDiff !== state) return;
+
+      const [leftInfo, rightInfo, leftData, rightData] = await Promise.all([
+        leftDriver.getTableInfo(left.tableName, left.schema),
+        rightDriver.getTableInfo(right.tableName, right.schema),
+        leftDriver.getTableData(left.tableName, left.schema, rowLimit, 0),
+        rightDriver.getTableData(right.tableName, right.schema, rowLimit, 0),
+      ]);
+
+      if (this.pendingDiff !== state) return;
+
+      let leftObjects, rightObjects;
+      try {
+        [leftObjects, rightObjects] = await Promise.all([
+          leftDriver.getTableObjects ? leftDriver.getTableObjects(left.tableName, left.schema) : undefined,
+          rightDriver.getTableObjects ? rightDriver.getTableObjects(right.tableName, right.schema) : undefined,
+        ]);
+      } catch { /* schema objects unavailable */ }
+
+      let leftStats, rightStats;
+      const leftStateCfg = cm.get(left.connectionId);
+      const rightStateCfg = cm.get(right.connectionId);
+      const sameType = leftStateCfg?.config.type === rightStateCfg?.config.type;
+      if (sameType && leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
+        try {
+          [leftStats, rightStats] = await Promise.all([
+            leftDriver.getTableStatistics(left.tableName, left.schema),
+            rightDriver.getTableStatistics(right.tableName, right.schema),
+          ]);
+        } catch { /* statistics unavailable */ }
+      }
+
+      const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
+      let keyColumns = pkColumns;
+
+      if (keyColumns.length === 0) {
+        const colPick = await vscode.window.showQuickPick(
+          leftInfo.columns.map(c => ({ label: c.name, description: c.dataType, picked: false })),
+          { canPickMany: true, placeHolder: vscode.l10n.t('No primary key found. Select key column(s) for matching:') },
+        );
+        if (!colPick || colPick.length === 0) {
+          this.resetPendingPanel(state);
+          return;
+        }
+        keyColumns = colPick.map(c => c.label);
+      }
+
+      if (this.pendingDiff !== state) return;
+
+      const leftSource: DiffSource = {
+        label: `${left.connectionName} → ${left.tableName}`,
+        columns: leftData.columns,
+        rows: leftData.rows,
+        connectionId: left.connectionId,
+        tableName: left.tableName,
+        schema: left.schema,
+        databaseName: left.databaseName,
+      };
+
+      const rightSource: DiffSource = {
+        label: `${right.connectionName} → ${right.tableName}`,
+        columns: rightData.columns,
+        rows: rightData.rows,
+        connectionId: right.connectionId,
+        tableName: right.tableName,
+        schema: right.schema,
+        databaseName: right.databaseName,
+      };
+
+      const existingPanel = state.panel;
+      state.disposable.dispose();
+      if (this.pendingDiff === state) this.pendingDiff = undefined;
+
+      this.showInPanel(leftSource, rightSource, { keyColumns, rowLimit },
+        { columns: leftInfo.columns },
+        { columns: rightInfo.columns },
+        leftObjects, rightObjects,
+        leftStats, rightStats,
+        existingPanel,
+      );
+    } catch (err) {
+      this.resetPendingPanel(state);
+      vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', wrapError(err)));
+    }
+  }
+
+  private resetPendingPanel(state: PendingDiffState): void {
+    if (this.pendingDiff !== state) return;
+    state.leftPick = undefined;
+    state.rightPick = undefined;
+    state.disposable.dispose();
+    state.panel.webview.html = this.buildPendingHtml(state.panel.webview, state);
+    state.disposable = this.registerPendingMessageHandler(state);
+  }
 
   // --- Read-only query API (production + tests) ---
 
@@ -69,6 +270,23 @@ export class DiffPanelManager {
     rightObjects?: TableObjects,
     leftStats?: TableStatistic[],
     rightStats?: TableStatistic[],
+    queryState?: { leftQuery?: string; rightQuery?: string; syncMode?: boolean },
+  ) {
+    this.showInPanel(left, right, options, leftTableInfo, rightTableInfo,
+      leftObjects, rightObjects, leftStats, rightStats, undefined, queryState);
+  }
+
+  private showInPanel(
+    left: DiffSource,
+    right: DiffSource,
+    options: DiffOptions,
+    leftTableInfo?: { columns: ColumnInfo[] },
+    rightTableInfo?: { columns: ColumnInfo[] },
+    leftObjects?: TableObjects,
+    rightObjects?: TableObjects,
+    leftStats?: TableStatistic[],
+    rightStats?: TableStatistic[],
+    existingPanel?: vscode.WebviewPanel,
     queryState?: { leftQuery?: string; rightQuery?: string; syncMode?: boolean },
   ) {
     const rowDiff = computeRowDiff(left, right, options);
@@ -112,11 +330,9 @@ export class DiffPanelManager {
       state.leftQuery = leftQuery;
       state.rightQuery = rightQuery;
       state.syncMode = syncMode;
-      // Bump the run id so any in-flight `runDiffQuery` resolved after swap
-      // is treated as stale and its result is dropped.
       state.queryRunId++;
     } else {
-      const panel = vscode.window.createWebviewPanel(
+      const panel = existingPanel ?? vscode.window.createWebviewPanel(
         'viewstor.diff',
         panelTitle,
         vscode.ViewColumn.Active,
@@ -126,6 +342,7 @@ export class DiffPanelManager {
           localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, 'dist'))],
         },
       );
+      if (existingPanel) panel.title = panelTitle;
       panel.onDidDispose(() => {
         const diffState = this.diffs.get(panelKey);
         if (diffState) diffState.disposable.dispose();
@@ -323,6 +540,88 @@ export class DiffPanelManager {
       rowDiff: state.rowDiff,
       truncated: state.rowDiff.truncated,
     });
+  }
+
+  private buildPendingHtml(webview: vscode.Webview, state: PendingDiffState): string {
+    const distUri = vscode.Uri.file(path.join(this.context.extensionPath, 'dist'));
+    const tokensUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'tokens.css'));
+    const codiconUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'codicon.css'));
+    const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'styles', 'diff-panel.css'));
+    const shellUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'webview-shell.js'));
+    const elementsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'vscode-elements.js'));
+    const cspSource = webview.cspSource;
+
+    const leftLabel = state.leftPick
+      ? esc(`${state.leftPick.connectionName} → ${state.leftPick.tableName}`)
+      : '';
+    const rightLabel = state.rightPick
+      ? esc(`${state.rightPick.connectionName} → ${state.rightPick.tableName}`)
+      : '';
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data:; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource} 'unsafe-inline';">
+<link id="vscode-codicon-stylesheet" rel="stylesheet" href="${codiconUri}">
+<link rel="stylesheet" href="${tokensUri}">
+<link rel="stylesheet" href="${cssUri}">
+<script src="${shellUri}"></script>
+<script type="module" src="${elementsUri}"></script>
+</head>
+<body>
+  <div class="diff-pending-container">
+    <div class="diff-pending-pane" id="pendingLeft" data-side="left">
+      ${state.leftPick
+        ? `<div class="diff-pending-filled"><vscode-icon name="check"></vscode-icon> <span>${leftLabel}</span></div>`
+        : `<button type="button" class="diff-pending-pick" data-side="left">
+            <i class="codicon codicon-add"></i>
+            <span>Pick a table</span>
+          </button>`
+      }
+    </div>
+    <div class="diff-pending-divider">
+      <i class="codicon codicon-arrow-both"></i>
+    </div>
+    <div class="diff-pending-pane" id="pendingRight" data-side="right">
+      ${state.rightPick
+        ? `<div class="diff-pending-filled"><vscode-icon name="check"></vscode-icon> <span>${rightLabel}</span></div>`
+        : `<button type="button" class="diff-pending-pick" data-side="right">
+            <i class="codicon codicon-add"></i>
+            <span>Pick a table</span>
+          </button>`
+      }
+    </div>
+  </div>
+  <div class="diff-pending-loading" id="pendingLoading" hidden>
+    <vscode-icon name="sync" spin></vscode-icon> Loading comparison data…
+  </div>
+  <script>
+  (function() {
+    var vscode = acquireVsCodeApi();
+    document.querySelectorAll('.diff-pending-pick').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        vscode.postMessage({ type: 'pickTable', side: btn.dataset.side });
+      });
+    });
+    window.addEventListener('message', function(event) {
+      var msg = event.data;
+      if (msg.type === 'tableSelected') {
+        var pane = document.getElementById(msg.side === 'left' ? 'pendingLeft' : 'pendingRight');
+        if (pane) {
+          pane.innerHTML = '<div class="diff-pending-filled"><vscode-icon name="check"></vscode-icon> <span>' +
+            msg.label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span></div>';
+        }
+      }
+      if (msg.type === 'pendingLoading') {
+        var el = document.getElementById('pendingLoading');
+        if (el) el.hidden = false;
+      }
+    });
+  })();
+  </script>
+</body>
+</html>`;
   }
 
   private buildHtml(webview: vscode.Webview, state: DiffState): string {

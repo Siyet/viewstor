@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { CommandContext, getRequiredDriver, wrapError } from './shared';
 import { ConnectionTreeItem } from '../views/connectionTree';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
+import { TablePickResult } from '../diff/diffPanel';
 import { dbg } from '../utils/debug';
 
 export function registerDiffCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
@@ -120,7 +121,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
       }
     }),
 
-    // Command palette: "Compare Data"
+    // Command palette: "Compare Data" — opens panel immediately with placeholder panes
     vscode.commands.registerCommand('viewstor.compareData', async () => {
       if (!diffPanelManager) return;
 
@@ -129,102 +130,9 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
         return;
       }
 
-      const leftPick = await pickTableWithLoading(
-        connectionManager,
-        vscode.l10n.t('Select LEFT table'),
+      diffPanelManager.showPending((placeholder) =>
+        pickTableForDiff(connectionManager, placeholder),
       );
-      if (!leftPick) return;
-
-      const rightPick = await pickTableWithLoading(
-        connectionManager,
-        vscode.l10n.t('Select RIGHT table'),
-      );
-      if (!rightPick) return;
-
-      const rowLimit = vscode.workspace.getConfiguration('viewstor').get<number>('diffRowLimit', 10000);
-
-      try {
-      await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Comparing data...') },
-        async () => {
-          const leftDriver = await getRequiredDriver(connectionManager, leftPick.connectionId, leftPick.databaseName);
-          const rightDriver = await getRequiredDriver(connectionManager, rightPick.connectionId, rightPick.databaseName);
-          if (!leftDriver || !rightDriver) return;
-
-          const [leftInfo, rightInfo, leftData, rightData] = await Promise.all([
-            leftDriver.getTableInfo(leftPick.tableName, leftPick.schema),
-            rightDriver.getTableInfo(rightPick.tableName, rightPick.schema),
-            leftDriver.getTableData(leftPick.tableName, leftPick.schema, rowLimit, 0),
-            rightDriver.getTableData(rightPick.tableName, rightPick.schema, rowLimit, 0),
-          ]);
-
-          let leftObjects, rightObjects;
-          try {
-            [leftObjects, rightObjects] = await Promise.all([
-              leftDriver.getTableObjects ? leftDriver.getTableObjects(leftPick.tableName, leftPick.schema) : undefined,
-              rightDriver.getTableObjects ? rightDriver.getTableObjects(rightPick.tableName, rightPick.schema) : undefined,
-            ]);
-          } catch { /* schema objects unavailable — diff will show columns only */ }
-
-          let leftStats, rightStats;
-          const leftStateCfg = connectionManager.get(leftPick.connectionId);
-          const rightStateCfg = connectionManager.get(rightPick.connectionId);
-          const sameType = leftStateCfg?.config.type === rightStateCfg?.config.type;
-          if (sameType && leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
-            try {
-              [leftStats, rightStats] = await Promise.all([
-                leftDriver.getTableStatistics(leftPick.tableName, leftPick.schema),
-                rightDriver.getTableStatistics(rightPick.tableName, rightPick.schema),
-              ]);
-            } catch { /* statistics unavailable — diff will omit stats tab */ }
-          }
-
-          const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
-          let keyColumns = pkColumns;
-
-          if (keyColumns.length === 0) {
-            const colPick = await vscode.window.showQuickPick(
-              leftInfo.columns.map(c => ({ label: c.name, description: c.dataType, picked: false })),
-              { canPickMany: true, placeHolder: vscode.l10n.t('No primary key found. Select key column(s) for matching:') },
-            );
-            if (!colPick || colPick.length === 0) return;
-            keyColumns = colPick.map(c => c.label);
-          }
-
-          const leftState = connectionManager.get(leftPick.connectionId);
-          const rightState = connectionManager.get(rightPick.connectionId);
-
-          const leftSource: DiffSource = {
-            label: `${leftState?.config.name || 'Unknown'} → ${leftPick.tableName}`,
-            columns: leftData.columns,
-            rows: leftData.rows,
-            connectionId: leftPick.connectionId,
-            tableName: leftPick.tableName,
-            schema: leftPick.schema,
-          };
-
-          const rightSource: DiffSource = {
-            label: `${rightState?.config.name || 'Unknown'} → ${rightPick.tableName}`,
-            columns: rightData.columns,
-            rows: rightData.rows,
-            connectionId: rightPick.connectionId,
-            tableName: rightPick.tableName,
-            schema: rightPick.schema,
-          };
-
-          diffPanelManager.show(leftSource, rightSource, { keyColumns, rowLimit },
-            { columns: leftInfo.columns },
-            { columns: rightInfo.columns },
-            leftObjects,
-            rightObjects,
-            leftStats,
-            rightStats,
-          );
-        },
-      );
-      } catch (err) {
-        vscode.window.showErrorMessage(vscode.l10n.t('Compare failed: {0}', wrapError(err)));
-      }
     }),
   );
 }
@@ -236,6 +144,7 @@ interface TablePickItem {
   tableName: string;
   schema?: string;
   databaseName?: string;
+  connectionName: string;
 }
 
 /**
@@ -303,6 +212,7 @@ async function loadAllTables(
                 connectionId: conn.config.id,
                 tableName: child.name,
                 schema: schemaObj.name,
+                connectionName: conn.config.name,
               });
             }
           }
@@ -311,4 +221,19 @@ async function loadAllTables(
     } catch { /* skip connections with schema fetch errors */ }
   }
   return items;
+}
+
+async function pickTableForDiff(
+  connectionManager: import('../connections/connectionManager').ConnectionManager,
+  placeholder: string,
+): Promise<TablePickResult | undefined> {
+  const pick = await pickTableWithLoading(connectionManager, placeholder);
+  if (!pick) return undefined;
+  return {
+    connectionId: pick.connectionId,
+    tableName: pick.tableName,
+    schema: pick.schema,
+    databaseName: pick.databaseName,
+    connectionName: pick.connectionName,
+  };
 }

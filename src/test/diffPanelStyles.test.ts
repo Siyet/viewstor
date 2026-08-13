@@ -70,6 +70,47 @@ describe('diff-panel.ts filter chip defaults', () => {
   });
 });
 
+describe('diff-panel.css pending placeholder styles', () => {
+  it('defines the pending container layout', () => {
+    const css = readCss();
+    expect(css).toContain('.diff-pending-container');
+    expect(css).toContain('.diff-pending-pane');
+    expect(css).toContain('.diff-pending-pick');
+    expect(css).toContain('.diff-pending-filled');
+  });
+
+  it('pending panes use dashed border', () => {
+    const css = readCss();
+    expect(css).toMatch(/\.diff-pending-pane\s*\{[^}]*border:\s*2px dashed/);
+  });
+});
+
+describe('diff-panel.ts pending panel', () => {
+  const TS_PATH = path.join(__dirname, '..', 'diff', 'diffPanel.ts');
+
+  function readTs(): string {
+    return fs.readFileSync(TS_PATH, 'utf-8');
+  }
+
+  it('exports showPending method', () => {
+    const ts = readTs();
+    expect(ts).toContain('showPending(');
+  });
+
+  it('exports TablePickResult and PickTableFn types', () => {
+    const ts = readTs();
+    expect(ts).toContain('export interface TablePickResult');
+    expect(ts).toContain('export type PickTableFn');
+  });
+
+  it('pending HTML has pick buttons for both sides', () => {
+    const ts = readTs();
+    expect(ts).toMatch(/data-side="left"/);
+    expect(ts).toMatch(/data-side="right"/);
+    expect(ts).toContain('diff-pending-pick');
+  });
+});
+
 describe('diff-panel.js filter defaults', () => {
   const JS_PATH = path.join(__dirname, '..', 'webview', 'scripts', 'diff-panel.js');
 
