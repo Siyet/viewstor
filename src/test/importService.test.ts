@@ -100,6 +100,23 @@ describe('ImportService', () => {
       expect(result.connections[2].type).toBe('sqlite');
     });
 
+    it('should parse MSSQL connections', () => {
+      const input = JSON.stringify({
+        connections: {
+          'mssql-1': {
+            provider: 'sqlserver',
+            name: 'SQL Server Prod',
+            configuration: { host: 'sql.local', port: '1433', database: 'app_db' },
+          },
+        },
+      });
+
+      const result = parseDBeaver(input);
+      expect(result.connections).toHaveLength(1);
+      expect(result.connections[0].type).toBe('mssql');
+      expect(result.connections[0].port).toBe(1433);
+    });
+
     it('should handle invalid JSON', () => {
       const result = parseDBeaver('not json');
       expect(result.connections).toHaveLength(0);
@@ -180,6 +197,23 @@ describe('ImportService', () => {
       const result = parseDataGrip(xml);
       expect(result.connections).toHaveLength(1);
       expect(result.connections[0].type).toBe('sqlite');
+    });
+
+    it('should parse MSSQL data sources from XML', () => {
+      const xml = `<application>
+  <component name="dataSourceStorage">
+    <data-source source="LOCAL" name="SQL Server" uuid="x">
+      <driver-ref>mssql.ms</driver-ref>
+      <jdbc-url>jdbc:sqlserver://sql.local:1433;databaseName=app_db</jdbc-url>
+      <user-name>sa</user-name>
+    </data-source>
+  </component>
+</application>`;
+
+      const result = parseDataGrip(xml);
+      expect(result.connections).toHaveLength(1);
+      expect(result.connections[0].type).toBe('mssql');
+      expect(result.connections[0].username).toBe('sa');
     });
 
     it('should handle empty/invalid XML', () => {

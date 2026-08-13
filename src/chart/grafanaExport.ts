@@ -42,6 +42,7 @@ const DB_TYPE_TO_GRAFANA_DS: Record<string, string> = {
   postgresql: 'grafana-postgresql-datasource',
   clickhouse: 'grafana-clickhouse-datasource',
   sqlite: 'frser-sqlite-datasource',
+  mssql: 'grafana-mssql-datasource',
 };
 
 /**

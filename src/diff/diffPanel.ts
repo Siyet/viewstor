@@ -85,12 +85,12 @@ export class DiffPanelManager {
     const panelTitle = `Diff \u2014 ${left.label} \u2194 ${right.label}`;
     const panelKey = `diff:${panelTitle}`;
 
-    const defaultLeftQuery = left.tableName ? buildDefaultDiffQuery(left.tableName, left.schema, options.rowLimit) : '';
-    const defaultRightQuery = right.tableName ? buildDefaultDiffQuery(right.tableName, right.schema, options.rowLimit) : '';
-    const leftQuery = queryState?.leftQuery ?? defaultLeftQuery;
-    const rightQuery = queryState?.rightQuery ?? defaultRightQuery;
     const leftType = left.connectionId ? this.connectionManager?.get(left.connectionId)?.config.type : undefined;
     const rightType = right.connectionId ? this.connectionManager?.get(right.connectionId)?.config.type : undefined;
+    const defaultLeftQuery = left.tableName ? buildDefaultDiffQuery(left.tableName, left.schema, options.rowLimit, leftType) : '';
+    const defaultRightQuery = right.tableName ? buildDefaultDiffQuery(right.tableName, right.schema, options.rowLimit, rightType) : '';
+    const leftQuery = queryState?.leftQuery ?? defaultLeftQuery;
+    const rightQuery = queryState?.rightQuery ?? defaultRightQuery;
     const syncMode = queryState?.syncMode ?? !!(leftType && rightType && leftType === rightType);
 
     let state = this.diffs.get(panelKey);

@@ -1,5 +1,5 @@
 {
-  "extension.description": "Database management tool for VS Code — browse schemas, run queries, and inspect data across PostgreSQL, Redis, ClickHouse, and SQLite.",
+  "extension.description": "Database management tool for VS Code — browse schemas, run queries, and inspect data across PostgreSQL, Redis, ClickHouse, SQLite, and SQL Server.",
   "view.connections.name": "Connections",
   "view.queryHistory.name": "Query History",
   "command.addConnection": "Add Connection",
