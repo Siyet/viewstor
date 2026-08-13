@@ -291,6 +291,24 @@ export class ClickHouseDriver implements DatabaseDriver {
     }[]>();
     const row = rows[0];
 
+    const toNumber = (value: unknown): number | null => {
+      if (value === null || value === undefined) return null;
+      const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    // system.tables.total_rows is NULL for views. Statistics comparison still
+    // needs a useful count, so use an exact query only when the fast metadata
+    // value is unavailable. Keep NULL on query errors rather than reporting a
+    // misleading zero.
+    let rowCount = toNumber(row?.total_rows);
+    if (rowCount === null && row) {
+      const countResult = await this.execute(
+        `SELECT COUNT(*) AS cnt FROM ${quoteIdentifier(db)}.${quoteIdentifier(name)}`,
+      );
+      if (!countResult.error) rowCount = toNumber(countResult.rows[0]?.cnt);
+    }
+
     // Part stats are only populated for MergeTree-family engines.
     let activeParts: number | null = null;
     let totalParts: number | null = null;
@@ -318,12 +336,6 @@ export class ClickHouseDriver implements DatabaseDriver {
       }
     } catch { /* system.parts unavailable for non-MergeTree tables */ }
 
-    const toNumber = (value: unknown): number | null => {
-      if (value === null || value === undefined) return null;
-      const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
-      return Number.isFinite(parsed) ? parsed : null;
-    };
-
     const totalBytes = toNumber(row?.total_bytes);
     const uncompressedBytes = toNumber(row?.total_bytes_uncompressed);
     const compressionRatio = totalBytes !== null && uncompressedBytes !== null && totalBytes > 0
@@ -331,7 +343,7 @@ export class ClickHouseDriver implements DatabaseDriver {
       : null;
 
     return [
-      { key: 'row_count', label: 'Row count', value: toNumber(row?.total_rows), unit: 'count' },
+      { key: 'row_count', label: 'Row count', value: rowCount, unit: 'count' },
       { key: 'total_size', label: 'Total size (compressed)', value: totalBytes, unit: 'bytes' },
       { key: 'uncompressed_size', label: 'Total size (uncompressed)', value: uncompressedBytes, unit: 'bytes' },
       { key: 'compression_ratio', label: 'Compression ratio', value: compressionRatio, unit: 'text' },

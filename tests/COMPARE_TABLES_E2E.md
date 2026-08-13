@@ -22,6 +22,13 @@ tests until a dedicated source adapter is designed.
   and SQLite pairs with deterministic unchanged/changed/added/removed fixtures,
   decimal normalization, `NULL` versus empty strings, Unicode, ISO date strings,
   and large text identifiers beyond JavaScript's safe integer range.
+- Real PostgreSQL, ClickHouse, and SQLite table/view fixtures cover the production
+  column-selection model: exact `id`/`name` pairs, the suggested differently named
+  `lifetime_value ↔ total_value` mapping, and visible unchecked `email`/`order_count`
+  side-only fields. Applying the selection produces unchanged rows on all engines.
+- The same real `customers` fixtures verify PostgreSQL boolean/timestamptz values
+  against SQLite INTEGER/TEXT and ClickHouse UInt8/DateTime representations, including
+  both true/false rows; equivalent rows remain unchanged.
 - Command-level tests cover both entry points, cancellation at either table/key
   picker, automatic and manually selected keys, flat SQLite tables/views, required
   load failures, optional metadata degradation, and the no-connections path.

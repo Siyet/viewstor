@@ -5,6 +5,11 @@ import { ClickHouseDriver } from '../../drivers/clickhouse';
 import { PostgresDriver } from '../../drivers/postgres';
 import { SqliteDriver } from '../../drivers/sqlite';
 import { computeRowDiff, computeSchemaDiff, computeStatsDiff } from '../../diff/diffEngine';
+import {
+  completeCompareColumnSelection,
+  createCompareColumnPlan,
+  findCompatiblePrimaryKey,
+} from '../../diff/diffColumnSelection';
 import { DiffSource } from '../../diff/diffTypes';
 import { DatabaseDriver } from '../../types/driver';
 import { COMMON_STAT_KEYS, TableInfo, TableStatistic } from '../../types/schema';
@@ -50,6 +55,8 @@ describeIf(isDockerAvailable)('Compare Tables E2E matrix', () => {
   let rowRight: Record<Engine, TableSnapshot>;
   let schemaLeft: Record<Engine, TableInfo>;
   let schemaRight: Record<Engine, TableInfo>;
+  let customers: Record<Engine, TableSnapshot>;
+  let customerSummary: Record<Engine, TableSnapshot>;
 
   beforeAll(async () => {
     stack = await startTestStack({ pg: true, ch: true, redis: false });
@@ -99,11 +106,13 @@ describeIf(isDockerAvailable)('Compare Tables E2E matrix', () => {
     await seedClickHouse(clickhouse);
     await seedSqlite(sqlite);
 
-    [rowLeft, rowRight, schemaLeft, schemaRight] = await Promise.all([
+    [rowLeft, rowRight, schemaLeft, schemaRight, customers, customerSummary] = await Promise.all([
       snapshotAll(fixtures, 'row_left'),
       snapshotAll(fixtures, 'row_right'),
       tableInfoAll(fixtures, 'schema_left'),
       tableInfoAll(fixtures, 'schema_right'),
+      snapshotAll(fixtures, 'customers'),
+      snapshotAll(fixtures, 'customer_summary'),
     ]);
   });
 
@@ -149,6 +158,80 @@ describeIf(isDockerAvailable)('Compare Tables E2E matrix', () => {
     expect(stableEdgeCaseRows.every(row => row.changedColumns.length === 0)).toBe(true);
     expect(stableEdgeCaseRows.every(row => row.left.huge_code === LARGE_TEXT_INTEGER)).toBe(true);
   });
+
+  it.each(['pg', 'ch', 'sqlite'] as const)(
+    '%s table/view comparison ignores side-only columns selected out of Row Diff',
+    engine => {
+      const keyColumns = findCompatiblePrimaryKey(customers[engine].info, customerSummary[engine].info) ?? [];
+      expect(keyColumns).toEqual(['id']);
+
+      const selection = createCompareColumnPlan(
+        customers[engine].info,
+        customerSummary[engine].info,
+        keyColumns,
+      );
+      expect(selection.requiresSelection).toBe(true);
+      expect(selection.candidates).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'exact:id', label: 'id ↔ id', kind: 'exact', picked: true }),
+        expect.objectContaining({ id: 'exact:name', label: 'name ↔ name', kind: 'exact', picked: true }),
+        expect.objectContaining({
+          id: 'similar:lifetime_value:total_value',
+          label: 'lifetime_value ↔ total_value',
+          kind: 'similar',
+          picked: false,
+        }),
+        expect.objectContaining({ id: 'left:email', kind: 'leftOnly', picked: false }),
+        expect.objectContaining({ id: 'right:order_count', kind: 'rightOnly', picked: false }),
+      ]));
+      const columnMappings = completeCompareColumnSelection(selection, [
+        'exact:id',
+        'exact:name',
+        'similar:lifetime_value:total_value',
+      ]);
+
+      const result = computeRowDiff(customers[engine].source, customerSummary[engine].source, {
+        keyColumns,
+        columnMappings,
+        rowLimit: 100,
+      });
+
+      expect(result.allColumns).toEqual(['id', 'name', 'lifetime_value ↔ total_value']);
+      expect(result.summary).toEqual({ total: 2, unchanged: 2, changed: 0, added: 0, removed: 0 });
+      expect(result.matched.every(row => row.changedColumns.length === 0)).toBe(true);
+      expect(customers[engine].info.columns.find(column => column.name === 'id')?.isPrimaryKey).toBe(true);
+    },
+  );
+
+  it.each([
+    ['PostgreSQL ↔ SQLite', 'pg', 'sqlite'],
+    ['PostgreSQL ↔ ClickHouse', 'pg', 'ch'],
+  ] as const)('%s normalizes boolean flags and UTC timestamps across native representations', (_label, leftEngine, rightEngine) => {
+    const keyColumns = ['id'];
+    const selection = createCompareColumnPlan(customers[leftEngine].info, customers[rightEngine].info, keyColumns);
+    const columnMappings = completeCompareColumnSelection(
+      selection,
+      selection.candidates.filter(candidate => candidate.picked).map(candidate => candidate.id),
+    );
+    const result = computeRowDiff(customers[leftEngine].source, customers[rightEngine].source, {
+      keyColumns,
+      columnMappings,
+      rowLimit: 100,
+    });
+
+    expect(result.summary).toEqual({ total: 2, unchanged: 2, changed: 0, added: 0, removed: 0 });
+    expect(result.matched.every(row => !row.changedColumns.includes('active'))).toBe(true);
+    expect(result.matched.every(row => !row.changedColumns.includes('created_at'))).toBe(true);
+  });
+
+  it.each(['pg', 'ch', 'sqlite'] as const)(
+    '%s reports an exact row count for customer_summary view',
+    engine => {
+      expect(customerSummary[engine].stats.find(stat => stat.key === 'row_count')).toMatchObject({
+        value: 2,
+        unit: 'count',
+      });
+    },
+  );
 
   it.each(ALL_PAIRS)('%s reports schema differences by meaning', (_label, leftEngine, rightEngine) => {
     const result = computeSchemaDiff(schemaLeft[leftEngine].columns, schemaRight[rightEngine].columns);
@@ -263,6 +346,16 @@ async function seedPostgres(driver: DatabaseDriver): Promise<void> {
     )`,
     `COMMENT ON COLUMN ${NAMESPACE}.schema_left.commented IS 'left comment'`,
     `COMMENT ON COLUMN ${NAMESPACE}.schema_right.commented IS 'right comment'`,
+    `CREATE TABLE ${NAMESPACE}.customers (
+      id BIGINT PRIMARY KEY, name TEXT NOT NULL, email TEXT,
+      lifetime_value NUMERIC NOT NULL, active BOOLEAN NOT NULL, created_at TIMESTAMPTZ NOT NULL
+    )`,
+    `INSERT INTO ${NAMESPACE}.customers VALUES
+      (1, 'Customer 1', 'one@example.com', 10, TRUE, '2026-01-01 01:00:00+00'),
+      (2, 'Customer 2', 'two@example.com', 20, FALSE, '2026-01-01 02:00:00+00')`,
+    `CREATE VIEW ${NAMESPACE}.customer_summary AS
+      SELECT id, name, 0::BIGINT AS order_count, lifetime_value AS total_value
+      FROM ${NAMESPACE}.customers`,
   ]);
 }
 
@@ -288,6 +381,16 @@ async function seedClickHouse(driver: DatabaseDriver): Promise<void> {
       id Int64, stable_text String, changed_type String,
       changed_nullable String, commented String COMMENT 'right comment', right_only String
     ) ENGINE = MergeTree ORDER BY tuple()`,
+    `CREATE TABLE ${NAMESPACE}.customers (
+      id UInt64, name String, email Nullable(String),
+      lifetime_value Decimal(12, 2), active UInt8, created_at DateTime('UTC')
+    ) ENGINE = MergeTree ORDER BY id`,
+    `INSERT INTO ${NAMESPACE}.customers VALUES
+      (1, 'Customer 1', 'one@example.com', 10, 1, '2026-01-01 01:00:00'),
+      (2, 'Customer 2', 'two@example.com', 20, 0, '2026-01-01 02:00:00')`,
+    `CREATE VIEW ${NAMESPACE}.customer_summary AS
+      SELECT id, name, toUInt64(0) AS order_count, lifetime_value AS total_value
+      FROM ${NAMESPACE}.customers`,
   ]);
 }
 
@@ -313,6 +416,15 @@ async function seedSqlite(driver: DatabaseDriver): Promise<void> {
       id INTEGER NOT NULL, stable_text TEXT NOT NULL, changed_type TEXT,
       changed_nullable TEXT NOT NULL, commented TEXT, right_only TEXT
     )`,
+    `CREATE TABLE customers (
+      id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT,
+      lifetime_value NUMERIC NOT NULL, active INTEGER NOT NULL, created_at TEXT NOT NULL
+    )`,
+    `INSERT INTO customers VALUES
+      (1, 'Customer 1', 'one@example.com', 10, 1, '2026-01-01 01:00:00'),
+      (2, 'Customer 2', 'two@example.com', 20, 0, '2026-01-01 02:00:00')`,
+    `CREATE VIEW customer_summary AS
+      SELECT id, name, 0 AS order_count, lifetime_value AS total_value FROM customers`,
   ]);
 }
 

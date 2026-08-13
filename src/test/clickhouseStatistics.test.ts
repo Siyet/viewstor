@@ -2,6 +2,65 @@ import { describe, expect, it, vi } from 'vitest';
 import { ClickHouseDriver } from '../drivers/clickhouse';
 
 describe('ClickHouseDriver.getTableStatistics', () => {
+  it('falls back to an exact count when system.tables has no row count for a view', async () => {
+    const tableJson = vi.fn().mockResolvedValue([{
+      total_rows: null,
+      total_bytes: null,
+      total_bytes_uncompressed: null,
+      lifetime_rows: null,
+      lifetime_bytes: null,
+      engine: 'View',
+      metadata_modification_time: '2026-01-01 00:00:00',
+    }]);
+    const partsJson = vi.fn().mockResolvedValue([{
+      active_parts: 0,
+      total_parts: 0,
+      last_modified: '1970-01-01T00:00:00Z',
+    }]);
+    const query = vi.fn()
+      .mockResolvedValueOnce({ json: tableJson })
+      .mockResolvedValueOnce({ json: partsJson });
+    const driver = new ClickHouseDriver();
+    (driver as unknown as { client: { query: typeof query } }).client = { query };
+    (driver as unknown as { database: string }).database = 'demo';
+    const execute = vi.spyOn(driver, 'execute').mockResolvedValue({
+      columns: [{ name: 'cnt', dataType: 'UInt64' }],
+      rows: [{ cnt: '500' }],
+      rowCount: 1,
+      executionTimeMs: 1,
+    });
+
+    const stats = await driver.getTableStatistics('customer_summary');
+
+    expect(execute).toHaveBeenCalledWith('SELECT COUNT(*) AS cnt FROM demo.customer_summary');
+    expect(stats.find(stat => stat.key === 'row_count')).toMatchObject({ value: 500, unit: 'count' });
+  });
+
+  it('keeps the view row count unknown when the exact fallback fails', async () => {
+    const tableJson = vi.fn().mockResolvedValue([{
+      total_rows: null,
+      total_bytes: null,
+      total_bytes_uncompressed: null,
+      lifetime_rows: null,
+      lifetime_bytes: null,
+      engine: 'View',
+      metadata_modification_time: null,
+    }]);
+    const partsJson = vi.fn().mockResolvedValue([]);
+    const query = vi.fn()
+      .mockResolvedValueOnce({ json: tableJson })
+      .mockResolvedValueOnce({ json: partsJson });
+    const driver = new ClickHouseDriver();
+    (driver as unknown as { client: { query: typeof query } }).client = { query };
+    vi.spyOn(driver, 'execute').mockResolvedValue({
+      columns: [], rows: [], rowCount: 0, executionTimeMs: 1, error: 'denied',
+    });
+
+    const stats = await driver.getTableStatistics('private_view', 'demo');
+
+    expect(stats.find(stat => stat.key === 'row_count')).toMatchObject({ value: null, unit: 'count' });
+  });
+
   it('derives last_modified only from active parts', async () => {
     const tableJson = vi.fn().mockResolvedValue([{
       total_rows: 2,

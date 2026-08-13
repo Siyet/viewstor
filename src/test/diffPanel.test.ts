@@ -346,6 +346,34 @@ describe('DiffPanelManager cross-type statistics', () => {
     expect(mocks.panels[0].webview.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'updateDiff' }));
   });
 
+  it('keeps the previous diff when a rerun omits a selected comparison column', async () => {
+    const { manager, connectionManager } = setup();
+    connectionManager.ensureDriver.mockResolvedValue({
+      execute: vi.fn(async () => ({
+        columns: [{ name: 'id', dataType: 'integer' }],
+        rows: [{ id: 2 }],
+      })),
+    });
+    manager.show(
+      source('PG items', 'pg'),
+      source('CH items', 'ch'),
+      { keyColumns: ['id'], compareColumns: ['id', 'name'], rowLimit: 100 },
+    );
+    const previous = manager.getDiffStatesForTesting()[0].rowDiff;
+
+    await mocks.panels[0].webview.handler?.({
+      type: 'runDiffQuery', leftQuery: 'SELECT id FROM items', rightQuery: 'SELECT id FROM items', syncMode: false,
+    });
+
+    expect(manager.getDiffStatesForTesting()[0].rowDiff).toBe(previous);
+    expect(mocks.panels[0].webview.postMessage).toHaveBeenCalledWith({
+      type: 'diffQueryError',
+      leftError: 'Query results must include compared column(s): name',
+      rightError: 'Query results must include compared column(s): name',
+    });
+    expect(mocks.panels[0].webview.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'updateDiff' }));
+  });
+
   it('does not post an async query result after the panel is disposed', async () => {
     const { manager, connectionManager } = setup();
     const resolveExecutions: Array<(value: unknown) => void> = [];

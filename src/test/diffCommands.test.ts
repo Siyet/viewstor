@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   commands: new Map<string, CommandHandler>(),
   pickerPlans: [] as PickerPlan[],
   pickerItems: [] as PickItem[][],
-  columnPicks: [] as Array<Array<{ label: string; description?: string }> | undefined>,
+  columnPicks: [] as Array<Array<{ id?: string; label: string; description?: string }> | undefined>,
   showQuickPick: vi.fn(),
   showWarningMessage: vi.fn(),
   showErrorMessage: vi.fn(),
@@ -197,8 +197,81 @@ describe('Data Diff commands', () => {
     ]));
     expect(mocks.showQuickPick).not.toHaveBeenCalled();
     expect(diffPanelManager.show).toHaveBeenCalledOnce();
-    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({ keyColumns: ['id'], rowLimit: 10000 });
+    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({
+      keyColumns: ['id'],
+      columnMappings: [
+        { label: 'id', left: 'id', right: 'id' },
+        { label: 'value', left: 'value', right: 'value' },
+      ],
+      rowLimit: 10000,
+    });
     expect(diffPanelManager.show.mock.calls[0][1]).toMatchObject({ connectionId: 'sqlite', tableName: 'local_view' });
+  });
+
+  it('Compare With asks for shared value columns when a PostgreSQL table and view have different schemas', async () => {
+    const driver = makeDriver([{ name: 'public', type: 'schema', children: [
+      { name: 'customers', type: 'table', schema: 'public' },
+      { name: 'customer_summary', type: 'view', schema: 'public' },
+    ] }], {
+      info: name => ({
+        name,
+        columns: name === 'customers'
+          ? [
+            { name: 'id', dataType: 'bigint', nullable: false, isPrimaryKey: true },
+            { name: 'name', dataType: 'text', nullable: false, isPrimaryKey: false },
+            { name: 'email', dataType: 'text', nullable: true, isPrimaryKey: false },
+          ]
+          : [
+            { name: 'id', dataType: 'bigint', nullable: false, isPrimaryKey: false },
+            { name: 'name', dataType: 'text', nullable: false, isPrimaryKey: false },
+            { name: 'order_count', dataType: 'bigint', nullable: false, isPrimaryKey: false },
+          ],
+      }),
+      data: name => ({
+        columns: name === 'customers'
+          ? [
+            { name: 'id', dataType: 'bigint' },
+            { name: 'name', dataType: 'text' },
+            { name: 'email', dataType: 'text' },
+          ]
+          : [
+            { name: 'id', dataType: 'bigint' },
+            { name: 'name', dataType: 'text' },
+            { name: 'order_count', dataType: 'bigint' },
+          ],
+        rows: [{ id: '1', name: 'Customer 1' }],
+        rowCount: 1,
+        executionTimeMs: 1,
+      }),
+    });
+    const { diffPanelManager } = setup([
+      { id: 'pg', name: 'PostgreSQL', type: 'postgresql', driver },
+    ]);
+    mocks.pickerPlans.push({ connectionId: 'pg', tableName: 'customer_summary' });
+    mocks.columnPicks.push([
+      { id: 'exact:id', label: 'id ↔ id' },
+      { id: 'exact:name', label: 'name ↔ name' },
+    ]);
+
+    await command('viewstor.compareWith')({
+      connectionId: 'pg',
+      schemaObject: { name: 'customers', type: 'table', schema: 'public' },
+    });
+
+    expect(mocks.showQuickPick.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ id: 'exact:id', label: 'id ↔ id', picked: true }),
+      expect.objectContaining({ id: 'exact:name', label: 'name ↔ name', picked: true }),
+      expect.objectContaining({ id: 'left:email', label: 'email', picked: false }),
+      expect.objectContaining({ id: 'right:order_count', label: 'order_count', picked: false }),
+    ]);
+    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({
+      keyColumns: ['id'],
+      columnMappings: [
+        { label: 'id', left: 'id', right: 'id' },
+        { label: 'name', left: 'name', right: 'name' },
+      ],
+      rowLimit: 10000,
+    });
   });
 
   it('Compare With cancel stops before loading either table', async () => {
@@ -249,7 +322,14 @@ describe('Data Diff commands', () => {
       expect.objectContaining({ label: 'value', picked: false }),
     ]);
     expect(diffPanelManager.show).toHaveBeenCalledOnce();
-    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({ keyColumns: ['external_id'], rowLimit: 10000 });
+    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({
+      keyColumns: ['external_id'],
+      columnMappings: [
+        { label: 'external_id', left: 'external_id', right: 'external_id' },
+        { label: 'value', left: 'value', right: 'value' },
+      ],
+      rowLimit: 10000,
+    });
   });
 
   it('uses a right-side primary key when comparing a keyless view with its table', async () => {
@@ -289,12 +369,23 @@ describe('Data Diff commands', () => {
       { connectionId: 'ch', tableName: 'customer_summary' },
       { connectionId: 'ch', tableName: 'customers' },
     );
+    mocks.columnPicks.push([
+      { id: 'exact:id', label: 'id ↔ id' },
+      { id: 'exact:name', label: 'name ↔ name' },
+    ]);
 
     await command('viewstor.compareData')();
 
-    expect(mocks.showQuickPick).not.toHaveBeenCalled();
+    expect(mocks.showQuickPick).toHaveBeenCalledOnce();
     expect(diffPanelManager.show).toHaveBeenCalledOnce();
-    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({ keyColumns: ['id'], rowLimit: 10000 });
+    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({
+      keyColumns: ['id'],
+      columnMappings: [
+        { label: 'id', left: 'id', right: 'id' },
+        { label: 'name', left: 'name', right: 'name' },
+      ],
+      rowLimit: 10000,
+    });
   });
 
   it('offers only common columns and suggests id when neither side has a primary key', async () => {
@@ -322,7 +413,13 @@ describe('Data Diff commands', () => {
       { connectionId: 'ch', tableName: 'customer_summary' },
       { connectionId: 'ch', tableName: 'customers' },
     );
-    mocks.columnPicks.push([{ label: 'id', description: 'UInt64' }]);
+    mocks.columnPicks.push(
+      [{ label: 'id', description: 'UInt64' }],
+      [
+        { id: 'exact:id', label: 'id ↔ id' },
+        { id: 'exact:name', label: 'name ↔ name' },
+      ],
+    );
 
     await command('viewstor.compareData')();
 
@@ -334,7 +431,20 @@ describe('Data Diff commands', () => {
       expect.objectContaining({ label: 'order_count' }),
       expect.objectContaining({ label: 'email' }),
     ]));
-    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({ keyColumns: ['id'], rowLimit: 10000 });
+    expect(mocks.showQuickPick.mock.calls[1][0]).toEqual([
+      expect.objectContaining({ id: 'exact:id', label: 'id ↔ id', picked: true }),
+      expect.objectContaining({ id: 'exact:name', label: 'name ↔ name', picked: true }),
+      expect.objectContaining({ id: 'left:order_count', label: 'order_count', picked: false }),
+      expect.objectContaining({ id: 'right:email', label: 'email', picked: false }),
+    ]);
+    expect(diffPanelManager.show.mock.calls[0][2]).toEqual({
+      keyColumns: ['id'],
+      columnMappings: [
+        { label: 'id', left: 'id', right: 'id' },
+        { label: 'name', left: 'name', right: 'name' },
+      ],
+      rowLimit: 10000,
+    });
   });
 
   it('Compare Data cancel at the second picker does not fetch data or open a panel', async () => {

@@ -1,10 +1,15 @@
 import * as vscode from 'vscode';
 import { CommandContext, getRequiredDriver, wrapError } from './shared';
 import type { ConnectionTreeItem } from '../views/connectionTree';
-import type { DiffSource, DiffOptions } from '../diff/diffTypes';
+import type { DiffColumnMapping, DiffSource, DiffOptions } from '../diff/diffTypes';
 import type { QueryResult } from '../types/query';
-import type { ColumnInfo, TableInfo } from '../types/schema';
+import type { TableInfo } from '../types/schema';
 import { collectComparableTables } from '../diff/diffTablePicker';
+import {
+  completeCompareColumnSelection,
+  createCompareColumnPlan,
+  findCompatiblePrimaryKey,
+} from '../diff/diffColumnSelection';
 import { dbg } from '../utils/debug';
 
 export function registerDiffCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
@@ -76,6 +81,8 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
 
           const keyColumns = await chooseKeyColumns(leftInfo, rightInfo);
           if (!keyColumns) return;
+          const columnMappings = await chooseCompareColumns(leftInfo, rightInfo, keyColumns);
+          if (!columnMappings) return;
 
           const leftSource: DiffSource = {
             label: `${leftState.config.name} → ${item.schemaObject!.name}`,
@@ -98,7 +105,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             databaseName: picked.databaseName,
           };
 
-          const options: DiffOptions = { keyColumns, rowLimit };
+          const options: DiffOptions = { keyColumns, columnMappings, rowLimit };
 
           diffPanelManager.show(leftSource, rightSource, options,
             { columns: leftInfo.columns },
@@ -178,6 +185,8 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
 
           const keyColumns = await chooseKeyColumns(leftInfo, rightInfo);
           if (!keyColumns) return;
+          const columnMappings = await chooseCompareColumns(leftInfo, rightInfo, keyColumns);
+          if (!columnMappings) return;
 
           const leftState = connectionManager.get(leftPick.connectionId);
           const rightState = connectionManager.get(rightPick.connectionId);
@@ -200,7 +209,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             schema: rightPick.schema,
           };
 
-          diffPanelManager.show(leftSource, rightSource, { keyColumns, rowLimit },
+          diffPanelManager.show(leftSource, rightSource, { keyColumns, columnMappings, rowLimit },
             { columns: leftInfo.columns },
             { columns: rightInfo.columns },
             leftObjects,
@@ -230,12 +239,8 @@ function assertDiffDataLoaded(left: QueryResult, right: QueryResult): void {
  */
 async function chooseKeyColumns(left: TableInfo, right: TableInfo): Promise<string[] | undefined> {
   const rightNames = new Set(right.columns.map(column => column.name));
-  const leftNames = new Set(left.columns.map(column => column.name));
-  const leftPk = primaryKeyColumns(left.columns);
-  const rightPk = primaryKeyColumns(right.columns);
-
-  if (leftPk.length > 0 && leftPk.every(column => rightNames.has(column))) return leftPk;
-  if (rightPk.length > 0 && rightPk.every(column => leftNames.has(column))) return rightPk;
+  const compatiblePrimaryKey = findCompatiblePrimaryKey(left, right);
+  if (compatiblePrimaryKey) return compatiblePrimaryKey;
 
   const common = left.columns.filter(column => rightNames.has(column.name));
   if (common.length === 0) {
@@ -264,8 +269,34 @@ async function chooseKeyColumns(left: TableInfo, right: TableInfo): Promise<stri
   return colPick.map(column => column.label);
 }
 
-function primaryKeyColumns(columns: ColumnInfo[]): string[] {
-  return columns.filter(column => column.isPrimaryKey).map(column => column.name);
+/**
+ * Keep row comparison and schema comparison separate. When the sources expose
+ * different column sets, show exact pairs, suggested similar-name mappings,
+ * and the remaining one-sided fields. Matching keys are visible but mandatory;
+ * unsafe mappings remain unchecked until the user explicitly selects them.
+ */
+async function chooseCompareColumns(
+  left: TableInfo,
+  right: TableInfo,
+  keyColumns: string[],
+): Promise<DiffColumnMapping[] | undefined> {
+  const plan = createCompareColumnPlan(left, right, keyColumns);
+  if (!plan.requiresSelection) return plan.fixedMappings;
+
+  const picked = await vscode.window.showQuickPick(
+    plan.candidates.map(column => ({
+      id: column.id,
+      label: column.label,
+      description: column.description,
+      picked: column.picked,
+    })),
+    {
+      canPickMany: true,
+      placeHolder: vscode.l10n.t('Select columns to compare. Exact matches are preselected; matching keys are always included.'),
+    },
+  );
+  if (!picked) return undefined;
+  return completeCompareColumnSelection(plan, picked.map(column => column.id));
 }
 
 interface TablePickItem {

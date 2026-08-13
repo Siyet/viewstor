@@ -346,6 +346,28 @@ export class DiffPanelManager {
       return;
     }
 
+    const compareColumns = (state.options.compareColumns || []).filter(column => !keyColumns.includes(column));
+    const mappedLeftColumns = (state.options.columnMappings || [])
+      .map(mapping => mapping.left)
+      .filter((column): column is string => typeof column === 'string')
+      .filter(column => !keyColumns.includes(column));
+    const mappedRightColumns = (state.options.columnMappings || [])
+      .map(mapping => mapping.right)
+      .filter((column): column is string => typeof column === 'string')
+      .filter(column => !keyColumns.includes(column));
+    const missingLeftCompare = [...compareColumns, ...mappedLeftColumns]
+      .filter(column => !leftResult!.columns.some(c => c.name === column));
+    const missingRightCompare = [...compareColumns, ...mappedRightColumns]
+      .filter(column => !rightResult!.columns.some(c => c.name === column));
+    if (missingLeftCompare.length > 0 || missingRightCompare.length > 0) {
+      state.panel.webview.postMessage({
+        type: 'diffQueryError',
+        leftError: missingLeftCompare.length > 0 ? `Query results must include compared column(s): ${missingLeftCompare.join(', ')}` : undefined,
+        rightError: missingRightCompare.length > 0 ? `Query results must include compared column(s): ${missingRightCompare.join(', ')}` : undefined,
+      });
+      return;
+    }
+
     state.left = { ...leftSnapshot, columns: leftResult!.columns, rows: leftResult!.rows };
     state.right = { ...rightSnapshot, columns: rightResult!.columns, rows: rightResult!.rows };
     state.rowDiff = computeRowDiff(state.left, state.right, state.options);
