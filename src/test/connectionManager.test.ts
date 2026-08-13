@@ -528,6 +528,20 @@ describe('ConnectionManager', () => {
       expect(existing.connect).toHaveBeenCalledOnce();
     });
 
+    it('shares one reconnect across concurrent callers', async () => {
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'ensure-concurrent' }));
+
+      const [left, right] = await Promise.all([
+        manager.ensureDriver('ensure-concurrent'),
+        manager.ensureDriver('ensure-concurrent'),
+      ]);
+
+      expect(left).toBe(right);
+      expect((createDriver as Mock).mock.calls).toHaveLength(1);
+      expect(left.connect).toHaveBeenCalledOnce();
+    });
+
     it('throws for an unknown connection', async () => {
       const manager = createManager();
       await expect(manager.ensureDriver('ghost')).rejects.toThrow('Connection not found');

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { CommandContext, getRequiredDriver, wrapError } from './shared';
 import { ConnectionTreeItem } from '../views/connectionTree';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
+import { collectComparableTables } from '../diff/diffTablePicker';
 import { dbg } from '../utils/debug';
 
 export function registerDiffCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
@@ -54,10 +55,14 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             ]);
           } catch { /* schema objects unavailable — diff will show columns only */ }
 
-          // Fetch table statistics — only when both drivers are the same type and both support it
+          // Fetch table statistics from both sides when both drivers support it.
+          // Cross-type comparisons (e.g. PG ↔ ClickHouse) are no longer gated out —
+          // `computeStatsDiff` (called in DiffPanelManager) restricts the view to the
+          // explicit semantic allowlist and reports the hidden per-side counts so the
+          // user can compare row counts without presenting same-named but incompatible
+          // storage metrics as equivalent.
           let leftStats, rightStats;
-          const sameType = leftState.config.type === connectionManager.get(picked.connectionId)?.config.type;
-          if (sameType && leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
+          if (leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
             try {
               [leftStats, rightStats] = await Promise.all([
                 leftDriver.getTableStatistics(item.schemaObject!.name, item.schemaObject!.schema),
@@ -166,11 +171,10 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             ]);
           } catch { /* schema objects unavailable — diff will show columns only */ }
 
+          // Fetch stats from both sides regardless of DB type; see note in
+          // `viewstor.compareWith` — the diff panel applies the cross-type metric contract.
           let leftStats, rightStats;
-          const leftStateCfg = connectionManager.get(leftPick.connectionId);
-          const rightStateCfg = connectionManager.get(rightPick.connectionId);
-          const sameType = leftStateCfg?.config.type === rightStateCfg?.config.type;
-          if (sameType && leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
+          if (leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
             try {
               [leftStats, rightStats] = await Promise.all([
                 leftDriver.getTableStatistics(leftPick.tableName, leftPick.schema),
@@ -293,20 +297,16 @@ async function loadAllTables(
     if (!driver) continue;
     try {
       const schema = await driver.getSchema();
-      for (const schemaObj of schema) {
-        if (schemaObj.children) {
-          for (const child of schemaObj.children) {
-            if (child.type === 'table' || child.type === 'view') {
-              items.push({
-                label: child.name,
-                description: `${schemaObj.name} — ${conn.config.name}`,
-                connectionId: conn.config.id,
-                tableName: child.name,
-                schema: schemaObj.name,
-              });
-            }
-          }
-        }
+      for (const table of collectComparableTables(schema)) {
+        items.push({
+          label: table.tableName,
+          description: table.schema
+            ? `${table.schema} — ${conn.config.name}`
+            : conn.config.name,
+          connectionId: conn.config.id,
+          tableName: table.tableName,
+          schema: table.schema,
+        });
       }
     } catch { /* skip connections with schema fetch errors */ }
   }

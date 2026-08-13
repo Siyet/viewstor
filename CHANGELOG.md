@@ -4,12 +4,19 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- **Data diff: safe cross-DB-type Statistics tab** — comparisons such as PostgreSQL ↔ ClickHouse and SQLite ↔ PostgreSQL now show statistics when both drivers provide them. Cross-type mode uses an explicit semantic contract instead of trusting matching key names: row count is currently the only common metric (with a visible note that some engines estimate it), while incompatible storage and engine-specific metrics are counted and hidden. The tab includes a clear empty state when no metrics are comparable, branded database names, accessible theme-aware messaging, and in-place Swap Sides behavior ([#74](https://github.com/Siyet/viewstor/issues/74)).
+- **Search in Row Diff** — search both sides of a comparison at once with highlighted matches, a live result count, `Enter` / `Shift+Enter` navigation, `Escape` to clear, and `Ctrl/Cmd+F` focus. Search results stay synchronized after status filtering and query reruns.
+
 ### Changed
 - **Result Grid readability and toolbar layout** — added subtle theme-aware zebra striping and grouped status, search, export/visualization, row editing, and pagination controls. The toolbar now wraps cleanly in narrow editor panes, exposes accessible control groups, and keeps dividers visible in high-contrast themes ([#84](https://github.com/Siyet/viewstor/issues/84)).
 
 ### Fixed
 - Preserved hover, selection, search, validation, and new-row highlights on both odd and even rows so zebra striping never hides a more important state.
 - Restored opening table data immediately after editing a connection, including switching Read-only off: cached tree items now reconnect the driver automatically instead of silently closing the loading panel.
+- Cross-database row comparisons now treat equivalent numeric representations such as PostgreSQL `716.90` and ClickHouse `716.9` as equal without losing precision for large numeric values; text identifiers with leading zeroes remain distinct.
+- PostgreSQL views no longer report the internal `-1` row-estimate sentinel. View statistics fall back to an exact `COUNT(*)`, or show the metric as unavailable when the relation cannot be read.
+- SQLite tables and views now appear in the **Compare With...** picker alongside PostgreSQL and ClickHouse objects; the picker supports both flat and namespace-nested driver schemas.
 
 ## [0.5.0] — 2026-08-13
 

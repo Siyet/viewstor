@@ -42,6 +42,26 @@ describe('diff-panel.css regressions', () => {
     expect(css).toMatch(/\.diff-table[^{]*\.diff-removed:nth-child\(even\)\s+td\s*\{[^}]*--viewstor-row-removed/);
     expect(css).toMatch(/\.diff-table[^{]*\.diff-changed:nth-child\(even\)\s+td\s*\{[^}]*--viewstor-row-changed/);
   });
+
+  it('uses VS Code info validation tokens and a forced-colors border for the cross-type banner', () => {
+    const css = readCss();
+    expect(css).toMatch(/\.diff-cross-type-banner\s*\{[^}]*--vscode-inputValidation-infoForeground/);
+    expect(css).toMatch(/\.diff-cross-type-banner\s*\{[^}]*--vscode-inputValidation-infoBackground/);
+    expect(css).toMatch(/\.diff-cross-type-banner\s*\{[^}]*--vscode-inputValidation-infoBorder/);
+    expect(css).toMatch(/@media\s*\(forced-colors:\s*active\)[\s\S]*\.diff-cross-type-banner\s*\{[^}]*CanvasText/);
+  });
+
+  it('defines the statistics empty state exactly once', () => {
+    const css = readCss();
+    expect((css.match(/\.diff-stats-empty\s*\{/g) || [])).toHaveLength(1);
+  });
+
+  it('uses VS Code find colors for row-search matches and focus', () => {
+    const css = readCss();
+    expect(css).toMatch(/\.diff-table td\.search-hit\s*\{[^}]*--vscode-editor-findMatchHighlightBackground/s);
+    expect(css).toMatch(/\.diff-table td\.search-focus\s*\{[^}]*--vscode-editor-findMatchBorder/s);
+    expect(css).toMatch(/\.diff-table td\.search-focus\s*\{[^}]*--vscode-editor-findMatchBackground/s);
+  });
 });
 
 describe('diff-panel.ts filter chip defaults', () => {
@@ -68,6 +88,14 @@ describe('diff-panel.ts filter chip defaults', () => {
     expect((ts.match(/diff-chip differs active/g) || []).length).toBeGreaterThanOrEqual(2);
     expect((ts.match(/diff-chip same active/g) || []).length).toBeGreaterThanOrEqual(2);
   });
+
+  it('renders an accessible row search control with the shared search icon', () => {
+    const ts = readTs();
+    expect(ts).toContain('class="diff-search" role="search" aria-label="Search row diff"');
+    expect(ts).toContain('class="codicon codicon-search" aria-hidden="true"');
+    expect(ts).toContain('id="diffSearchInput"');
+    expect(ts).toContain('id="diffSearchCount" class="diff-search-count" aria-live="polite"');
+  });
 });
 
 describe('diff-panel.js filter defaults', () => {
@@ -81,5 +109,13 @@ describe('diff-panel.js filter defaults', () => {
     for (const group of match!.slice(1, 4)) {
       expect(group).not.toMatch(/:\s*false/);
     }
+  });
+
+  it('searches both row panes and refreshes after every row render', () => {
+    const js = fs.readFileSync(JS_PATH, 'utf-8');
+    expect(js).toContain('document.querySelectorAll(\'#leftTableBody td, #rightTableBody td\')');
+    expect(js).toMatch(/leftBody\.innerHTML = leftHtml;\s*rightBody\.innerHTML = rightHtml;\s*refreshRowSearch\(\);/);
+    expect(js).toContain('focusSearchHit(event.shiftKey ? -1 : 1)');
+    expect(js).toContain('event.code !== \'KeyF\'');
   });
 });
