@@ -5,6 +5,7 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 ## [Unreleased]
 
 ### Added
+- The ER toolbar no longer shows internal table/link counts, zoom, render-mode, or focused-node diagnostics.
 - ER search now mirrors table/view matches and matching column names in a selectable dropdown; the search icon sits inside the field, while Refresh and relationship visibility are compact icon-only actions pinned to the toolbar's right edge.
 - ER table and view cards now expose the same context actions as their Connections tree counterparts through a shared action registry; a contract test prevents the declarative tree menu and webview menu from drifting apart.
 - Relationship lines use slightly lower opacity below `3×` ER-diagram zoom to reduce distant-view visual noise.

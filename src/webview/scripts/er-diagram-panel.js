@@ -6,7 +6,6 @@
   const chartEl = document.getElementById('chart');
   const hoverTooltipEl = document.getElementById('hoverTooltip');
   const emptyEl = document.getElementById('emptyState');
-  const statusEl = document.getElementById('status');
   const refreshBtn = document.getElementById('refreshBtn');
   const relationshipsBtn = document.getElementById('relationshipsBtn');
   const searchInput = document.getElementById('searchInput');
@@ -38,7 +37,6 @@
   let arrowsVisible = false;
   let zoomAnimation;
   let zoomAnimationFrame;
-  let statusTimer;
   let panPointer;
   let relationshipsVisible = true;
   let isolatedTableId;
@@ -977,7 +975,6 @@
         currentZoom = Math.max(farZoom, Math.min(MAX_ZOOM, currentZoom * event.zoom));
         updateArrowVisibility();
         updateRegionPresentation();
-        setStatus();
       }
     });
     chart.on('mousemove', handleChartHover);
@@ -1066,7 +1063,6 @@
       positionedNodes = [];
       regions = [];
       setEmpty('No tables or views found in this scope.');
-      setStatus();
       return;
     }
     emptyEl.classList.add('hidden');
@@ -1138,7 +1134,6 @@
     }, true);
     installCardLayer();
     if (searchMatchIds !== undefined) resetCardFocus(true);
-    setStatus();
   }
 
   function handleChartHover(params) {
@@ -1209,32 +1204,6 @@
     }
   }
 
-  function setStatus(immediate = false) {
-    if (!immediate) {
-      if (statusTimer === undefined) {
-        statusTimer = window.setTimeout(() => {
-          statusTimer = undefined;
-          renderStatus();
-        }, 80);
-      }
-      return;
-    }
-    if (statusTimer !== undefined) window.clearTimeout(statusTimer);
-    statusTimer = undefined;
-    renderStatus();
-  }
-
-  function renderStatus() {
-    const support = data.foreignKeysUnsupported ? ' · relationships unsupported by driver' : '';
-    const zoom = positionedNodes.length > 0 ? ` · ${currentZoom.toFixed(1)}×` : '';
-    const density = positionedNodes.length > 0 ? ' · columns' : '';
-    const visibleTables = Math.max(0, positionedNodes.length - 4);
-    const tableCount = isolatedTableId ? `${visibleTables}/${data.tables.length}` : String(data.tables.length);
-    const focus = isolatedTableId ? ` · focused: ${isolatedTableId}` : '';
-    const hidden = relationshipsVisible ? '' : ' (hidden)';
-    statusEl.textContent = `${tableCount} tables/views · ${links.length} relationships${hidden}${zoom}${density}${focus}${support}`;
-  }
-
   function toggleRelationships() {
     relationshipsVisible = !relationshipsVisible;
     const label = relationshipsVisible ? 'Hide relationships' : 'Show relationships';
@@ -1245,7 +1214,6 @@
     if (chart && positionedNodes.length > 0) {
       chart.setOption({ series: [{ id: 'erGraph', links: relationshipsVisible ? links : [] }] });
     }
-    setStatus(true);
   }
 
   function exitFocusedGraph() {
@@ -1313,7 +1281,6 @@
       refreshBtn.disabled = true;
     } else if (message.type === 'error') {
       setEmpty(`Unable to load diagram: ${message.message}`);
-      statusEl.textContent = '';
       refreshBtn.disabled = false;
     } else if (message.type === 'setData') {
       data = message.data || { tables: [], foreignKeys: [] };

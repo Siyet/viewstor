@@ -166,7 +166,6 @@ export class ErDiagramPanelManager {
       <div id="searchResults" class="search-results hidden" role="listbox" aria-label="Search results"></div>
     </div>
     <span class="toolbar-help">Drag empty canvas or hold middle mouse to pan · scroll to zoom · double-click a table to isolate its neighbours · Esc to exit</span>
-    <span id="status" class="status"></span>
     <div class="toolbar-actions">
       <vscode-button id="refreshBtn" class="toolbar-icon-button" secondary icon-only icon="refresh" aria-label="Refresh" title="Refresh"></vscode-button>
       <vscode-button id="relationshipsBtn" class="toolbar-icon-button relationships-toggle" secondary icon-only icon="type-hierarchy" aria-label="Hide relationships" title="Hide relationships" aria-pressed="true"></vscode-button>

@@ -194,6 +194,16 @@ describe('ER diagram interactions', () => {
     expect(style).toMatch(/\.toolbar-search \{[^}]*position: relative;[^}]*width: min\(390px, 42vw\);/s);
   });
 
+  it('does not expose internal graph diagnostics in the toolbar', () => {
+    const panel = fs.readFileSync(PANEL_PATH, 'utf-8');
+    const script = readScript();
+    expect(panel).not.toContain('id="status"');
+    expect(script).not.toContain('function renderStatus()');
+    expect(script).not.toContain('tables/views');
+    expect(script).not.toContain(' · columns');
+    expect(script).not.toContain('focused:');
+  });
+
   it('uses the shared context-menu primitive and host-provided table actions', () => {
     const panel = fs.readFileSync(PANEL_PATH, 'utf-8');
     const script = readScript();

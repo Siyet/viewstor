@@ -21,19 +21,12 @@ body {
   border-bottom: 1px solid var(--viewstor-border-subtle);
 }
 
-.toolbar-help,
-.status {
+.toolbar-help {
   color: var(--viewstor-text-dimmed);
   font-size: var(--viewstor-font-meta-size);
 }
 
 .toolbar-help { margin-left: 4px; }
-.status {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .toolbar vscode-button { flex: 0 0 auto; white-space: nowrap; }
 
 .toolbar-search {
@@ -285,7 +278,6 @@ main {
 }
 
 @media (max-width: 720px) {
-  .status,
   .legend { display: none; }
 
   .toolbar-search { width: min(100%, 340px); }
