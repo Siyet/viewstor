@@ -2,6 +2,15 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+- **Result Grid readability and toolbar layout** — added subtle theme-aware zebra striping and grouped status, search, export/visualization, row editing, and pagination controls. The toolbar now wraps cleanly in narrow editor panes, exposes accessible control groups, and keeps dividers visible in high-contrast themes ([#84](https://github.com/Siyet/viewstor/issues/84)).
+
+### Fixed
+- Preserved hover, selection, search, validation, and new-row highlights on both odd and even rows so zebra striping never hides a more important state.
+- Restored opening table data immediately after editing a connection, including switching Read-only off: cached tree items now reconnect the driver automatically instead of silently closing the loading panel.
+
 ## [0.5.0] — 2026-08-13
 
 ### Added

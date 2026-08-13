@@ -15,13 +15,15 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
       const title = `${item.schemaObject.name} — ${state?.config.name}`;
       const color = connectionManager.getConnectionColor(item.connectionId);
       resultPanelManager.showLoading(title, { color });
-
-      const driver = await getRequiredDriver(connectionManager, item.connectionId, item.databaseName);
-      if (!driver) { resultPanelManager.closePanel(title); return; }
-
       const pageSize = 100;
 
       try {
+        const driver = state?.connected
+          ? await connectionManager.ensureDriver(item.connectionId, item.databaseName)
+          : await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Connecting...') },
+            () => connectionManager.ensureDriver(item.connectionId!, item.databaseName),
+          );
         const tableInfo = await driver.getTableInfo(item.schemaObject.name, item.schemaObject.schema);
         const pkColumns = tableInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
 
