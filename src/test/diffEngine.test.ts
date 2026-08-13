@@ -144,6 +144,63 @@ describe('computeRowDiff', () => {
     expect(result.matched[0].changedColumns).toHaveLength(0);
   });
 
+  it('treats equivalent numeric representations from different drivers as equal', () => {
+    const left: DiffSource = {
+      label: 'PostgreSQL',
+      columns: [
+        { name: 'id', dataType: 'bigint' },
+        { name: 'total_amount', dataType: 'numeric' },
+      ],
+      rows: [{ id: '14', total_amount: '716.90' }],
+    };
+    const right: DiffSource = {
+      label: 'ClickHouse',
+      columns: [
+        { name: 'id', dataType: 'UInt64' },
+        { name: 'total_amount', dataType: 'Decimal(38, 2)' },
+      ],
+      rows: [{ id: 14, total_amount: 716.9 }],
+    };
+
+    const result = computeRowDiff(left, right, defaultOptions(['id']));
+    expect(result.summary.unchanged).toBe(1);
+    expect(result.matched[0].changedColumns).toEqual([]);
+  });
+
+  it('compares very large numeric strings exactly without Number precision loss', () => {
+    const left: DiffSource = {
+      label: 'PostgreSQL',
+      columns: [{ name: 'id', dataType: 'numeric' }],
+      rows: [{ id: '9007199254740992' }],
+    };
+    const right: DiffSource = {
+      label: 'ClickHouse',
+      columns: [{ name: 'id', dataType: 'Decimal(38, 0)' }],
+      rows: [{ id: '9007199254740993' }],
+    };
+
+    const result = computeRowDiff(left, right, defaultOptions(['id']));
+    expect(result.summary.removed).toBe(1);
+    expect(result.summary.added).toBe(1);
+  });
+
+  it('keeps text values with leading zeroes distinct from numeric-looking values', () => {
+    const left: DiffSource = {
+      label: 'left',
+      columns: [{ name: 'id', dataType: 'text' }],
+      rows: [{ id: '001' }],
+    };
+    const right: DiffSource = {
+      label: 'right',
+      columns: [{ name: 'id', dataType: 'varchar' }],
+      rows: [{ id: 1 }],
+    };
+
+    const result = computeRowDiff(left, right, defaultOptions(['id']));
+    expect(result.summary.removed).toBe(1);
+    expect(result.summary.added).toBe(1);
+  });
+
   it('empty tables produce zero diffs', () => {
     const result = computeRowDiff(makeSource([]), makeSource([]), defaultOptions(['id']));
     expect(result.summary.total).toBe(0);
@@ -706,95 +763,159 @@ describe('computeStatsDiff', () => {
     expect(result.items[0].delta).toBeUndefined();
   });
 
-  describe('cross-type common schema keys', () => {
+  // ---- Cross-type comparison (#74): intersect metric keys, count hidden per-side ----
+
+  describe('cross-type mode', () => {
+    const comparableMetrics = new Map([
+      ['row_count', { label: 'Row count', unit: 'count' as const }],
+      ['total_size', { label: 'Total size', unit: 'bytes' as const }],
+    ]);
     const pgStats: TableStatistic[] = [
-      { key: 'row_count', label: 'Row count (estimated)', value: 5000, unit: 'count' },
-      { key: 'live_tuples', label: 'Live tuples', value: 4900, unit: 'count' },
-      { key: 'dead_tuples', label: 'Dead tuples', value: 100, unit: 'count', badWhen: 'higher' },
-      { key: 'table_size', label: 'Table size', value: 8192, unit: 'bytes' },
-      { key: 'indexes_size', label: 'Indexes size', value: 4096, unit: 'bytes' },
-      { key: 'total_size', label: 'Total size', value: 12288, unit: 'bytes' },
-      { key: 'last_modified', label: 'Last modified', value: null, unit: 'date' },
+      { key: 'row_count', label: 'Row count', value: 1000, unit: 'count' },
+      { key: 'total_size', label: 'Total size', value: 1024, unit: 'bytes' },
+      { key: 'dead_tuples', label: 'Dead tuples', value: 10, unit: 'count', badWhen: 'higher' },
+      { key: 'last_vacuum', label: 'Last vacuum', value: '2026-01-01T00:00:00Z', unit: 'date' },
+      { key: 'autovacuum_count', label: 'Autovacuums', value: 5, unit: 'count' },
     ];
-
     const chStats: TableStatistic[] = [
-      { key: 'row_count', label: 'Row count', value: 5000, unit: 'count' },
-      { key: 'total_size', label: 'Total size (compressed)', value: 6144, unit: 'bytes' },
-      { key: 'uncompressed_size', label: 'Total size (uncompressed)', value: 24576, unit: 'bytes' },
-      { key: 'compression_ratio', label: 'Compression ratio', value: 4.0, unit: 'text' },
-      { key: 'active_parts', label: 'Active parts', value: 3, unit: 'count' },
-      { key: 'engine', label: 'Engine', value: 'MergeTree', unit: 'text' },
-      { key: 'last_modified', label: 'Last modified', value: '2026-04-01T12:00:00Z', unit: 'date' },
+      { key: 'row_count', label: 'Row count', value: 1500, unit: 'count' },
+      { key: 'total_size', label: 'Total size', value: 2048, unit: 'bytes' },
+      { key: 'parts_count', label: 'Parts', value: 12, unit: 'count' },
+      { key: 'compressed_size', label: 'Compressed size', value: 512, unit: 'bytes' },
     ];
 
-    const sqliteStats: TableStatistic[] = [
-      { key: 'row_count', label: 'Row count', value: 5000, unit: 'count' },
-      { key: 'total_size', label: 'Total size', value: 16384, unit: 'bytes' },
-      { key: 'table_size', label: 'Table size', value: 12288, unit: 'bytes' },
-      { key: 'index_count', label: 'Index count', value: 2, unit: 'count' },
-      { key: 'last_modified', label: 'Last modified', value: null, unit: 'date' },
-    ];
-
-    const redisStats: TableStatistic[] = [
-      { key: 'row_count', label: 'Element count', value: 42, unit: 'count' },
-      { key: 'total_size', label: 'Memory usage', value: 2048, unit: 'bytes' },
-      { key: 'last_modified', label: 'Last modified', value: null, unit: 'date' },
-      { key: 'type', label: 'Type', value: 'hash', unit: 'text' },
-    ];
-
-    it('COMMON_STAT_KEYS defines the three canonical keys', () => {
+    it('defines the normalized driver presence contract independently of comparability', () => {
       expect(COMMON_STAT_KEYS).toEqual(['row_count', 'total_size', 'last_modified']);
+      const result = computeStatsDiff(pgStats, chStats, { crossType: true });
+      expect(result.items.map(item => item.key)).toEqual(['row_count']);
+      expect(result.items.some(item => item.key === 'total_size')).toBe(false);
     });
 
-    it('PG ↔ CH: common keys match, driver-specific keys show as leftOnly/rightOnly', () => {
-      const result = computeStatsDiff(pgStats, chStats);
-      const common = result.items.filter(i => COMMON_STAT_KEYS.includes(i.key as typeof COMMON_STAT_KEYS[number]));
-      expect(common).toHaveLength(3);
-      const rowCount = common.find(i => i.key === 'row_count')!;
-      expect(rowCount.status).toBe('same');
-      const totalSize = common.find(i => i.key === 'total_size')!;
-      expect(totalSize.status).toBe('differs');
-      expect(totalSize.delta).toBe(6144 - 12288);
-      const pgOnly = result.items.filter(i => i.status === 'leftOnly');
-      expect(pgOnly.some(i => i.key === 'live_tuples')).toBe(true);
-      const chOnly = result.items.filter(i => i.status === 'rightOnly');
-      expect(chOnly.some(i => i.key === 'engine')).toBe(true);
+    it('restricts items to the intersection of keys', () => {
+      const result = computeStatsDiff(pgStats, chStats, { crossType: true, comparableMetrics });
+      expect(result.items.map(i => i.key)).toEqual(['row_count', 'total_size']);
     });
 
-    it('PG ↔ SQLite: total_size present on both sides', () => {
-      const result = computeStatsDiff(pgStats, sqliteStats);
-      const totalSize = result.items.find(i => i.key === 'total_size')!;
-      expect(totalSize.leftValue).toBe(12288);
-      expect(totalSize.rightValue).toBe(16384);
-      expect(totalSize.status).toBe('differs');
+    it('reports hidden per-side counts in summary', () => {
+      const result = computeStatsDiff(pgStats, chStats, { crossType: true, comparableMetrics });
+      expect(result.summary.crossType).toBe(true);
+      expect(result.summary.leftHiddenCount).toBe(3); // dead_tuples, last_vacuum, autovacuum_count
+      expect(result.summary.rightHiddenCount).toBe(2); // parts_count, compressed_size
     });
 
-    it('CH ↔ SQLite: row_count same, total_size differs', () => {
-      const result = computeStatsDiff(chStats, sqliteStats);
+    it('still computes delta/deltaPercent for common numeric metrics', () => {
+      const result = computeStatsDiff(pgStats, chStats, { crossType: true, comparableMetrics });
       const rowCount = result.items.find(i => i.key === 'row_count')!;
-      expect(rowCount.status).toBe('same');
-      const totalSize = result.items.find(i => i.key === 'total_size')!;
-      expect(totalSize.status).toBe('differs');
+      expect(rowCount.delta).toBe(500);
+      expect(rowCount.deltaPercent).toBe(50);
+      expect(rowCount.status).toBe('differs');
     });
 
-    it('Redis ↔ PG: all three common keys present', () => {
-      const result = computeStatsDiff(redisStats, pgStats);
-      for (const key of COMMON_STAT_KEYS) {
-        const item = result.items.find(i => i.key === key);
-        expect(item).toBeDefined();
-        expect(item!.status).not.toBe('leftOnly');
-        expect(item!.status).not.toBe('rightOnly');
+    it('never emits leftOnly/rightOnly statuses in cross-type mode', () => {
+      const result = computeStatsDiff(pgStats, chStats, { crossType: true, comparableMetrics });
+      for (const item of result.items) {
+        expect(item.status).not.toBe('leftOnly');
+        expect(item.status).not.toBe('rightOnly');
       }
     });
 
-    it('all driver stat sets contain every COMMON_STAT_KEYS entry', () => {
-      for (const stats of [pgStats, chStats, sqliteStats, redisStats]) {
-        const keys = stats.map(s => s.key);
-        for (const common of COMMON_STAT_KEYS) {
-          expect(keys).toContain(common);
-        }
-      }
+    it('same-type mode (default) keeps existing union behaviour', () => {
+      const result = computeStatsDiff(pgStats, chStats);
+      expect(result.summary.crossType).toBe(false);
+      expect(result.summary.leftHiddenCount).toBe(0);
+      expect(result.summary.rightHiddenCount).toBe(0);
+      // Union order: pg keys first, then ch-only keys.
+      expect(result.items.map(i => i.key)).toEqual([
+        'row_count', 'total_size', 'dead_tuples', 'last_vacuum', 'autovacuum_count',
+        'parts_count', 'compressed_size',
+      ]);
+      expect(result.items.find(i => i.key === 'dead_tuples')!.status).toBe('leftOnly');
+      expect(result.items.find(i => i.key === 'parts_count')!.status).toBe('rightOnly');
     });
+
+    it('explicit crossType:false behaves like default (union)', () => {
+      const a = computeStatsDiff(pgStats, chStats);
+      const b = computeStatsDiff(pgStats, chStats, { crossType: false });
+      expect(b.items.map(i => i.key)).toEqual(a.items.map(i => i.key));
+      expect(b.summary.crossType).toBe(false);
+    });
+
+    it('empty intersection → items empty, both counts populated', () => {
+      const left: TableStatistic[] = [{ key: 'pg_only', label: 'PG only', value: 1, unit: 'count' }];
+      const right: TableStatistic[] = [{ key: 'ch_only', label: 'CH only', value: 1, unit: 'count' }];
+      const result = computeStatsDiff(left, right, {
+        crossType: true,
+        comparableMetrics: new Map(),
+      });
+      expect(result.items).toEqual([]);
+      expect(result.summary.leftHiddenCount).toBe(1);
+      expect(result.summary.rightHiddenCount).toBe(1);
+    });
+
+    it('full intersection → zero hidden counts', () => {
+      const result = computeStatsDiff(pgStats.slice(0, 2), chStats.slice(0, 2), { crossType: true, comparableMetrics });
+      expect(result.items).toHaveLength(2);
+      expect(result.summary.leftHiddenCount).toBe(0);
+      expect(result.summary.rightHiddenCount).toBe(0);
+    });
+
+    it('handles undefined inputs in cross-type mode', () => {
+      const onlyRight = computeStatsDiff(undefined, chStats, { crossType: true, comparableMetrics });
+      expect(onlyRight.items).toEqual([]);
+      expect(onlyRight.summary.leftHiddenCount).toBe(0);
+      expect(onlyRight.summary.rightHiddenCount).toBe(chStats.length);
+
+      const onlyLeft = computeStatsDiff(pgStats, undefined, { crossType: true, comparableMetrics });
+      expect(onlyLeft.items).toEqual([]);
+      expect(onlyLeft.summary.leftHiddenCount).toBe(pgStats.length);
+      expect(onlyLeft.summary.rightHiddenCount).toBe(0);
+    });
+
+    it('uses an explicit semantic allowlist instead of trusting raw key collisions', () => {
+      const result = computeStatsDiff(pgStats, chStats, {
+        crossType: true,
+        comparableMetrics: new Map([['row_count', { label: 'Comparable row count', unit: 'count' }]]),
+      });
+      expect(result.items.map(item => item.key)).toEqual(['row_count']);
+      expect(result.summary.leftHiddenCount).toBe(4);
+      expect(result.summary.rightHiddenCount).toBe(3);
+      expect(result.items[0].label).toBe('Comparable row count');
+    });
+
+    it('rejects a shared key whose units differ', () => {
+      const left: TableStatistic[] = [{ key: 'shared', label: 'Shared', value: 10, unit: 'bytes' }];
+      const right: TableStatistic[] = [{ key: 'shared', label: 'Shared', value: 10, unit: 'count' }];
+      const result = computeStatsDiff(left, right, {
+        crossType: true,
+        comparableMetrics: new Map([['shared', { label: 'Shared', unit: 'bytes' }]]),
+      });
+      expect(result.items).toEqual([]);
+      expect(result.summary.leftHiddenCount).toBe(1);
+      expect(result.summary.rightHiddenCount).toBe(1);
+    });
+  });
+
+  it('deduplicates metric keys deterministically', () => {
+    const left: TableStatistic[] = [
+      { key: 'a', label: 'First A', value: 1, unit: 'count' },
+      { key: 'a', label: 'Second A', value: 2, unit: 'count' },
+    ];
+    const right: TableStatistic[] = [
+      { key: 'a', label: 'A', value: 3, unit: 'count' },
+      { key: 'b', label: 'First B', value: 4, unit: 'count' },
+      { key: 'b', label: 'Second B', value: 5, unit: 'count' },
+    ];
+    const result = computeStatsDiff(left, right);
+    expect(result.items.map(item => item.key)).toEqual(['a', 'b']);
+    expect(result.items[0].label).toBe('First A');
+    expect(result.items[0].leftValue).toBe(1);
+    expect(result.items[1].rightValue).toBe(4);
+  });
+
+  it('keeps directional coloring only when both sides agree', () => {
+    const left: TableStatistic[] = [{ key: 'x', label: 'X', value: 1, unit: 'count', badWhen: 'higher' }];
+    const right: TableStatistic[] = [{ key: 'x', label: 'X', value: 2, unit: 'count', badWhen: 'lower' }];
+    expect(computeStatsDiff(left, right).items[0].badWhen).toBeUndefined();
   });
 });
 

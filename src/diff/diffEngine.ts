@@ -1,6 +1,6 @@
 import { ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
 import { quoteTable } from '../utils/queryHelpers';
-import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult } from './diffTypes';
+import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult, StatsDiffSummary } from './diffTypes';
 
 /**
  * Generate the default diff query for a given table.
@@ -35,12 +35,67 @@ export function stringifyCell(value: unknown): string {
   return String(value);
 }
 
+/** Numeric types whose values may be returned as strings by one driver and
+ * numbers by another (for example PostgreSQL numeric vs ClickHouse Decimal). */
+function isNumericColumnType(dataType: string | undefined): boolean {
+  if (!dataType) return false;
+  return /^(int|integer|bigint|smallint|tinyint|float|double|real|numeric|decimal|number|serial|bigserial|money|oid|uint|int\d|uint\d|float\d)/i.test(dataType.trim());
+}
+
+/**
+ * Canonicalize a decimal without converting it to a JavaScript Number.
+ * This keeps arbitrarily large integer/decimal values exact while treating
+ * representations such as `716.90`, `716.9`, and `7.169e2` as equal.
+ */
+function canonicalNumericCell(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'bigint') return undefined;
+  if (typeof value === 'number' && !Number.isFinite(value)) return undefined;
+
+  const text = String(value).trim();
+  const match = text.match(/^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/);
+  if (!match) return undefined;
+
+  const integerPart = match[2] || '';
+  const fractionPart = match[3] !== undefined ? match[3] : (match[4] || '');
+  let digits = (integerPart || '0') + fractionPart;
+  if (!/[1-9]/.test(digits)) return '0';
+
+  digits = digits.replace(/^0+/, '');
+  const trailingZeroCount = (digits.match(/0+$/)?.[0].length) || 0;
+  if (trailingZeroCount > 0) digits = digits.slice(0, -trailingZeroCount);
+
+  const exponent = Number(match[5] || 0) - fractionPart.length + trailingZeroCount;
+  if (!Number.isSafeInteger(exponent)) return undefined;
+  return `${match[1] === '-' ? '-' : ''}${digits}e${exponent}`;
+}
+
+function cellsEqual(
+  leftValue: unknown,
+  rightValue: unknown,
+  leftType: string | undefined,
+  rightType: string | undefined,
+): boolean {
+  if (isNumericColumnType(leftType) && isNumericColumnType(rightType)) {
+    const leftNumeric = canonicalNumericCell(leftValue);
+    const rightNumeric = canonicalNumericCell(rightValue);
+    if (leftNumeric !== undefined && rightNumeric !== undefined) return leftNumeric === rightNumeric;
+  }
+  return stringifyCell(leftValue) === stringifyCell(rightValue);
+}
+
 /**
  * Build a composite key string from a row's key columns.
  * Uses null-byte separator to avoid collisions.
  */
-function buildRowKey(row: Record<string, unknown>, keyColumns: string[]): string {
-  return keyColumns.map(col => stringifyCell(row[col])).join('\0');
+function buildRowKey(
+  row: Record<string, unknown>,
+  keyColumns: string[],
+  numericKeyColumns: ReadonlySet<string>,
+): string {
+  return keyColumns.map(col => {
+    if (numericKeyColumns.has(col)) return canonicalNumericCell(row[col]) ?? stringifyCell(row[col]);
+    return stringifyCell(row[col]);
+  }).join('\0');
 }
 
 /**
@@ -61,12 +116,17 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
   const allColumnsSet = new Set([...leftColNames, ...rightColNames]);
   const allColumns = [...allColumnsSet];
   const nonKeyColumns = allColumns.filter(col => !keyColumns.includes(col));
+  const leftTypes = new Map(left.columns.map(column => [column.name, column.dataType]));
+  const rightTypes = new Map(right.columns.map(column => [column.name, column.dataType]));
+  const numericKeyColumns = new Set(keyColumns.filter(column =>
+    isNumericColumnType(leftTypes.get(column)) && isNumericColumnType(rightTypes.get(column))
+  ));
 
   // Build index for right side (key -> row)
   // If duplicate keys exist, last occurrence wins
   const rightIndex = new Map<string, Record<string, unknown>>();
   for (const row of rightRows) {
-    rightIndex.set(buildRowKey(row, keyColumns), row);
+    rightIndex.set(buildRowKey(row, keyColumns, numericKeyColumns), row);
   }
 
   const matched: MatchedRow[] = [];
@@ -76,7 +136,7 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
   // Pass 1: iterate left rows, match against right index
   const matchedKeys = new Set<string>();
   for (const leftRow of leftRows) {
-    const key = buildRowKey(leftRow, keyColumns);
+    const key = buildRowKey(leftRow, keyColumns, numericKeyColumns);
     const rightRow = rightIndex.get(key);
 
     if (rightRow) {
@@ -84,7 +144,7 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
       // Compare non-key columns
       const changedColumns: string[] = [];
       for (const col of nonKeyColumns) {
-        if (stringifyCell(leftRow[col]) !== stringifyCell(rightRow[col])) {
+        if (!cellsEqual(leftRow[col], rightRow[col], leftTypes.get(col), rightTypes.get(col))) {
           changedColumns.push(col);
         }
       }
@@ -100,7 +160,7 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
   // Pass 2: remaining right rows not matched
   const rightOnly: Record<string, unknown>[] = [];
   for (const row of rightRows) {
-    const key = buildRowKey(row, keyColumns);
+    const key = buildRowKey(row, keyColumns, numericKeyColumns);
     if (!matchedKeys.has(key)) {
       rightOnly.push(row);
     }
@@ -441,30 +501,96 @@ export function toggleFilter(
 /**
  * Compute diff between two lists of table statistics.
  * Matches items by key, preserves order of left (right-only items appended at the end).
+ *
+ * When `options.crossType` is true (the two sides are connections of different DB
+ * types, e.g. PG ↔ ClickHouse), the result is restricted to metrics present on
+ * both sides and explicitly declared semantically comparable — other metrics are dropped from
+ * `items` and reported via `summary.leftHiddenCount` / `summary.rightHiddenCount` so
+ * the UI can report how many metrics from each side were hidden without
+ * misleading the user (e.g. showing a PG `dead_tuples` row with
+ * an empty right cell just because ClickHouse doesn't have that concept).
  */
 export function computeStatsDiff(
   leftStats: TableStatistic[] | undefined,
   rightStats: TableStatistic[] | undefined,
+  options?: {
+    crossType?: boolean;
+    /**
+     * Metrics whose semantics are explicitly comparable across database engines.
+     * A raw key collision is not sufficient: for example PostgreSQL and
+     * ClickHouse both expose `total_size`, but measure different storage.
+     */
+    comparableMetrics?: ReadonlyMap<string, { label: string; unit: TableStatistic['unit'] }>;
+  },
 ): StatsDiffResult {
-  const left = leftStats || [];
-  const right = rightStats || [];
-  const rightMap = new Map(right.map(stat => [stat.key, stat]));
+  const crossType = !!options?.crossType;
+  const comparableMetrics = options?.comparableMetrics ?? DEFAULT_CROSS_TYPE_METRICS;
+  const leftMap = uniqueStats(leftStats);
+  const rightMap = uniqueStats(rightStats);
 
   const items: StatsDiffItem[] = [];
-  const seen = new Set<string>();
+  const seenRight = new Set<string>();
+  let leftHiddenCount = 0;
+  let rightHiddenCount = 0;
 
-  for (const leftStat of left) {
-    seen.add(leftStat.key);
+  for (const leftStat of leftMap.values()) {
     const rightStat = rightMap.get(leftStat.key);
-    items.push(buildStatsDiffItem(leftStat, rightStat));
+    if (!rightStat) {
+      if (crossType) {
+        leftHiddenCount++;
+        continue;
+      }
+      items.push(buildStatsDiffItem(leftStat, undefined));
+      continue;
+    }
+
+    seenRight.add(rightStat.key);
+    const explicitlyComparable = !crossType
+      || comparableMetrics.has(leftStat.key);
+    const comparableMetric = comparableMetrics.get(leftStat.key);
+    const unitsMatch = leftStat.unit === rightStat.unit
+      && (!crossType || leftStat.unit === comparableMetric?.unit);
+    if (!explicitlyComparable || !unitsMatch) {
+      if (crossType) {
+        leftHiddenCount++;
+        rightHiddenCount++;
+        continue;
+      }
+    }
+
+    const item = buildStatsDiffItem(leftStat, rightStat);
+    items.push(crossType && comparableMetric
+      ? { ...item, label: comparableMetric.label, unit: comparableMetric.unit, badWhen: undefined }
+      : item);
   }
 
-  for (const rightStat of right) {
-    if (seen.has(rightStat.key)) continue;
+  for (const rightStat of rightMap.values()) {
+    if (seenRight.has(rightStat.key)) continue;
+    if (crossType) {
+      rightHiddenCount++;
+      continue;
+    }
     items.push(buildStatsDiffItem(undefined, rightStat));
   }
 
-  return { items };
+  const summary: StatsDiffSummary = { crossType, leftHiddenCount, rightHiddenCount };
+  return { items, summary };
+}
+
+const DEFAULT_CROSS_TYPE_METRICS = new Map<string, { label: string; unit: TableStatistic['unit'] }>([
+  // PostgreSQL may estimate this value while ClickHouse/SQLite return exact
+  // counts. The UI discloses that distinction; storage metrics are omitted
+  // because identical keys currently represent different physical concepts.
+  ['row_count', { label: 'Row count', unit: 'count' }],
+]);
+
+/** Keep one deterministic value per metric key while preserving first-key order. */
+function uniqueStats(stats: TableStatistic[] | undefined): Map<string, TableStatistic> {
+  const unique = new Map<string, TableStatistic>();
+  for (const stat of stats || []) {
+    if (!unique.has(stat.key)) unique.set(stat.key, stat);
+  }
+  return unique;
 }
 
 function buildStatsDiffItem(leftStat: TableStatistic | undefined, rightStat: TableStatistic | undefined): StatsDiffItem {
@@ -492,7 +618,9 @@ function buildStatsDiffItem(leftStat: TableStatistic | undefined, rightStat: Tab
     key: ref.key,
     label: ref.label,
     unit: ref.unit,
-    badWhen: ref.badWhen,
+    badWhen: leftStat && rightStat
+      ? (leftStat.badWhen === rightStat.badWhen ? leftStat.badWhen : undefined)
+      : ref.badWhen,
     leftValue,
     rightValue,
     delta,

@@ -12,6 +12,7 @@ import {
   splitStatements,
   getStatementAtOffset,
 } from '../utils/queryHelpers';
+import type { DatabaseDriver } from '../types/driver';
 
 describe('levenshtein', () => {
   it('should return 0 for identical strings', () => {
@@ -108,7 +109,7 @@ describe('enhanceColumnError', () => {
       name: 'test',
       columns: columns.map(name => ({ name, dataType: 'text', nullable: true, isPrimaryKey: false })),
     }),
-  }) as any;
+  }) as unknown as DatabaseDriver;
 
   it('should suggest closest column for PG error', async () => {
     const result = await enhanceColumnError(
@@ -166,7 +167,7 @@ describe('enhanceColumnError', () => {
   it('should handle driver.getTableInfo failure gracefully', async () => {
     const failingDriver = {
       getTableInfo: async () => { throw new Error('no access'); },
-    } as any;
+    } as unknown as DatabaseDriver;
     const error = 'column "x" does not exist';
     const result = await enhanceColumnError(error, 'SELECT x FROM users', failingDriver);
     expect(result).toBe(error);

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { CommandContext, logQueryToOutput, logAndShowError, getRequiredDriver, wrapError, customQueryCountCache } from './shared';
 import { SortColumn } from '../types/query';
-import { enhanceColumnError, buildUpdateSql, buildDeleteSql, buildInsertDefaultSql, buildInsertRowSql, splitCustomQueryLimit, isReadOnlyQuery } from '../utils/queryHelpers';
+import { enhanceColumnError, buildUpdateSql, buildDeleteSql, buildInsertDefaultSql, buildInsertRowSql, splitCustomQueryLimit, isReadOnlyQuery, RowEdit } from '../utils/queryHelpers';
 import { dbg } from '../utils/debug';
 
 export function registerTableCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
@@ -15,13 +15,15 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
       const title = `${item.schemaObject.name} — ${state?.config.name}`;
       const color = connectionManager.getConnectionColor(item.connectionId);
       resultPanelManager.showLoading(title, { color });
-
-      const driver = await getRequiredDriver(connectionManager, item.connectionId, item.databaseName);
-      if (!driver) { resultPanelManager.closePanel(title); return; }
-
       const pageSize = 100;
 
       try {
+        const driver = state?.connected
+          ? await connectionManager.ensureDriver(item.connectionId, item.databaseName)
+          : await vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Connecting...') },
+            () => connectionManager.ensureDriver(item.connectionId!, item.databaseName),
+          );
         const tableInfo = await driver.getTableInfo(item.schemaObject.name, item.schemaObject.schema);
         const pkColumns = tableInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
 
@@ -110,7 +112,7 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._saveEdits', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], edits: any[], databaseName?: string, explicitPanelKey?: string) => {
+    vscode.commands.registerCommand('viewstor._saveEdits', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], edits: RowEdit[], databaseName?: string, explicitPanelKey?: string) => {
       dbg('saveEdits', 'connectionId:', connectionId, 'table:', tableName, 'schema:', schema, 'pkColumns:', pkColumns, 'edits:', edits.length, 'db:', databaseName, 'panelKey:', explicitPanelKey);
       const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) { dbg('saveEdits', 'no driver found'); return; }
@@ -207,7 +209,7 @@ export function registerTableCommands(context: vscode.ExtensionContext, ctx: Com
       }
     }),
 
-    vscode.commands.registerCommand('viewstor._saveAll', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], inserts: Array<{ values: Record<string, unknown>; columnTypes: Record<string, string> }>, edits: any[], databaseName?: string, explicitPanelKey?: string) => {
+    vscode.commands.registerCommand('viewstor._saveAll', async (connectionId: string, tableName: string, schema: string | undefined, pkColumns: string[], inserts: Array<{ values: Record<string, unknown>; columnTypes: Record<string, string> }>, edits: RowEdit[], databaseName?: string, explicitPanelKey?: string) => {
       dbg('saveAll', 'table:', tableName, 'inserts:', inserts.length, 'edits:', edits.length);
       const driver = await getRequiredDriver(connectionManager, connectionId, databaseName);
       if (!driver) return;

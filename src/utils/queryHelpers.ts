@@ -239,12 +239,19 @@ export function sqlValue(val: unknown, dataType?: string): string {
   return `'${str.replace(/'/g, '\'\'')}'`;
 }
 
+export interface RowEdit {
+  changes: Record<string, unknown>;
+  columnTypes?: Record<string, string>;
+  pkValues: Record<string, unknown>;
+  pkTypes?: Record<string, string>;
+}
+
 /** Build UPDATE statement from edit object */
 export function buildUpdateSql(
   tableName: string,
   schema: string | undefined,
   pkColumns: string[],
-  edit: { changes: Record<string, unknown>; columnTypes?: Record<string, string>; pkValues: Record<string, unknown>; pkTypes?: Record<string, string> },
+  edit: RowEdit,
 ): string {
   const setClauses = Object.entries(edit.changes)
     .map(([col, val]) => {

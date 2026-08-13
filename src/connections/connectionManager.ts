@@ -6,6 +6,7 @@ import { ConnectionConfig, ConnectionState, ConnectionFolder } from '../types/co
 import { DatabaseDriver } from '../types/driver';
 import { SchemaObject } from '../types/schema';
 import { createDriver } from '../drivers';
+import { AnonymizationPolicy, resolveAnonymizationPolicy } from '../mcp/anonymizer';
 
 const STORAGE_KEY = 'viewstor.connections';
 const FOLDERS_KEY = 'viewstor.connectionFolders';
@@ -22,6 +23,7 @@ export class ConnectionManager {
   private connections: Map<string, ConnectionState> = new Map();
   private drivers: Map<string, DatabaseDriver> = new Map();
   private dbDrivers: Map<string, DatabaseDriver> = new Map(); // connectionId:database → driver
+  private primaryDriverLocks: Map<string, Promise<DatabaseDriver>> = new Map(); // connectionId → in-flight reconnect
   private dbDriverLocks: Map<string, Promise<DatabaseDriver>> = new Map(); // in-flight driver creation
   private folders: Map<string, ConnectionFolder> = new Map();
   private readonly _onDidChange = new vscode.EventEmitter<void>();
@@ -176,6 +178,37 @@ export class ConnectionManager {
 
   getDriver(id: string): DatabaseDriver | undefined {
     return this.drivers.get(id);
+  }
+
+  /** Return a usable driver, reconnecting a disconnected connection when needed. */
+  async ensureDriver(connectionId: string, database?: string): Promise<DatabaseDriver> {
+    const state = this.connections.get(connectionId);
+    if (!state) throw new Error('Connection not found');
+
+    if (!database || state.config.database === database) {
+      const driver = this.drivers.get(connectionId);
+      if (driver) return driver;
+
+      const inflight = this.primaryDriverLocks.get(connectionId);
+      if (inflight) return inflight;
+
+      const reconnect = (async () => {
+        await this.connect(connectionId);
+        const connectedDriver = this.drivers.get(connectionId);
+        if (!connectedDriver) throw new Error('Connection driver unavailable');
+        return connectedDriver;
+      })();
+      this.primaryDriverLocks.set(connectionId, reconnect);
+      try {
+        return await reconnect;
+      } finally {
+        if (this.primaryDriverLocks.get(connectionId) === reconnect) {
+          this.primaryDriverLocks.delete(connectionId);
+        }
+      }
+    }
+
+    return this.getDriverForDatabase(connectionId, database);
   }
 
   /** Get or create a cached driver for a specific database within a multi-DB connection */
@@ -384,7 +417,7 @@ export class ConnectionManager {
     this._onDidChange.fire();
   }
 
-  async updateFolder(id: string, updates: Partial<Pick<ConnectionFolder, 'name' | 'color' | 'readonly' | 'sortOrder'>>): Promise<void> {
+  async updateFolder(id: string, updates: Partial<Pick<ConnectionFolder, 'name' | 'color' | 'readonly' | 'sortOrder' | 'agentAnonymization' | 'agentAnonymizationStrategy'>>): Promise<void> {
     const folder = this.folders.get(id);
     if (!folder) return;
     Object.assign(folder, updates);
@@ -433,6 +466,13 @@ export class ConnectionManager {
       return this.folders.get(state.config.folderId)?.readonly || false;
     }
     return false;
+  }
+
+  /** Resolve the effective anonymization policy, walking folder inheritance. */
+  getAnonymizationPolicy(id: string): AnonymizationPolicy {
+    const state = this.connections.get(id);
+    if (!state) return { mode: 'off', strategy: 'hash' };
+    return resolveAnonymizationPolicy(state.config, fid => this.folders.get(fid));
   }
 
   dispose() {

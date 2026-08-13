@@ -117,11 +117,13 @@ export class ClickHouseDriver implements DatabaseDriver {
     const allTables = await tablesResult.json<{ database: string; name: string; engine: string; total_rows: number; total_bytes: number }[]>();
 
     const colsResult = await this.client!.query({
-      query: 'SELECT database, table, name, type FROM system.columns WHERE database IN ({dbs:Array(String)})',
+      query: 'SELECT database, table, name, type, comment FROM system.columns WHERE database IN ({dbs:Array(String)})',
       format: 'JSONEachRow',
       query_params: { dbs: dbNames },
     });
-    const allCols = await colsResult.json<{ database: string; table: string; name: string; type: string }[]>();
+    const allCols = await colsResult.json<{
+      database: string; table: string; name: string; type: string; comment: string;
+    }[]>();
 
     // Build columns map: "db.table" -> SchemaObject[]
     const colsMap = new Map<string, SchemaObject[]>();
@@ -133,6 +135,7 @@ export class ClickHouseDriver implements DatabaseDriver {
         type: 'column' as const,
         schema: c.database,
         detail: c.type,
+        comment: c.comment || undefined,
       });
     }
 
@@ -288,7 +291,7 @@ export class ClickHouseDriver implements DatabaseDriver {
         query: `SELECT
                   countIf(active) AS active_parts,
                   count() AS total_parts,
-                  max(modification_time) AS last_modified
+                  formatDateTime(maxIf(modification_time, active), '%FT%TZ', 'UTC') AS last_modified
                 FROM system.parts
                 WHERE database = {db:String} AND table = {name:String}`,
         format: 'JSONEachRow',
@@ -300,7 +303,7 @@ export class ClickHouseDriver implements DatabaseDriver {
         totalParts = parseInt(String(partsRows[0].total_parts), 10);
         if (!Number.isFinite(activeParts)) activeParts = null;
         if (!Number.isFinite(totalParts)) totalParts = null;
-        lastModified = partsRows[0].last_modified && partsRows[0].last_modified !== '1970-01-01 00:00:00'
+        lastModified = partsRows[0].last_modified && partsRows[0].last_modified !== '1970-01-01T00:00:00Z'
           ? partsRows[0].last_modified
           : null;
       }
@@ -329,7 +332,7 @@ export class ClickHouseDriver implements DatabaseDriver {
       { key: 'lifetime_bytes', label: 'Lifetime bytes inserted', value: toNumber(row?.lifetime_bytes), unit: 'bytes' },
       { key: 'engine', label: 'Engine', value: row?.engine ?? null, unit: 'text' },
       { key: 'metadata_modified', label: 'Metadata modified', value: row?.metadata_modification_time ?? null, unit: 'date' },
-      { key: 'last_modified', label: 'Last modified', value: lastModified, unit: 'date' },
+      { key: 'last_modified', label: 'Latest active part write', value: lastModified, unit: 'date' },
     ];
   }
 

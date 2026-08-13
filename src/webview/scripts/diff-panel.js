@@ -90,6 +90,74 @@
     });
   });
 
+  // ---- Row search (shared UX with Result Grid) ----
+  const searchInput = document.getElementById('diffSearchInput');
+  const searchCount = document.getElementById('diffSearchCount');
+  let searchTerm = '';
+  let searchHits = [];
+  let searchIndex = -1;
+
+  function refreshRowSearch() {
+    document.querySelectorAll('.diff-table td.search-hit, .diff-table td.search-focus').forEach(function (cell) {
+      cell.classList.remove('search-hit', 'search-focus');
+    });
+    searchHits = [];
+    searchIndex = -1;
+    if (!searchTerm) {
+      if (searchCount) searchCount.textContent = '';
+      return;
+    }
+    document.querySelectorAll('#leftTableBody td, #rightTableBody td').forEach(function (cell) {
+      if (String(cell.textContent || '').toLocaleLowerCase().includes(searchTerm)) {
+        cell.classList.add('search-hit');
+        searchHits.push(cell);
+      }
+    });
+    if (searchCount) searchCount.textContent = searchHits.length > 0 ? searchHits.length + ' found' : 'no match';
+  }
+
+  function focusSearchHit(direction) {
+    if (searchHits.length === 0) return;
+    document.querySelectorAll('.diff-table td.search-focus').forEach(function (cell) {
+      cell.classList.remove('search-focus');
+    });
+    searchIndex = (searchIndex + direction + searchHits.length) % searchHits.length;
+    const cell = searchHits[searchIndex];
+    cell.classList.add('search-focus');
+    cell.scrollIntoView({ block: 'center', inline: 'center' });
+    if (searchCount) searchCount.textContent = (searchIndex + 1) + ' / ' + searchHits.length;
+  }
+
+  function clearRowSearch() {
+    if (!searchInput) return;
+    searchInput.value = '';
+    searchTerm = '';
+    refreshRowSearch();
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', function () {
+      searchTerm = String(searchInput.value || '').trim().toLocaleLowerCase();
+      refreshRowSearch();
+    });
+    searchInput.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' && searchHits.length > 0) {
+        event.preventDefault();
+        focusSearchHit(event.shiftKey ? -1 : 1);
+      } else if (event.key === 'Escape' && searchTerm) {
+        event.preventDefault();
+        clearRowSearch();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', function (event) {
+    if (activeTab !== 'rows' || !(event.ctrlKey || event.metaKey) || event.code !== 'KeyF' || !searchInput) return;
+    event.preventDefault();
+    searchInput.focus();
+    searchInput.select();
+  });
+
   // ---- Export + swap buttons ----
   const exportCsvBtn = document.getElementById('exportCsv');
   const exportJsonBtn = document.getElementById('exportJson');
@@ -373,6 +441,7 @@
 
     leftBody.innerHTML = leftHtml;
     rightBody.innerHTML = rightHtml;
+    refreshRowSearch();
 
     if (!window.__diffScrollSyncWired) {
       window.__diffScrollSyncWired = true;

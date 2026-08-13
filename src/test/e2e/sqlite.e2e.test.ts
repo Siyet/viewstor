@@ -210,6 +210,40 @@ describe('SQLite Driver E2E', () => {
     expect(viewObj.children![0].type).toBe('column');
   });
 
+  it('getForeignKeys returns table relationships', async () => {
+    const foreignKeys = await driver.getForeignKeys!();
+    expect(foreignKeys).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceTable: 'orders',
+        sourceColumns: ['user_id'],
+        targetTable: 'users',
+        targetColumns: ['id'],
+      }),
+    ]));
+  });
+
+  it('getTableStatistics exposes normalized keys and includes index pages', async () => {
+    const stats = await driver.getTableStatistics!('users');
+    const byKey = new Map(stats.map(stat => [stat.key, stat]));
+    const count = await driver.execute('SELECT COUNT(*) AS count FROM users');
+
+    expect(byKey.get('row_count')).toMatchObject({ value: count.rows[0].count, unit: 'count' });
+    expect(byKey.get('last_modified')).toMatchObject({ value: null, unit: 'date' });
+    expect(byKey.get('table_size')?.value).toEqual(expect.any(Number));
+    expect(byKey.get('total_size')?.value).toEqual(expect.any(Number));
+    expect(Number(byKey.get('total_size')!.value)).toBeGreaterThanOrEqual(Number(byKey.get('table_size')!.value));
+  });
+
+  it('getTableStatistics keeps view storage unknown instead of reporting 0 B', async () => {
+    const stats = await driver.getTableStatistics!('user_order_summary');
+    const byKey = new Map(stats.map(stat => [stat.key, stat]));
+    const count = await driver.execute('SELECT COUNT(*) AS count FROM user_order_summary');
+
+    expect(byKey.get('row_count')?.value).toBe(count.rows[0].count);
+    expect(byKey.get('table_size')?.value).toBeNull();
+    expect(byKey.get('total_size')?.value).toBeNull();
+  });
+
   it.each([
     ['table', 'users', ['CREATE TABLE', 'users', 'id', 'name']],
     ['view', 'user_order_summary', ['CREATE VIEW', 'user_order_summary']],
