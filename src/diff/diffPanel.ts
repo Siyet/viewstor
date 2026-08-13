@@ -4,6 +4,7 @@ import { DiffSource, DiffOptions, RowDiffResult, SchemaDiffResult, ObjectsDiffRe
 import { buildDefaultDiffQuery, computeRowDiff, computeSchemaDiff, computeObjectsDiff, computeStatsDiff, exportDiffAsCsv, exportDiffAsJson, isReadOnlyStatement } from './diffEngine';
 import { ColumnInfo, TableObjects, TableStatistic } from '../types/schema';
 import type { ConnectionManager } from '../connections/connectionManager';
+import type { DatabaseType } from '../types/connection';
 import { wrapError } from '../utils/errors';
 
 interface DiffState {
@@ -22,18 +23,26 @@ interface DiffState {
   leftStats?: TableStatistic[];
   rightStats?: TableStatistic[];
   /** DB type of the left connection (undefined when we have no connection manager / the source is a query-only DiffSource). */
-  leftType?: string;
+  leftType?: DatabaseType;
   /** DB type of the right connection. */
-  rightType?: string;
+  rightType?: DatabaseType;
   leftQuery: string;
   rightQuery: string;
   syncMode: boolean;
   /** Monotonic token; drops stale `runDiffQuery` results on swap/rerun races. */
   queryRunId: number;
+  disposed: boolean;
   disposable: vscode.Disposable;
 }
 
 export type { DiffState };
+
+const DATABASE_TYPE_LABELS: Record<DatabaseType, string> = {
+  postgresql: 'PostgreSQL',
+  clickhouse: 'ClickHouse',
+  sqlite: 'SQLite',
+  redis: 'Redis',
+};
 
 export class DiffPanelManager {
   private readonly diffs = new Map<string, DiffState>();
@@ -50,7 +59,7 @@ export class DiffPanelManager {
     return this.diffs.size;
   }
 
-  /** Whether a diff panel exists for the given key (`diff:<title>`). */
+  /** Whether a diff panel exists for the given canonical source-pair key. */
   hasDiff(panelKey: string): boolean {
     return this.diffs.has(panelKey);
   }
@@ -91,7 +100,7 @@ export class DiffPanelManager {
       : null;
 
     const panelTitle = `Diff \u2014 ${left.label} \u2194 ${right.label}`;
-    const panelKey = `diff:${panelTitle}`;
+    const panelKey = buildDiffPanelKey(left, right);
 
     const defaultLeftQuery = left.tableName ? buildDefaultDiffQuery(left.tableName, left.schema, options.rowLimit) : '';
     const defaultRightQuery = right.tableName ? buildDefaultDiffQuery(right.tableName, right.schema, options.rowLimit) : '';
@@ -102,6 +111,7 @@ export class DiffPanelManager {
     let state = this.diffs.get(panelKey);
     if (state) {
       state.panel.reveal();
+      state.panel.title = panelTitle;
       state.left = left;
       state.right = right;
       state.options = options;
@@ -136,7 +146,11 @@ export class DiffPanelManager {
       );
       panel.onDidDispose(() => {
         const diffState = this.diffs.get(panelKey);
-        if (diffState) diffState.disposable.dispose();
+        if (diffState) {
+          diffState.disposed = true;
+          diffState.queryRunId++;
+          diffState.disposable.dispose();
+        }
         this.diffs.delete(panelKey);
       });
 
@@ -161,6 +175,7 @@ export class DiffPanelManager {
         rightQuery,
         syncMode,
         queryRunId: 0,
+        disposed: false,
         disposable: new vscode.Disposable(() => {}),
       };
       this.diffs.set(panelKey, state);
@@ -247,10 +262,20 @@ export class DiffPanelManager {
     // Readonly gate: the diff editor runs arbitrary user SQL. When the
     // connection is marked readonly (own setting or inherited from folder),
     // reject any statement that isn't SELECT / WITH / EXPLAIN.
-    const leftReadonlyErr = readonlyError(cm, state.left, state.leftQuery);
-    const rightReadonlyErr = readonlyError(cm, state.right, state.rightQuery);
+    const runId = ++state.queryRunId;
+    const leftSnapshot = state.left;
+    const rightSnapshot = state.right;
+    const leftQuerySnapshot = state.leftQuery;
+    const rightQuerySnapshot = state.rightQuery;
+    const isCurrent = () => !state.disposed
+      && state.queryRunId === runId
+      && state.left === leftSnapshot
+      && state.right === rightSnapshot;
+
+    const leftReadonlyErr = readonlyError(cm, leftSnapshot, leftQuerySnapshot);
+    const rightReadonlyErr = readonlyError(cm, rightSnapshot, rightQuerySnapshot);
     if (leftReadonlyErr || rightReadonlyErr) {
-      state.panel.webview.postMessage({
+      if (isCurrent()) state.panel.webview.postMessage({
         type: 'diffQueryError',
         leftError: leftReadonlyErr,
         rightError: rightReadonlyErr,
@@ -258,18 +283,17 @@ export class DiffPanelManager {
       return;
     }
 
+    const driverPromises = new Map<string, Promise<Awaited<ReturnType<ConnectionManager['ensureDriver']>>>>();
     const getDriver = async (source: DiffSource) => {
       if (!source.connectionId) return undefined;
-      if (source.databaseName) {
-        return cm.getDriverForDatabase(source.connectionId, source.databaseName);
+      const key = `${source.connectionId}\u0000${source.databaseName || ''}`;
+      let promise = driverPromises.get(key);
+      if (!promise) {
+        promise = cm.ensureDriver(source.connectionId, source.databaseName);
+        driverPromises.set(key, promise);
       }
-      return cm.getDriver(source.connectionId);
+      return promise;
     };
-
-    // Snapshot identity markers so a swap-while-running drops the result.
-    const runId = state.queryRunId;
-    const leftSnapshot = state.left;
-    const rightSnapshot = state.right;
 
     state.panel.webview.postMessage({ type: 'diffQueryRunning' });
 
@@ -279,9 +303,9 @@ export class DiffPanelManager {
     const [leftResult, rightResult] = await Promise.all([
       (async () => {
         try {
-          const driver = await getDriver(state.left);
+          const driver = await getDriver(leftSnapshot);
           if (!driver) throw new Error('left driver unavailable');
-          return await driver.execute(state.leftQuery);
+          return await driver.execute(leftQuerySnapshot);
         } catch (err) {
           leftError = wrapError(err);
           return undefined;
@@ -289,9 +313,9 @@ export class DiffPanelManager {
       })(),
       (async () => {
         try {
-          const driver = await getDriver(state.right);
+          const driver = await getDriver(rightSnapshot);
           if (!driver) throw new Error('right driver unavailable');
-          return await driver.execute(state.rightQuery);
+          return await driver.execute(rightQuerySnapshot);
         } catch (err) {
           rightError = wrapError(err);
           return undefined;
@@ -299,9 +323,7 @@ export class DiffPanelManager {
       })(),
     ]);
 
-    if (state.queryRunId !== runId || state.left !== leftSnapshot || state.right !== rightSnapshot) {
-      return;
-    }
+    if (!isCurrent()) return;
 
     if (leftError || rightError) {
       state.panel.webview.postMessage({
@@ -324,8 +346,8 @@ export class DiffPanelManager {
       return;
     }
 
-    state.left = { ...state.left, columns: leftResult!.columns, rows: leftResult!.rows };
-    state.right = { ...state.right, columns: rightResult!.columns, rows: rightResult!.rows };
+    state.left = { ...leftSnapshot, columns: leftResult!.columns, rows: leftResult!.rows };
+    state.right = { ...rightSnapshot, columns: rightResult!.columns, rows: rightResult!.rows };
     state.rowDiff = computeRowDiff(state.left, state.right, state.options);
 
     state.panel.webview.postMessage({
@@ -366,7 +388,10 @@ export class DiffPanelManager {
 
     const summary = state.rowDiff.summary;
     const hasSchema = !!state.schemaDiff;
-    const hasStats = !!state.statsDiff;
+    const hiddenStats = (state.statsDiff?.summary.leftHiddenCount || 0)
+      + (state.statsDiff?.summary.rightHiddenCount || 0);
+    const hasStats = !!state.statsDiff && (state.statsDiff.items.length > 0 || hiddenStats > 0);
+    const hasComparableStats = !!state.statsDiff?.items.length;
 
     // Counts for Schema Diff tab badge
     let schemaDiffers = 0, schemaSame = 0;
@@ -572,7 +597,7 @@ export class DiffPanelManager {
       <span class="${statsTabBadgeClass}" id="tabBadge-stats" aria-hidden="true">${esc(String(statsDiffers))}</span>
     </vscode-tab-header>
     <vscode-tab-panel>
-      <div class="diff-toolbar" data-tab="stats">
+      ${hasComparableStats ? `<div class="diff-toolbar" data-tab="stats">
         <div class="diff-summary-filters" data-for="stats">
           <button type="button" class="diff-chip differs active" data-filter="differs" aria-pressed="true">
             <span class="diff-chip-count" id="chip-stats-differs">${esc(String(statsDiffers))}</span> differs
@@ -583,7 +608,7 @@ export class DiffPanelManager {
           <span class="diff-filter-hint" title="Shift+click to toggle multiple at once">Click to solo \u00B7 Shift+click to toggle</span>
         </div>
         <span class="diff-toolbar-spacer"></span>
-      </div>
+      </div>` : ''}
 
       <div class="diff-source-bar">
         <div class="diff-source-item">
@@ -599,17 +624,17 @@ export class DiffPanelManager {
 
       ${renderCrossTypeBanner(state)}
 
-      <div class="diff-stats-container">
+      ${hasComparableStats ? `<div class="diff-stats-container">
         <div id="statsZeroSummary" class="diff-stats-zero-summary" hidden></div>
         <div id="statsChart"></div>
         <div id="statsNonNumeric"></div>
-      </div>
+      </div>` : '<div class="diff-stats-empty"><vscode-icon name="info" aria-hidden="true"></vscode-icon><span>No comparable statistics are available for these database types.</span></div>'}
     </vscode-tab-panel>
     ` : ''}
   </vscode-tabs>
 
   <script>window.diffData = ${safeJsonForScript(diffData)};</script>
-  ${hasStats ? `<script src="${echartsUri}"></script>` : ''}
+  ${hasComparableStats ? `<script src="${echartsUri}"></script>` : ''}
   <script src="${jsUri}"></script>
 </body>
 </html>`;
@@ -632,24 +657,34 @@ function esc(str: string): string {
 }
 
 /**
- * Render the cross-type stats info banner. Shown only when the two sides are
- * connections of different DB types AND at least one per-side metric was
- * dropped from the diff (leftOnly + rightOnly > 0). Explains to the user why
- * the metric set is narrower than the per-side panels would suggest.
+ * Render the cross-type stats info banner. It explains the narrower semantic
+ * metric contract and discloses PostgreSQL's estimated row counts.
  */
 function renderCrossTypeBanner(state: DiffState): string {
   const summary = state.statsDiff?.summary;
   if (!summary || !summary.crossType) return '';
-  const hidden = summary.leftOnlyCount + summary.rightOnlyCount;
-  if (hidden === 0) return '';
   const common = state.statsDiff!.items.length;
-  const leftName = state.leftType || 'left';
-  const rightName = state.rightType || 'right';
+  const leftName = state.leftType ? DATABASE_TYPE_LABELS[state.leftType] : 'Left';
+  const rightName = state.rightType ? DATABASE_TYPE_LABELS[state.rightType] : 'Right';
   const parts: string[] = [];
-  if (summary.leftOnlyCount > 0) parts.push(`${summary.leftOnlyCount} ${esc(leftName)}-specific`);
-  if (summary.rightOnlyCount > 0) parts.push(`${summary.rightOnlyCount} ${esc(rightName)}-specific`);
-  const hiddenClause = parts.length > 0 ? `${parts.join(' and ')} metric${hidden === 1 ? '' : 's'} hidden.` : '';
-  return `<div class="diff-cross-type-banner" role="note"><vscode-icon name="info"></vscode-icon> <span>Comparing ${esc(leftName)} \u2194 ${esc(rightName)} \u2014 showing ${common} metric${common === 1 ? '' : 's'} common to both. ${hiddenClause}</span></div>`;
+  if (summary.leftHiddenCount > 0) parts.push(`${summary.leftHiddenCount} ${esc(leftName)} metric${summary.leftHiddenCount === 1 ? '' : 's'}`);
+  if (summary.rightHiddenCount > 0) parts.push(`${summary.rightHiddenCount} ${esc(rightName)} metric${summary.rightHiddenCount === 1 ? '' : 's'}`);
+  const hiddenClause = parts.length > 0 ? ` ${parts.join(' and ')} not comparable and hidden.` : '';
+  const estimateNote = state.leftType === 'postgresql' || state.rightType === 'postgresql'
+    ? ' PostgreSQL row counts may be estimated.'
+    : '';
+  return `<div class="diff-cross-type-banner" role="note"><vscode-icon name="info" aria-hidden="true"></vscode-icon> <span>Comparing ${esc(leftName)} \u2194 ${esc(rightName)} \u2014 showing ${common} comparable metric${common === 1 ? '' : 's'}.${hiddenClause}${estimateNote}</span></div>`;
+}
+
+function buildDiffPanelKey(left: DiffSource, right: DiffSource): string {
+  const identity = (source: DiffSource) => [
+    source.connectionId || '',
+    source.databaseName || '',
+    source.schema || '',
+    source.tableName || '',
+    source.label,
+  ].join('\u0000');
+  return `diff:${[identity(left), identity(right)].sort().join('\u0001')}`;
 }
 
 function safeJsonForScript(data: unknown): string {

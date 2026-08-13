@@ -23,6 +23,7 @@ export class ConnectionManager {
   private connections: Map<string, ConnectionState> = new Map();
   private drivers: Map<string, DatabaseDriver> = new Map();
   private dbDrivers: Map<string, DatabaseDriver> = new Map(); // connectionId:database → driver
+  private primaryDriverLocks: Map<string, Promise<DatabaseDriver>> = new Map(); // connectionId → in-flight reconnect
   private dbDriverLocks: Map<string, Promise<DatabaseDriver>> = new Map(); // in-flight driver creation
   private folders: Map<string, ConnectionFolder> = new Map();
   private readonly _onDidChange = new vscode.EventEmitter<void>();
@@ -185,13 +186,26 @@ export class ConnectionManager {
     if (!state) throw new Error('Connection not found');
 
     if (!database || state.config.database === database) {
-      let driver = this.drivers.get(connectionId);
-      if (!driver) {
+      const driver = this.drivers.get(connectionId);
+      if (driver) return driver;
+
+      const inflight = this.primaryDriverLocks.get(connectionId);
+      if (inflight) return inflight;
+
+      const reconnect = (async () => {
         await this.connect(connectionId);
-        driver = this.drivers.get(connectionId);
+        const connectedDriver = this.drivers.get(connectionId);
+        if (!connectedDriver) throw new Error('Connection driver unavailable');
+        return connectedDriver;
+      })();
+      this.primaryDriverLocks.set(connectionId, reconnect);
+      try {
+        return await reconnect;
+      } finally {
+        if (this.primaryDriverLocks.get(connectionId) === reconnect) {
+          this.primaryDriverLocks.delete(connectionId);
+        }
       }
-      if (!driver) throw new Error('Connection driver unavailable');
-      return driver;
     }
 
     return this.getDriverForDatabase(connectionId, database);

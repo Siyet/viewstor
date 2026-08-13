@@ -219,10 +219,24 @@ vscode-tab-panel[hidden] {
   gap: 6px;
   padding: 6px 12px;
   font-size: 12px;
-  color: var(--vscode-editorInfo-foreground, var(--vscode-foreground));
-  background: var(--vscode-editorInfo-background, rgba(100, 160, 220, 0.08));
-  border-bottom: 1px solid var(--viewstor-border-subtle);
+  color: var(--vscode-inputValidation-infoForeground, var(--vscode-foreground));
+  background: var(--vscode-inputValidation-infoBackground, rgba(100, 160, 220, 0.08));
+  border: 1px solid var(--vscode-inputValidation-infoBorder, var(--viewstor-border-subtle));
   flex-shrink: 0;
+}
+
+.diff-stats-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 120px;
+  padding: 24px;
+  color: var(--viewstor-text-dimmed, var(--vscode-descriptionForeground));
+}
+
+@media (forced-colors: active) {
+  .diff-cross-type-banner { border-color: CanvasText; }
 }
 
 /* ---- SQL editor (collapsible body) ---- */
@@ -642,12 +656,6 @@ vscode-tab-panel[hidden] {
 #statsChart {
   width: 100%;
   min-height: 200px;
-}
-
-.diff-stats-empty {
-  padding: 20px;
-  color: var(--viewstor-text-dimmed);
-  font-style: italic;
 }
 
 #statsNonNumeric {

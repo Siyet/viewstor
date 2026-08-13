@@ -443,53 +443,94 @@ export function toggleFilter(
  * Matches items by key, preserves order of left (right-only items appended at the end).
  *
  * When `options.crossType` is true (the two sides are connections of different DB
- * types, e.g. PG ↔ ClickHouse), the result is restricted to the intersection of
- * metric keys present on both sides — driver-specific metrics are dropped from
- * `items` and reported via `summary.leftOnlyCount` / `summary.rightOnlyCount` so
- * the UI can surface "N left-type-specific and M right-type-specific metrics
- * hidden" without misleading the user (e.g. showing a PG `dead_tuples` row with
+ * types, e.g. PG ↔ ClickHouse), the result is restricted to metrics present on
+ * both sides and explicitly declared semantically comparable — other metrics are dropped from
+ * `items` and reported via `summary.leftHiddenCount` / `summary.rightHiddenCount` so
+ * the UI can report how many metrics from each side were hidden without
+ * misleading the user (e.g. showing a PG `dead_tuples` row with
  * an empty right cell just because ClickHouse doesn't have that concept).
  */
 export function computeStatsDiff(
   leftStats: TableStatistic[] | undefined,
   rightStats: TableStatistic[] | undefined,
-  options?: { crossType?: boolean },
+  options?: {
+    crossType?: boolean;
+    /**
+     * Metrics whose semantics are explicitly comparable across database engines.
+     * A raw key collision is not sufficient: for example PostgreSQL and
+     * ClickHouse both expose `total_size`, but measure different storage.
+     */
+    comparableMetrics?: ReadonlyMap<string, { label: string; unit: TableStatistic['unit'] }>;
+  },
 ): StatsDiffResult {
   const crossType = !!options?.crossType;
-  const left = leftStats || [];
-  const right = rightStats || [];
-  const rightMap = new Map(right.map(stat => [stat.key, stat]));
+  const comparableMetrics = options?.comparableMetrics ?? DEFAULT_CROSS_TYPE_METRICS;
+  const leftMap = uniqueStats(leftStats);
+  const rightMap = uniqueStats(rightStats);
 
   const items: StatsDiffItem[] = [];
-  const seen = new Set<string>();
-  let leftOnlyCount = 0;
-  let rightOnlyCount = 0;
+  const seenRight = new Set<string>();
+  let leftHiddenCount = 0;
+  let rightHiddenCount = 0;
 
-  for (const leftStat of left) {
-    seen.add(leftStat.key);
+  for (const leftStat of leftMap.values()) {
     const rightStat = rightMap.get(leftStat.key);
     if (!rightStat) {
       if (crossType) {
-        leftOnlyCount++;
+        leftHiddenCount++;
         continue;
       }
       items.push(buildStatsDiffItem(leftStat, undefined));
-    } else {
-      items.push(buildStatsDiffItem(leftStat, rightStat));
+      continue;
     }
+
+    seenRight.add(rightStat.key);
+    const explicitlyComparable = !crossType
+      || comparableMetrics.has(leftStat.key);
+    const comparableMetric = comparableMetrics.get(leftStat.key);
+    const unitsMatch = leftStat.unit === rightStat.unit
+      && (!crossType || leftStat.unit === comparableMetric?.unit);
+    if (!explicitlyComparable || !unitsMatch) {
+      if (crossType) {
+        leftHiddenCount++;
+        rightHiddenCount++;
+        continue;
+      }
+    }
+
+    const item = buildStatsDiffItem(leftStat, rightStat);
+    items.push(crossType && comparableMetric
+      ? { ...item, label: comparableMetric.label, unit: comparableMetric.unit, badWhen: undefined }
+      : item);
   }
 
-  for (const rightStat of right) {
-    if (seen.has(rightStat.key)) continue;
+  for (const rightStat of rightMap.values()) {
+    if (seenRight.has(rightStat.key)) continue;
     if (crossType) {
-      rightOnlyCount++;
+      rightHiddenCount++;
       continue;
     }
     items.push(buildStatsDiffItem(undefined, rightStat));
   }
 
-  const summary: StatsDiffSummary = { crossType, leftOnlyCount, rightOnlyCount };
+  const summary: StatsDiffSummary = { crossType, leftHiddenCount, rightHiddenCount };
   return { items, summary };
+}
+
+const DEFAULT_CROSS_TYPE_METRICS = new Map<string, { label: string; unit: TableStatistic['unit'] }>([
+  // PostgreSQL may estimate this value while ClickHouse/SQLite return exact
+  // counts. The UI discloses that distinction; storage metrics are omitted
+  // because identical keys currently represent different physical concepts.
+  ['row_count', { label: 'Row count', unit: 'count' }],
+]);
+
+/** Keep one deterministic value per metric key while preserving first-key order. */
+function uniqueStats(stats: TableStatistic[] | undefined): Map<string, TableStatistic> {
+  const unique = new Map<string, TableStatistic>();
+  for (const stat of stats || []) {
+    if (!unique.has(stat.key)) unique.set(stat.key, stat);
+  }
+  return unique;
 }
 
 function buildStatsDiffItem(leftStat: TableStatistic | undefined, rightStat: TableStatistic | undefined): StatsDiffItem {
@@ -517,7 +558,9 @@ function buildStatsDiffItem(leftStat: TableStatistic | undefined, rightStat: Tab
     key: ref.key,
     label: ref.label,
     unit: ref.unit,
-    badWhen: ref.badWhen,
+    badWhen: leftStat && rightStat
+      ? (leftStat.badWhen === rightStat.badWhen ? leftStat.badWhen : undefined)
+      : ref.badWhen,
     leftValue,
     rightValue,
     delta,

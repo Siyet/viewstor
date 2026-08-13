@@ -57,9 +57,9 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
           // Fetch table statistics from both sides when both drivers support it.
           // Cross-type comparisons (e.g. PG ↔ ClickHouse) are no longer gated out —
           // `computeStatsDiff` (called in DiffPanelManager) restricts the view to the
-          // intersection of metric keys and reports the hidden per-side counts so the
-          // user still sees row_count / total_size-style metrics that are comparable
-          // without getting misleading empty cells for driver-specific metrics.
+          // explicit semantic allowlist and reports the hidden per-side counts so the
+          // user can compare row counts without presenting same-named but incompatible
+          // storage metrics as equivalent.
           let leftStats, rightStats;
           if (leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
             try {
@@ -171,7 +171,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
           } catch { /* schema objects unavailable — diff will show columns only */ }
 
           // Fetch stats from both sides regardless of DB type; see note in
-          // `viewstor.compareWith` — the diff panel handles cross-type intersection.
+          // `viewstor.compareWith` — the diff panel applies the cross-type metric contract.
           let leftStats, rightStats;
           if (leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
             try {

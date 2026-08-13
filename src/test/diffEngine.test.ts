@@ -709,6 +709,10 @@ describe('computeStatsDiff', () => {
   // ---- Cross-type comparison (#74): intersect metric keys, count hidden per-side ----
 
   describe('cross-type mode', () => {
+    const comparableMetrics = new Map([
+      ['row_count', { label: 'Row count', unit: 'count' as const }],
+      ['total_size', { label: 'Total size', unit: 'bytes' as const }],
+    ]);
     const pgStats: TableStatistic[] = [
       { key: 'row_count', label: 'Row count', value: 1000, unit: 'count' },
       { key: 'total_size', label: 'Total size', value: 1024, unit: 'bytes' },
@@ -724,19 +728,19 @@ describe('computeStatsDiff', () => {
     ];
 
     it('restricts items to the intersection of keys', () => {
-      const result = computeStatsDiff(pgStats, chStats, { crossType: true });
+      const result = computeStatsDiff(pgStats, chStats, { crossType: true, comparableMetrics });
       expect(result.items.map(i => i.key)).toEqual(['row_count', 'total_size']);
     });
 
     it('reports hidden per-side counts in summary', () => {
-      const result = computeStatsDiff(pgStats, chStats, { crossType: true });
+      const result = computeStatsDiff(pgStats, chStats, { crossType: true, comparableMetrics });
       expect(result.summary.crossType).toBe(true);
-      expect(result.summary.leftOnlyCount).toBe(3); // dead_tuples, last_vacuum, autovacuum_count
-      expect(result.summary.rightOnlyCount).toBe(2); // parts_count, compressed_size
+      expect(result.summary.leftHiddenCount).toBe(3); // dead_tuples, last_vacuum, autovacuum_count
+      expect(result.summary.rightHiddenCount).toBe(2); // parts_count, compressed_size
     });
 
     it('still computes delta/deltaPercent for common numeric metrics', () => {
-      const result = computeStatsDiff(pgStats, chStats, { crossType: true });
+      const result = computeStatsDiff(pgStats, chStats, { crossType: true, comparableMetrics });
       const rowCount = result.items.find(i => i.key === 'row_count')!;
       expect(rowCount.delta).toBe(500);
       expect(rowCount.deltaPercent).toBe(50);
@@ -744,7 +748,7 @@ describe('computeStatsDiff', () => {
     });
 
     it('never emits leftOnly/rightOnly statuses in cross-type mode', () => {
-      const result = computeStatsDiff(pgStats, chStats, { crossType: true });
+      const result = computeStatsDiff(pgStats, chStats, { crossType: true, comparableMetrics });
       for (const item of result.items) {
         expect(item.status).not.toBe('leftOnly');
         expect(item.status).not.toBe('rightOnly');
@@ -754,8 +758,8 @@ describe('computeStatsDiff', () => {
     it('same-type mode (default) keeps existing union behaviour', () => {
       const result = computeStatsDiff(pgStats, chStats);
       expect(result.summary.crossType).toBe(false);
-      expect(result.summary.leftOnlyCount).toBe(0);
-      expect(result.summary.rightOnlyCount).toBe(0);
+      expect(result.summary.leftHiddenCount).toBe(0);
+      expect(result.summary.rightHiddenCount).toBe(0);
       // Union order: pg keys first, then ch-only keys.
       expect(result.items.map(i => i.key)).toEqual([
         'row_count', 'total_size', 'dead_tuples', 'last_vacuum', 'autovacuum_count',
@@ -775,30 +779,79 @@ describe('computeStatsDiff', () => {
     it('empty intersection → items empty, both counts populated', () => {
       const left: TableStatistic[] = [{ key: 'pg_only', label: 'PG only', value: 1, unit: 'count' }];
       const right: TableStatistic[] = [{ key: 'ch_only', label: 'CH only', value: 1, unit: 'count' }];
-      const result = computeStatsDiff(left, right, { crossType: true });
+      const result = computeStatsDiff(left, right, {
+        crossType: true,
+        comparableMetrics: new Map(),
+      });
       expect(result.items).toEqual([]);
-      expect(result.summary.leftOnlyCount).toBe(1);
-      expect(result.summary.rightOnlyCount).toBe(1);
+      expect(result.summary.leftHiddenCount).toBe(1);
+      expect(result.summary.rightHiddenCount).toBe(1);
     });
 
     it('full intersection → zero hidden counts', () => {
-      const result = computeStatsDiff(pgStats.slice(0, 2), chStats.slice(0, 2), { crossType: true });
+      const result = computeStatsDiff(pgStats.slice(0, 2), chStats.slice(0, 2), { crossType: true, comparableMetrics });
       expect(result.items).toHaveLength(2);
-      expect(result.summary.leftOnlyCount).toBe(0);
-      expect(result.summary.rightOnlyCount).toBe(0);
+      expect(result.summary.leftHiddenCount).toBe(0);
+      expect(result.summary.rightHiddenCount).toBe(0);
     });
 
     it('handles undefined inputs in cross-type mode', () => {
-      const onlyRight = computeStatsDiff(undefined, chStats, { crossType: true });
+      const onlyRight = computeStatsDiff(undefined, chStats, { crossType: true, comparableMetrics });
       expect(onlyRight.items).toEqual([]);
-      expect(onlyRight.summary.leftOnlyCount).toBe(0);
-      expect(onlyRight.summary.rightOnlyCount).toBe(chStats.length);
+      expect(onlyRight.summary.leftHiddenCount).toBe(0);
+      expect(onlyRight.summary.rightHiddenCount).toBe(chStats.length);
 
-      const onlyLeft = computeStatsDiff(pgStats, undefined, { crossType: true });
+      const onlyLeft = computeStatsDiff(pgStats, undefined, { crossType: true, comparableMetrics });
       expect(onlyLeft.items).toEqual([]);
-      expect(onlyLeft.summary.leftOnlyCount).toBe(pgStats.length);
-      expect(onlyLeft.summary.rightOnlyCount).toBe(0);
+      expect(onlyLeft.summary.leftHiddenCount).toBe(pgStats.length);
+      expect(onlyLeft.summary.rightHiddenCount).toBe(0);
     });
+
+    it('uses an explicit semantic allowlist instead of trusting raw key collisions', () => {
+      const result = computeStatsDiff(pgStats, chStats, {
+        crossType: true,
+        comparableMetrics: new Map([['row_count', { label: 'Comparable row count', unit: 'count' }]]),
+      });
+      expect(result.items.map(item => item.key)).toEqual(['row_count']);
+      expect(result.summary.leftHiddenCount).toBe(4);
+      expect(result.summary.rightHiddenCount).toBe(3);
+      expect(result.items[0].label).toBe('Comparable row count');
+    });
+
+    it('rejects a shared key whose units differ', () => {
+      const left: TableStatistic[] = [{ key: 'shared', label: 'Shared', value: 10, unit: 'bytes' }];
+      const right: TableStatistic[] = [{ key: 'shared', label: 'Shared', value: 10, unit: 'count' }];
+      const result = computeStatsDiff(left, right, {
+        crossType: true,
+        comparableMetrics: new Map([['shared', { label: 'Shared', unit: 'bytes' }]]),
+      });
+      expect(result.items).toEqual([]);
+      expect(result.summary.leftHiddenCount).toBe(1);
+      expect(result.summary.rightHiddenCount).toBe(1);
+    });
+  });
+
+  it('deduplicates metric keys deterministically', () => {
+    const left: TableStatistic[] = [
+      { key: 'a', label: 'First A', value: 1, unit: 'count' },
+      { key: 'a', label: 'Second A', value: 2, unit: 'count' },
+    ];
+    const right: TableStatistic[] = [
+      { key: 'a', label: 'A', value: 3, unit: 'count' },
+      { key: 'b', label: 'First B', value: 4, unit: 'count' },
+      { key: 'b', label: 'Second B', value: 5, unit: 'count' },
+    ];
+    const result = computeStatsDiff(left, right);
+    expect(result.items.map(item => item.key)).toEqual(['a', 'b']);
+    expect(result.items[0].label).toBe('First A');
+    expect(result.items[0].leftValue).toBe(1);
+    expect(result.items[1].rightValue).toBe(4);
+  });
+
+  it('keeps directional coloring only when both sides agree', () => {
+    const left: TableStatistic[] = [{ key: 'x', label: 'X', value: 1, unit: 'count', badWhen: 'higher' }];
+    const right: TableStatistic[] = [{ key: 'x', label: 'X', value: 2, unit: 'count', badWhen: 'lower' }];
+    expect(computeStatsDiff(left, right).items[0].badWhen).toBeUndefined();
   });
 });
 

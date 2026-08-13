@@ -42,6 +42,19 @@ describe('diff-panel.css regressions', () => {
     expect(css).toMatch(/\.diff-table[^{]*\.diff-removed:nth-child\(even\)\s+td\s*\{[^}]*--viewstor-row-removed/);
     expect(css).toMatch(/\.diff-table[^{]*\.diff-changed:nth-child\(even\)\s+td\s*\{[^}]*--viewstor-row-changed/);
   });
+
+  it('uses VS Code info validation tokens and a forced-colors border for the cross-type banner', () => {
+    const css = readCss();
+    expect(css).toMatch(/\.diff-cross-type-banner\s*\{[^}]*--vscode-inputValidation-infoForeground/);
+    expect(css).toMatch(/\.diff-cross-type-banner\s*\{[^}]*--vscode-inputValidation-infoBackground/);
+    expect(css).toMatch(/\.diff-cross-type-banner\s*\{[^}]*--vscode-inputValidation-infoBorder/);
+    expect(css).toMatch(/@media\s*\(forced-colors:\s*active\)[\s\S]*\.diff-cross-type-banner\s*\{[^}]*CanvasText/);
+  });
+
+  it('defines the statistics empty state exactly once', () => {
+    const css = readCss();
+    expect((css.match(/\.diff-stats-empty\s*\{/g) || [])).toHaveLength(1);
+  });
 });
 
 describe('diff-panel.ts filter chip defaults', () => {

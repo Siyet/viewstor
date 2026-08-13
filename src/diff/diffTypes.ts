@@ -107,16 +107,16 @@ export interface StatsDiffItem {
 export interface StatsDiffSummary {
   /**
    * True when the two sides are connections of different DB types (e.g. PG ↔ ClickHouse).
-   * In that mode `computeStatsDiff` emits only the intersection of metric keys; any
-   * driver-specific metric present on just one side is dropped from `items` and
-   * counted via `leftOnlyCount` / `rightOnlyCount` so the UI can render an info
+   * In that mode `computeStatsDiff` emits only shared metrics declared semantically
+   * comparable; driver-specific or incompatible metrics are dropped from `items` and
+   * counted via `leftHiddenCount` / `rightHiddenCount` so the UI can render an info
    * banner about the hidden rows.
    */
   crossType: boolean;
-  /** Number of metric keys present only on the left side that were hidden (cross-type only). */
-  leftOnlyCount: number;
-  /** Number of metric keys present only on the right side that were hidden (cross-type only). */
-  rightOnlyCount: number;
+  /** Number of left-side metrics hidden because they are absent or incompatible (cross-type only). */
+  leftHiddenCount: number;
+  /** Number of right-side metrics hidden because they are absent or incompatible (cross-type only). */
+  rightHiddenCount: number;
 }
 
 export interface StatsDiffResult {
