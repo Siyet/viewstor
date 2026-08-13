@@ -70,12 +70,15 @@ describe('ER diagram transitions', () => {
     expect(script).toMatch(/new echarts\.graphic\.Text\(\{\s*z: CARD_Z,\s*z2: CARD_TEXT_Z,/);
   });
 
-  it('shows relationship arrows only from 3x zoom', () => {
+  it('enables relationship arrows and hover only from 3x zoom', () => {
     const script = readScript();
     expect(script).toContain('const ARROW_ZOOM_THRESHOLD = 3');
     expect(script).toContain('const nextVisible = currentZoom >= ARROW_ZOOM_THRESHOLD');
     expect(script).toContain('edgeSymbol: [\'none\', arrowsVisible ? \'arrow\' : \'none\']');
     expect(script).toContain('edgeSymbolSize: [0, arrowsVisible ? 8 : 0]');
+    expect(script).toMatch(/links = links\.map\(link => \(\{\s*\.\.\.link,\s*emphasis: \{ disabled: !arrowsVisible \}/);
+    expect(script).toMatch(/if \(params\.dataType === 'edge'\) \{\s*if \(!arrowsVisible\)/);
+    expect(script).toContain('activeFocusKey.startsWith(\'edge\\u0001\')');
   });
 });
 

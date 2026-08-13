@@ -167,6 +167,13 @@
     };
   }
 
+  function syncLinkHoverState() {
+    links = links.map(link => ({
+      ...link,
+      emphasis: { disabled: !arrowsVisible },
+    }));
+  }
+
   function anchorNode(id, x, y) {
     return {
       id,
@@ -786,13 +793,19 @@
     const nextVisible = currentZoom >= ARROW_ZOOM_THRESHOLD;
     if (nextVisible === arrowsVisible) return;
     arrowsVisible = nextVisible;
+    syncLinkHoverState();
     chart.setOption({
       series: [{
         id: 'erGraph',
+        links: relationshipsVisible ? links : [],
         edgeSymbol: ['none', arrowsVisible ? 'arrow' : 'none'],
         edgeSymbolSize: [0, arrowsVisible ? 8 : 0],
       }],
     });
+    if (!arrowsVisible && activeFocusKey && activeFocusKey.startsWith('edge\u0001')) {
+      resetCardFocus();
+      hideHoverTooltip();
+    }
   }
 
   function handleCanvasDoubleClick(event) {
@@ -888,6 +901,7 @@
     calculateZoomLevels(bounds);
     currentZoom = initialZoom;
     arrowsVisible = currentZoom >= ARROW_ZOOM_THRESHOLD;
+    syncLinkHoverState();
     zoomAnimation = undefined;
     if (zoomAnimationFrame !== undefined) window.cancelAnimationFrame(zoomAnimationFrame);
     zoomAnimationFrame = undefined;
@@ -931,6 +945,11 @@
     }
 
     if (params.dataType === 'edge') {
+      if (!arrowsVisible) {
+        resetCardFocus();
+        hideHoverTooltip();
+        return;
+      }
       const related = new Set([params.data.source, params.data.target]);
       focusCards(related);
       const lines = [];
