@@ -463,6 +463,11 @@ export class DiffPanelManager {
           </button>
           <span class="diff-filter-hint" title="Shift+click to toggle multiple at once">Click to solo \u00B7 Shift+click to toggle</span>
         </div>
+        <div class="diff-search" role="search" aria-label="Search row diff">
+          <span class="codicon codicon-search" aria-hidden="true"></span>
+          <input type="search" id="diffSearchInput" class="diff-search-input" placeholder="Search rows..." aria-label="Search row values" />
+          <span id="diffSearchCount" class="diff-search-count" aria-live="polite"></span>
+        </div>
         <span class="diff-toolbar-spacer"></span>
         <vscode-button id="swapSides" secondary title="Swap left and right sides">
           <vscode-icon slot="content-before" name="arrow-swap"></vscode-icon>

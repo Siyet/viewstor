@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { CommandContext, getRequiredDriver, wrapError } from './shared';
 import { ConnectionTreeItem } from '../views/connectionTree';
 import { DiffSource, DiffOptions } from '../diff/diffTypes';
+import { collectComparableTables } from '../diff/diffTablePicker';
 import { dbg } from '../utils/debug';
 
 export function registerDiffCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
@@ -296,20 +297,16 @@ async function loadAllTables(
     if (!driver) continue;
     try {
       const schema = await driver.getSchema();
-      for (const schemaObj of schema) {
-        if (schemaObj.children) {
-          for (const child of schemaObj.children) {
-            if (child.type === 'table' || child.type === 'view') {
-              items.push({
-                label: child.name,
-                description: `${schemaObj.name} — ${conn.config.name}`,
-                connectionId: conn.config.id,
-                tableName: child.name,
-                schema: schemaObj.name,
-              });
-            }
-          }
-        }
+      for (const table of collectComparableTables(schema)) {
+        items.push({
+          label: table.tableName,
+          description: table.schema
+            ? `${table.schema} — ${conn.config.name}`
+            : conn.config.name,
+          connectionId: conn.config.id,
+          tableName: table.tableName,
+          schema: table.schema,
+        });
       }
     } catch { /* skip connections with schema fetch errors */ }
   }

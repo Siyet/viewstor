@@ -887,8 +887,22 @@ export class PostgresDriver implements DatabaseDriver {
     const lastVacuum = toDate(stat.last_vacuum) || toDate(stat.last_autovacuum);
     const lastAnalyze = toDate(stat.last_analyze) || toDate(stat.last_autoanalyze);
 
+    // PostgreSQL stores reltuples = -1 for relations that have no usable
+    // estimate (notably regular views). Never expose that internal sentinel as
+    // a row count. Statistics are fetched explicitly by the user, so an exact
+    // COUNT(*) is a useful fallback; if it fails, render the metric as missing.
+    let rowCount = toNumber(sizes.est_rows);
+    const rowCountIsEstimated = rowCount !== null && rowCount >= 0;
+    if (!rowCountIsEstimated) {
+      rowCount = null;
+      try {
+        const countRes = await this.client!.query(`SELECT COUNT(*) AS cnt FROM ${qualified}`);
+        rowCount = toNumber(countRes.rows[0]?.cnt);
+      } catch { /* inaccessible or non-selectable relation — keep the value missing */ }
+    }
+
     return [
-      { key: 'row_count', label: 'Row count (estimated)', value: toNumber(sizes.est_rows), unit: 'count' },
+      { key: 'row_count', label: rowCountIsEstimated ? 'Row count (estimated)' : 'Row count', value: rowCount, unit: 'count' },
       { key: 'live_tuples', label: 'Live tuples', value: liveTuples, unit: 'count' },
       { key: 'dead_tuples', label: 'Dead tuples', value: deadTuples, unit: 'count', badWhen: 'higher' },
       { key: 'dead_tuples_pct', label: 'Dead tuples %', value: deadPct !== null ? Number(deadPct.toFixed(2)) : null, unit: 'percent', badWhen: 'higher' },

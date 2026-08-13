@@ -35,12 +35,67 @@ export function stringifyCell(value: unknown): string {
   return String(value);
 }
 
+/** Numeric types whose values may be returned as strings by one driver and
+ * numbers by another (for example PostgreSQL numeric vs ClickHouse Decimal). */
+function isNumericColumnType(dataType: string | undefined): boolean {
+  if (!dataType) return false;
+  return /^(int|integer|bigint|smallint|tinyint|float|double|real|numeric|decimal|number|serial|bigserial|money|oid|uint|int\d|uint\d|float\d)/i.test(dataType.trim());
+}
+
+/**
+ * Canonicalize a decimal without converting it to a JavaScript Number.
+ * This keeps arbitrarily large integer/decimal values exact while treating
+ * representations such as `716.90`, `716.9`, and `7.169e2` as equal.
+ */
+function canonicalNumericCell(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'bigint') return undefined;
+  if (typeof value === 'number' && !Number.isFinite(value)) return undefined;
+
+  const text = String(value).trim();
+  const match = text.match(/^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/);
+  if (!match) return undefined;
+
+  const integerPart = match[2] || '';
+  const fractionPart = match[3] !== undefined ? match[3] : (match[4] || '');
+  let digits = (integerPart || '0') + fractionPart;
+  if (!/[1-9]/.test(digits)) return '0';
+
+  digits = digits.replace(/^0+/, '');
+  const trailingZeroCount = (digits.match(/0+$/)?.[0].length) || 0;
+  if (trailingZeroCount > 0) digits = digits.slice(0, -trailingZeroCount);
+
+  const exponent = Number(match[5] || 0) - fractionPart.length + trailingZeroCount;
+  if (!Number.isSafeInteger(exponent)) return undefined;
+  return `${match[1] === '-' ? '-' : ''}${digits}e${exponent}`;
+}
+
+function cellsEqual(
+  leftValue: unknown,
+  rightValue: unknown,
+  leftType: string | undefined,
+  rightType: string | undefined,
+): boolean {
+  if (isNumericColumnType(leftType) && isNumericColumnType(rightType)) {
+    const leftNumeric = canonicalNumericCell(leftValue);
+    const rightNumeric = canonicalNumericCell(rightValue);
+    if (leftNumeric !== undefined && rightNumeric !== undefined) return leftNumeric === rightNumeric;
+  }
+  return stringifyCell(leftValue) === stringifyCell(rightValue);
+}
+
 /**
  * Build a composite key string from a row's key columns.
  * Uses null-byte separator to avoid collisions.
  */
-function buildRowKey(row: Record<string, unknown>, keyColumns: string[]): string {
-  return keyColumns.map(col => stringifyCell(row[col])).join('\0');
+function buildRowKey(
+  row: Record<string, unknown>,
+  keyColumns: string[],
+  numericKeyColumns: ReadonlySet<string>,
+): string {
+  return keyColumns.map(col => {
+    if (numericKeyColumns.has(col)) return canonicalNumericCell(row[col]) ?? stringifyCell(row[col]);
+    return stringifyCell(row[col]);
+  }).join('\0');
 }
 
 /**
@@ -61,12 +116,17 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
   const allColumnsSet = new Set([...leftColNames, ...rightColNames]);
   const allColumns = [...allColumnsSet];
   const nonKeyColumns = allColumns.filter(col => !keyColumns.includes(col));
+  const leftTypes = new Map(left.columns.map(column => [column.name, column.dataType]));
+  const rightTypes = new Map(right.columns.map(column => [column.name, column.dataType]));
+  const numericKeyColumns = new Set(keyColumns.filter(column =>
+    isNumericColumnType(leftTypes.get(column)) && isNumericColumnType(rightTypes.get(column))
+  ));
 
   // Build index for right side (key -> row)
   // If duplicate keys exist, last occurrence wins
   const rightIndex = new Map<string, Record<string, unknown>>();
   for (const row of rightRows) {
-    rightIndex.set(buildRowKey(row, keyColumns), row);
+    rightIndex.set(buildRowKey(row, keyColumns, numericKeyColumns), row);
   }
 
   const matched: MatchedRow[] = [];
@@ -76,7 +136,7 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
   // Pass 1: iterate left rows, match against right index
   const matchedKeys = new Set<string>();
   for (const leftRow of leftRows) {
-    const key = buildRowKey(leftRow, keyColumns);
+    const key = buildRowKey(leftRow, keyColumns, numericKeyColumns);
     const rightRow = rightIndex.get(key);
 
     if (rightRow) {
@@ -84,7 +144,7 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
       // Compare non-key columns
       const changedColumns: string[] = [];
       for (const col of nonKeyColumns) {
-        if (stringifyCell(leftRow[col]) !== stringifyCell(rightRow[col])) {
+        if (!cellsEqual(leftRow[col], rightRow[col], leftTypes.get(col), rightTypes.get(col))) {
           changedColumns.push(col);
         }
       }
@@ -100,7 +160,7 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
   // Pass 2: remaining right rows not matched
   const rightOnly: Record<string, unknown>[] = [];
   for (const row of rightRows) {
-    const key = buildRowKey(row, keyColumns);
+    const key = buildRowKey(row, keyColumns, numericKeyColumns);
     if (!matchedKeys.has(key)) {
       rightOnly.push(row);
     }

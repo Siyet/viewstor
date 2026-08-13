@@ -144,6 +144,63 @@ describe('computeRowDiff', () => {
     expect(result.matched[0].changedColumns).toHaveLength(0);
   });
 
+  it('treats equivalent numeric representations from different drivers as equal', () => {
+    const left: DiffSource = {
+      label: 'PostgreSQL',
+      columns: [
+        { name: 'id', dataType: 'bigint' },
+        { name: 'total_amount', dataType: 'numeric' },
+      ],
+      rows: [{ id: '14', total_amount: '716.90' }],
+    };
+    const right: DiffSource = {
+      label: 'ClickHouse',
+      columns: [
+        { name: 'id', dataType: 'UInt64' },
+        { name: 'total_amount', dataType: 'Decimal(38, 2)' },
+      ],
+      rows: [{ id: 14, total_amount: 716.9 }],
+    };
+
+    const result = computeRowDiff(left, right, defaultOptions(['id']));
+    expect(result.summary.unchanged).toBe(1);
+    expect(result.matched[0].changedColumns).toEqual([]);
+  });
+
+  it('compares very large numeric strings exactly without Number precision loss', () => {
+    const left: DiffSource = {
+      label: 'PostgreSQL',
+      columns: [{ name: 'id', dataType: 'numeric' }],
+      rows: [{ id: '9007199254740992' }],
+    };
+    const right: DiffSource = {
+      label: 'ClickHouse',
+      columns: [{ name: 'id', dataType: 'Decimal(38, 0)' }],
+      rows: [{ id: '9007199254740993' }],
+    };
+
+    const result = computeRowDiff(left, right, defaultOptions(['id']));
+    expect(result.summary.removed).toBe(1);
+    expect(result.summary.added).toBe(1);
+  });
+
+  it('keeps text values with leading zeroes distinct from numeric-looking values', () => {
+    const left: DiffSource = {
+      label: 'left',
+      columns: [{ name: 'id', dataType: 'text' }],
+      rows: [{ id: '001' }],
+    };
+    const right: DiffSource = {
+      label: 'right',
+      columns: [{ name: 'id', dataType: 'varchar' }],
+      rows: [{ id: 1 }],
+    };
+
+    const result = computeRowDiff(left, right, defaultOptions(['id']));
+    expect(result.summary.removed).toBe(1);
+    expect(result.summary.added).toBe(1);
+  });
+
   it('empty tables produce zero diffs', () => {
     const result = computeRowDiff(makeSource([]), makeSource([]), defaultOptions(['id']));
     expect(result.summary.total).toBe(0);
