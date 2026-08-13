@@ -2,7 +2,7 @@
   "name": "viewstor",
   "displayName": "Viewstor",
   "description": "%extension.description%",
-  "version": "0.3.2",
+  "version": "0.5.0",
   "publisher": "Siyet",
   "license": "AGPL-3.0",
   "icon": "resources/icon.png",
@@ -346,6 +346,12 @@
         "title": "%command.showOnMap%",
         "category": "Viewstor",
         "icon": "$(globe)"
+      },
+      {
+        "command": "viewstor.showErDiagram",
+        "title": "%command.showErDiagram%",
+        "category": "Viewstor",
+        "icon": "$(type-hierarchy-sub)"
       }
     ],
     "menus": {
@@ -417,6 +423,11 @@
         {
           "command": "viewstor.compareWith",
           "when": "view == viewstor.connections && viewItem =~ /^(table|view)$/",
+          "group": "2_data"
+        },
+        {
+          "command": "viewstor.showErDiagram",
+          "when": "view == viewstor.connections && viewItem =~ /^(connection-connected|database|schema)$/",
           "group": "2_data"
         },
         {

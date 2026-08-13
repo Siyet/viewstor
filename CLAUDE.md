@@ -32,6 +32,7 @@ F5 in VS Code → Extension Development Host. Reload Window picks up new `dist/`
 Required methods: `connect`, `disconnect`, `ping`, `execute`, `getSchema`, `getTableInfo`, `getTableData`.
 
 Optional: `getTableRowCount`, `getEstimatedRowCount` (pg_class.reltuples / system.tables), `getDDL`, `cancelQuery` (PG: pg_cancel_backend, CH: AbortController), `getCompletions` (structured: table/view/column/schema with parent), `getIndexedColumns` (pg_index query), `getTableObjects` (indexes, constraints, triggers, sequences — used by data diff), `getTableStatistics` (row count, sizes, vacuum info, scan counters — used by stats diff tab; PG uses `pg_table_size`/`pg_indexes_size` + `pg_stat_user_tables`, CH uses `system.tables` + `system.parts`, SQLite uses `COUNT(*)` + optional `dbstat` vtable).
+Optional: `getForeignKeys` returns schema-qualified source/target tables and ordered column pairs for ER diagrams. PostgreSQL uses `information_schema.referential_constraints` + paired `key_column_usage`; SQLite groups `PRAGMA foreign_key_list()` rows by FK id.
 
 Drivers: `postgres.ts` (pg), `redis.ts` (ioredis), `clickhouse.ts` (@clickhouse/client), `sqlite.ts` (better-sqlite3).
 
@@ -140,6 +141,18 @@ Webview: `src/webview/scripts/map-panel.js` (Leaflet init, OpenStreetMap tiles, 
 
 Binary WKB (PostGIS hex) is **not** parsed — drivers should return WKT or GeoJSON when possible. Clustering and "color by value" are not implemented yet.
 
+### ER Diagram
+
+Relationship lines use lower base opacity below `3×`; hover highlighting and tooltips use the same threshold as arrowheads. Toolbar search matches table, view, and column names and mirrors matches in a dropdown with matching columns; result type labels reuse the legend's blue table and purple view colors. Multiple matching tables are highlighted on the full graph, while a unique or selected result opens that table's direct-neighbour graph. Refresh and relationship visibility are icon-only actions pinned to the toolbar's right edge with explanatory tooltips; the relationship icon is crossed out while edges are hidden. Internal zoom, render-mode, and focused-node diagnostics are not shown. Table/view cards use the shared webview context-menu primitive and the canonical action registry in `src/views/tableContextActions.ts`; a contract test keeps that registry synchronized with the Connections tree contributions in `package.json`.
+
+`src/er/erDataTransform.ts` — pure transformation from nested `SchemaObject[]` + `ForeignKeyInfo[]` to flat graph tables and views. Extracts direct column children, optional database comments, and `indexNames`; preserves schema-qualified ids and object kind; recognizes `(PK)` badges; marks source columns of visible relationships as foreign keys; and removes relationships whose endpoints are outside the selected schema scope. PostgreSQL and ClickHouse populate column comments in their batched schema queries; PostgreSQL and SQLite schema nodes already expose index names.
+
+`src/er/erDiagramPanel.ts` — `ErDiagramPanelManager`, an ECharts graph webview built on shared `tokens.css`, `@vscode-elements/elements`, and codicons. One panel/cache per connection + database + schema scope. The entire scope appears on one continuous canvas without a sidebar or selection layers. Named PostgreSQL schemas (and ClickHouse databases) are laid out as separate, softly tinted non-overlapping regions with scale-independent labels; engines without namespaces, such as SQLite, keep a plain canvas. Tables and views always render as complete cards with left-aligned columns; there is no compact name-only LOD. Target-based exponential smoothing drives the native ECharts graph controller. Visible cards are custom local ZRender groups (`Rect` + rich `Text`) parented directly to the native graph view, while transparent graph symbols remain as edge anchors. Cards have an explicit higher `z` layer than relationships, and relationship arrowheads appear only from `3×` zoom. The camera applies one inherited transform to every frame and glyph; steady zoom never patches card geometry or typography. Cards append combined `PK`, `FK`, and `IDX` roles with muted colors; hovering a column shows its optional database comment, FK role, and index names in a custom DOM tooltip. Table/edge adjacency emphasis uses a 150 ms `cubicOut` animation to fade unrelated nodes and links. The toolbar can hide/show relationships and a canvas legend documents graph notation. Double-click switches to a centred direct-neighbour graph from fresh layout coordinates; repeating it on the centre, double-clicking blank canvas, or pressing Escape restores the full scope. Capture-phase wheel and blank-canvas pan handlers call the native graph controller so nodes, edges, cards, regions, and hit-testing remain synchronized across the full canvas.
+
+`src/webview/scripts/er-diagram-layout.js` — deterministic, relationship-aware ordering plus a collision-free serpentine shelf layout for variable-size nodes. `focusLayout()` keeps a selected table at the origin and distributes direct neighbours over collision-free concentric rings. It derives a readable fitted zoom from graph bounds and viewport size. The layout is shared with Node-side regression tests through a CommonJS export.
+
+`src/commands/erDiagramCommands.ts` — `viewstor.showErDiagram`, available on connected connection, database, and schema tree nodes. PostgreSQL and SQLite provide FK edges; other drivers render table structure with an unsupported-relations status.
+
 ### SQL Autocomplete
 `src/editors/completionProvider.ts` — CompletionItemProvider triggered on `.`. Caches per connection (60s TTL, tracked timers for cleanup). Context-aware: after FROM/JOIN → tables only, after `table.` → that table's columns, general context → columns from query's referenced tables + tables + keywords. Aliases resolved from `FROM table AS alias`. Enum value suggestions after `=`/`!=`/`<>`/`IN` operators (PG: fetches from `pg_enum`).
 
@@ -186,6 +199,27 @@ Usage in Claude Code config:
 { "mcpServers": { "viewstor": { "command": "node", "args": ["/path/to/viewstor/dist/mcp-server.js"] } } }
 ```
 
+### Agent Anonymization
+`src/mcp/anonymizer.ts` — pure, vscode-independent module that masks PII in rows returned through MCP tools. Applied at both MCP boundaries (in-process + standalone) after drivers return rows and before responses are serialized, so drivers stay agnostic.
+
+Policy fields on `ConnectionConfig` / `ConnectionFolder`:
+- `agentAnonymization`: `'off' | 'heuristic' | 'strict'` (inherited from folder when unset; defaults to `off`)
+- `agentAnonymizationStrategy`: `'hash' | 'shape' | 'null' | 'redacted'` (defaults to `hash`)
+
+`ConnectionManager.getAnonymizationPolicy(id)` / `ConnectionStore.getAnonymizationPolicy(id)` resolve the effective policy via folder inheritance with a cycle guard (mirrors `isConnectionReadonly` / `getConnectionColor`).
+
+Heuristic mode matches column names against `DEFAULT_SENSITIVE_COLUMN_PATTERNS` (email/phone/tel/mobile/ssn/passport/password/iban/card/cvv/token/secret/api_key/auth/addr/first_name/last_name/full_name/dob/birthday). Names are normalized (underscores/hyphens → spaces) so `user_email` matches `\bemail\b`. Strict mode masks every column whose `dataType` is text-like (`text`, `varchar(*)`, `character varying(*)`, `char`, `citext`, `json`, `jsonb`, `bytea`, `blob`, `nvarchar`, `nchar`, `String`, `longtext`, `mediumtext`, `tinytext`) regardless of name — unknown types default to sensitive.
+
+Strategies:
+- `hash` — SHA-256 truncated to 8 hex chars. Deterministic, so agents can still JOIN on masked keys.
+- `shape` — format-preserving: emails → `x@y.xxx`, phones → digits replaced with `0`, Luhn-valid card digit runs → `x`, generic alphanumerics → `x` with separators preserved. Non-string values fall back to hash.
+- `null` — replaces cell with `null`.
+- `redacted` — replaces cell with empty string.
+
+`scrubErrorMessage(msg, policy)` scrubs well-known PII shapes (emails, Luhn-valid digit runs) out of driver error messages so constraint errors don't leak raw values.
+
+Zero-allocation fast path: when `mode === 'off'` or no columns match, the original rows array is returned by reference (no copy, no mutation).
+
 ### Services
 `src/services/exportService.ts` — ExportService static methods: toCsv (configurable delimiter/quotes/null/header/lineEnding), toTsv, toJson, toMarkdownTable, toPlainTextTable.
 
@@ -208,6 +242,7 @@ Usage in Claude Code config:
 | `schemaCommands.ts` | `showDDL`, `copyName`, rename/create/drop objects, `reportIssue` |
 | `exportCommands.ts` | Export (CSV/TSV/JSON/Markdown), visualize, Grafana, MCP query |
 | `diffCommands.ts` | `compareWith` (context menu), `compareData` (command palette) |
+| `erDiagramCommands.ts` | `showErDiagram` for connection/database/schema tree scopes |
 
 All commands support `databaseName` parameter for multi-DB connections.
 

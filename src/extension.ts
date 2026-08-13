@@ -20,6 +20,7 @@ import { registerChatParticipant } from './chat/participant';
 import { ChartPanelManager, setChartOutputChannel } from './chart/chartPanel';
 import { DiffPanelManager } from './diff/diffPanel';
 import { MapPanelManager } from './map/mapPanel';
+import { ErDiagramPanelManager } from './er/erDiagramPanel';
 import { TempFileManager } from './services/tempFileManager';
 import { QueryFileManager } from './services/queryFileManager';
 import { setDebugChannel, dbg } from './utils/debug';
@@ -49,6 +50,7 @@ export function activate(context: vscode.ExtensionContext) {
     setChartOutputChannel(outputChannel);
     const diffPanelManager = new DiffPanelManager(context, connectionManager);
     const mapPanelManager = new MapPanelManager(context);
+    const erDiagramPanelManager = new ErDiagramPanelManager(context);
     tempFileManager = new TempFileManager(context, queryFileManager);
     tempFileManager.setPostMessage((key, msg) => resultPanelManager.postMessage(key, msg));
     resultPanelManager.setTempFileManager(tempFileManager);
@@ -108,6 +110,7 @@ export function activate(context: vscode.ExtensionContext) {
       queryFileManager,
       diffPanelManager,
       mapPanelManager,
+      erDiagramPanelManager,
     });
 
     // MCP-compatible commands for AI agent integration
@@ -166,7 +169,7 @@ export function activate(context: vscode.ExtensionContext) {
     outputChannel.info(`Viewstor activated (v${vscode.extensions.getExtension('Siyet.viewstor')?.packageJSON.version ?? '?'})`);
 
     // Test API — used by VS Code e2e tests only
-    return { queryHistoryProvider, queryFileManager, diffPanelManager, chartPanelManager };
+    return { queryHistoryProvider, queryFileManager, diffPanelManager, chartPanelManager, connectionManager };
   } catch (err) {
     const message = wrapError(err);
     const stack = err instanceof Error ? err.stack : undefined;

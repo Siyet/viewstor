@@ -210,6 +210,18 @@ describe('SQLite Driver E2E', () => {
     expect(viewObj.children![0].type).toBe('column');
   });
 
+  it('getForeignKeys returns table relationships', async () => {
+    const foreignKeys = await driver.getForeignKeys!();
+    expect(foreignKeys).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceTable: 'orders',
+        sourceColumns: ['user_id'],
+        targetTable: 'users',
+        targetColumns: ['id'],
+      }),
+    ]));
+  });
+
   it.each([
     ['table', 'users', ['CREATE TABLE', 'users', 'id', 'name']],
     ['view', 'user_order_summary', ['CREATE VIEW', 'user_order_summary']],

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
 import { ChartConfig, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
+import { anonymizeRows, scrubErrorMessage } from './anonymizer';
 import { wrapError } from '../utils/errors';
 import { isReadOnlyQuery } from '../utils/queryHelpers';
 import { formatExecuteQuery, formatTableData, formatTableInfo, flattenSchema } from './mcpFormatters';
@@ -51,29 +52,45 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
         return { error: 'Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.' };
       }
 
+      const policy = connectionManager.getAnonymizationPolicy(connectionId);
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
-        return formatExecuteQuery(await driver.execute(query));
+        const result = await driver.execute(query);
+        const payload = formatExecuteQuery(result);
+        payload.rows = anonymizeRows(result.columns, result.rows, policy);
+        if (payload.error) payload.error = scrubErrorMessage(payload.error, policy);
+        return payload;
       } catch (err) {
-        return { error: wrapError(err) };
+        return { error: scrubErrorMessage(wrapError(err), policy) };
       }
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.getTableData', async (connectionId: string, tableName: string, schema?: string, limit?: number, database?: string) => {
+      const policy = connectionManager.getAnonymizationPolicy(connectionId);
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
-        return formatTableData(await driver.getTableData(tableName, schema, limit || 100));
+        const result = await driver.getTableData(tableName, schema, limit || 100);
+        const payload = formatTableData(result);
+        payload.rows = anonymizeRows(result.columns, result.rows, policy);
+        return payload;
       } catch (err) {
-        return { error: wrapError(err) };
+        return { error: scrubErrorMessage(wrapError(err), policy) };
       }
     }),
 
     vscode.commands.registerCommand('viewstor.mcp.getTableInfo', async (connectionId: string, tableName: string, schema?: string, database?: string) => {
+      const policy = connectionManager.getAnonymizationPolicy(connectionId);
       try {
         const driver = await resolveMcpDriver(connectionManager, connectionId, database);
-        return formatTableInfo(await driver.getTableInfo(tableName, schema));
+        const payload = formatTableInfo(await driver.getTableInfo(tableName, schema));
+        // defaultValue can carry PII embedded in DDL literals (e.g. `'admin@acme.com'::varchar`).
+        // scrubErrorMessage shorts on mode=off, so the off-path stays raw.
+        for (const col of payload.columns) {
+          if (col.defaultValue) col.defaultValue = scrubErrorMessage(col.defaultValue, policy);
+        }
+        return payload;
       } catch (err) {
-        return { error: wrapError(err) };
+        return { error: scrubErrorMessage(wrapError(err), policy) };
       }
     }),
     vscode.commands.registerCommand('viewstor.mcp.visualize', async (
@@ -124,12 +141,14 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
         }
 
         const result = await driver.execute(effectiveQuery);
-        if (result.error) return { error: result.error };
+        const policy = connectionManager.getAnonymizationPolicy(connectionId);
+        if (result.error) return { error: scrubErrorMessage(result.error, policy) };
 
         const state = connectionManager.get(connectionId);
+        const maskedRows = anonymizeRows(result.columns, result.rows, policy);
         vscode.commands.executeCommand('viewstor.visualizeResults', {
           columns: result.columns,
-          rows: result.rows,
+          rows: maskedRows,
           query: effectiveQuery,
           connectionId,
           databaseName: state?.config.database,
@@ -145,7 +164,8 @@ export function registerMcpCommands(context: vscode.ExtensionContext, connection
           columns: result.columns.map(c => ({ name: c.name, type: c.dataType })),
         };
       } catch (err) {
-        return { error: wrapError(err) };
+        const policy = connectionManager.getAnonymizationPolicy(connectionId);
+        return { error: scrubErrorMessage(wrapError(err), policy) };
       }
     }),
 

@@ -39,6 +39,7 @@ Viewstor is a free, open-source extension that covers PostgreSQL, Redis, ClickHo
 | **Chart visualization** | 12 chart types, free | No | No | No |
 | **Data diff** | Row + schema diff, free | No | No | No |
 | **Map view** | Built-in (Leaflet), free | No | No | No |
+| **ER diagram** | Interactive, free | Paid tier | No | Paid tier |
 | **Color-coded folders** | Nested, inherited | No | No | No |
 | **Localization** | 12 languages | English only | English only | English only |
 
@@ -95,6 +96,25 @@ Mark a connection or an entire folder as read-only. Child connections inherit th
 - Auto-collapse single-database and single-schema levels
 - Hide schemas/databases from context menu
 - Inaccessible objects (no permissions) rendered in error color
+
+### ER Diagram
+
+Right-click a connected connection, database, or schema → **Show ER Diagram**:
+
+- Tables and views share one continuous canvas and always render as complete cards with columns: PostgreSQL schemas and ClickHouse databases occupy separate tinted regions, while engines without namespaces keep a plain canvas; views use a dashed purple border
+- Search matches table, view, and column names and mirrors matches in a dropdown with matching columns; table and view type labels reuse the legend's blue and purple colors. Multiple matching tables are highlighted on the full diagram, while a unique or explicitly selected result opens that table's direct-neighbour graph
+- Right-click a table or view card for the same object actions as in the Connections tree; both surfaces share one action registry guarded by a synchronization test
+- The toolbar stays task-focused and does not expose internal zoom, render-mode, or focused-node diagnostics
+- Foreign-key lines include column mappings and `ON DELETE` / `ON UPDATE` details; lines are slightly muted below `3×`, where arrowheads, relationship hover highlighting, and relationship tooltips appear
+- Scroll anywhere on the canvas to zoom, including empty space beyond the graph; target-based easing stays responsive to trackpads
+- Cards highlight and mark primary keys as `PK`, source foreign-key columns as `FK`, and indexed columns as `IDX`. Combined roles are preserved, such as `FK, IDX`
+- Zoom enlarges each card as one graphics group, so its frame, text, row spacing, and padding inherit exactly the same camera transform and preserve their proportions at every level; role colors are intentionally muted to keep dense schemas readable
+- Hover a column to see its database comment, foreign-key role, and index names when available
+- Hover a table or relationship to keep its adjacent graph visible while unrelated objects fade smoothly over a fast 150 ms transition
+- Double-click a table to isolate it in the centre with its directly related tables; double-click the centre or blank canvas, or press `Esc`, to return
+- Use the relationship icon to toggle edges; it is crossed out while edges are hidden, and both toolbar icons explain their actions on hover or keyboard focus. The canvas legend explains namespace regions, tables, views, relationships, primary keys, foreign keys, indexes, and required columns
+- Start a left-button drag even on empty canvas beyond the outermost tables, or hold the middle mouse button, to pan horizontally and vertically
+- PostgreSQL and SQLite relationships are detected natively. ClickHouse still shows its tables and columns with a clear note that the driver has no FK metadata; Redis has no relational tables to diagram
 
 ### Query Editor
 
