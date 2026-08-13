@@ -22,6 +22,8 @@
   const ZOOM_HALF_LIFE_MS = 28;
   const ROLE_COLOR_ALPHA = 0.78;
   const ARROW_ZOOM_THRESHOLD = 3;
+  const RELATIONSHIP_OPACITY = 0.35;
+  const DISTANT_RELATIONSHIP_OPACITY = 0.28;
   const CARD_Z = 100;
   const CARD_FRAME_Z = 200;
   const CARD_TEXT_Z = 201;
@@ -358,7 +360,7 @@
       edgeSymbolSize: [0, arrowsVisible ? 8 : 0],
       lineStyle: {
         color: theme('--vscode-charts-blue', '#3794ff'),
-        opacity: 0.35,
+        opacity: relationshipOpacity(),
         width: 1.4,
         curveness: 0.06,
       },
@@ -375,6 +377,10 @@
         lineStyle: { opacity: 0.025 },
       },
     };
+  }
+
+  function relationshipOpacity() {
+    return arrowsVisible ? RELATIONSHIP_OPACITY : DISTANT_RELATIONSHIP_OPACITY;
   }
 
   function removeCardLayer() {
@@ -896,6 +902,7 @@
         links: relationshipsVisible ? links : [],
         edgeSymbol: ['none', arrowsVisible ? 'arrow' : 'none'],
         edgeSymbolSize: [0, arrowsVisible ? 8 : 0],
+        lineStyle: { opacity: relationshipOpacity() },
       }],
     });
     if (!arrowsVisible && activeFocusKey && activeFocusKey.startsWith('edge\u0001')) {

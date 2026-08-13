@@ -57,9 +57,10 @@ describe('ER diagram transitions', () => {
     expect(script).toMatch(/blur:\s*\{[\s\S]*?lineStyle:\s*\{\s*opacity:/);
   });
 
-  it('uses one readable relationship style at every zoom', () => {
+  it('slightly mutes relationships below the detail zoom', () => {
     const script = readScript();
-    expect(script).toMatch(/lineStyle:\s*\{[^}]*opacity:\s*0\.35[^}]*width:\s*1\.4/s);
+    expect(script).toMatch(/lineStyle:\s*\{[^}]*opacity:\s*relationshipOpacity\(\)[^}]*width:\s*1\.4/s);
+    expect(script).toContain('return arrowsVisible ? RELATIONSHIP_OPACITY : DISTANT_RELATIONSHIP_OPACITY');
   });
 
   it('keeps cards above relationships on the first focused-graph frame', () => {
@@ -74,9 +75,12 @@ describe('ER diagram transitions', () => {
   it('enables relationship arrows and hover only from 3x zoom', () => {
     const script = readScript();
     expect(script).toContain('const ARROW_ZOOM_THRESHOLD = 3');
+    expect(script).toContain('const RELATIONSHIP_OPACITY = 0.35');
+    expect(script).toContain('const DISTANT_RELATIONSHIP_OPACITY = 0.28');
     expect(script).toContain('const nextVisible = currentZoom >= ARROW_ZOOM_THRESHOLD');
     expect(script).toContain('edgeSymbol: [\'none\', arrowsVisible ? \'arrow\' : \'none\']');
     expect(script).toContain('edgeSymbolSize: [0, arrowsVisible ? 8 : 0]');
+    expect(script).toContain('lineStyle: { opacity: relationshipOpacity() }');
     expect(script).toMatch(/links = links\.map\(link => \(\{\s*\.\.\.link,\s*emphasis: \{ disabled: !arrowsVisible \}/);
     expect(script).toMatch(/if \(params\.dataType === 'edge'\) \{\s*if \(!arrowsVisible\)/);
     expect(script).toContain('activeFocusKey.startsWith(\'edge\\u0001\')');
