@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as vm from 'vm';
 
 const VIEWSTOR_DIR = path.join(os.homedir(), '.viewstor');
 const TMP_DIR = path.join(VIEWSTOR_DIR, 'tmp');
@@ -515,48 +516,6 @@ suite('Sorting with Custom Query', () => {
       { column: 'b', direction: 'desc' },
     ]);
     assert.strictEqual(result, 'SELECT * FROM t ORDER BY a ASC, b DESC');
-  });
-});
-
-// ============================================================
-// 9. SQL Syntax Highlighting (tokenizer)
-// ============================================================
-
-suite('SQL Syntax Highlighting', () => {
-  test('tokenizeSql identifies keywords', async () => {
-    const { tokenizeSql } = await import('../../utils/resultFormatters');
-    const tokens = tokenizeSql('SELECT * FROM users WHERE id = 1');
-    const keywords = tokens.filter(t => t.type === 'keyword').map(t => t.value);
-    assert.deepStrictEqual(keywords, ['SELECT', 'FROM', 'WHERE']);
-    // "users" and "id" are identifiers, not keywords
-    const identifiers = tokens.filter(t => t.type === 'text').map(t => t.value);
-    assert.ok(identifiers.includes('users'));
-    assert.ok(identifiers.includes('id'));
-  });
-
-  test('tokenizeSql identifies strings', async () => {
-    const { tokenizeSql } = await import('../../utils/resultFormatters');
-    const tokens = tokenizeSql('\'hello world\'');
-    assert.strictEqual(tokens[0].type, 'string');
-    assert.strictEqual(tokens[0].value, '\'hello world\'');
-  });
-
-  test('tokenizeSql identifies numbers', async () => {
-    const { tokenizeSql } = await import('../../utils/resultFormatters');
-    const tokens = tokenizeSql('42');
-    assert.strictEqual(tokens[0].type, 'number');
-  });
-
-  test('tokenizeSql identifies comments', async () => {
-    const { tokenizeSql } = await import('../../utils/resultFormatters');
-    const tokens = tokenizeSql('-- this is a comment');
-    assert.strictEqual(tokens[0].type, 'comment');
-  });
-
-  test('tokenizeSql identifies operators', async () => {
-    const { tokenizeSql } = await import('../../utils/resultFormatters');
-    const tokens = tokenizeSql('>=');
-    assert.strictEqual(tokens[0].type, 'operator');
   });
 });
 
@@ -1259,40 +1218,6 @@ suite('Rename Pinned Query', () => {
     try { fs.unlinkSync(fp2); } catch { /* ok */ }
     await api.queryHistoryProvider.removeEntry(id1);
     await api.queryHistoryProvider.removeEntry(id2);
-  });
-});
-
-// ============================================================
-// 12c. SQL syntax highlighting — identifiers have distinct token type
-// ============================================================
-
-suite('SQL Identifier Highlighting', () => {
-  test('table names are tokenized as text (mapped to tk-id in webview)', async () => {
-    const { tokenizeSql } = await import('../../utils/resultFormatters');
-    const tokens = tokenizeSql('SELECT * FROM users WHERE id = 1');
-    const textTokens = tokens.filter(t => t.type === 'text').map(t => t.value);
-    assert.ok(textTokens.includes('users'), 'Table name "users" should be a text token');
-    assert.ok(textTokens.includes('id'), 'Column "id" should be a text token');
-    // Keywords should NOT be text tokens
-    const keywords = tokens.filter(t => t.type === 'keyword').map(t => t.value);
-    assert.ok(keywords.includes('SELECT'), 'SELECT should be keyword, not text');
-    assert.ok(keywords.includes('FROM'), 'FROM should be keyword, not text');
-    assert.ok(keywords.includes('WHERE'), 'WHERE should be keyword, not text');
-  });
-
-  test('quoted identifiers are tokenized as text', async () => {
-    const { tokenizeSql } = await import('../../utils/resultFormatters');
-    const tokens = tokenizeSql('SELECT * FROM "MyTable"');
-    const textTokens = tokens.filter(t => t.type === 'text').map(t => t.value);
-    assert.ok(textTokens.includes('"MyTable"'), 'Quoted identifier should be a text token');
-  });
-
-  test('schema-qualified table names are separate tokens', async () => {
-    const { tokenizeSql } = await import('../../utils/resultFormatters');
-    const tokens = tokenizeSql('SELECT * FROM public.users');
-    const textTokens = tokens.filter(t => t.type === 'text').map(t => t.value);
-    assert.ok(textTokens.includes('public'), 'Schema name should be text token');
-    assert.ok(textTokens.includes('users'), 'Table name should be text token');
   });
 });
 
@@ -2401,6 +2326,68 @@ suite('SQLite Computed Column Types', () => {
 // Diff Panel — HTML structure + tab visibility regression (#87)
 // ============================================================
 
+suite('Shared SQL highlighter — packaged webview smoke', () => {
+  test('the production asset executes and escapes SQL markup', async () => {
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    await ext!.activate();
+
+    const assetPath = path.join(ext!.extensionPath, 'dist', 'scripts', 'sql-highlight.js');
+    assert.ok(fs.existsSync(assetPath), 'production sql-highlight.js must be packaged in dist/scripts');
+    const source = fs.readFileSync(assetPath, 'utf-8');
+    const sandbox = {
+      window: {} as { ViewstorSql?: { highlightSql(value: unknown): string } },
+      module: { exports: {} as { highlightSql(value: unknown): string } },
+    };
+    vm.runInNewContext(source, sandbox, { filename: assetPath });
+
+    assert.ok(sandbox.window.ViewstorSql, 'asset must install window.ViewstorSql');
+    assert.strictEqual(
+      sandbox.window.ViewstorSql!.highlightSql,
+      sandbox.module.exports.highlightSql,
+      'browser and CommonJS surfaces must share one implementation',
+    );
+    const html = sandbox.window.ViewstorSql!.highlightSql('SELECT \'<img onerror=alert(1)>\'');
+    assert.ok(html.includes('<span class="tk-kw">SELECT</span>'));
+    assert.ok(html.includes('&lt;img onerror=alert(1)&gt;'));
+    assert.ok(!html.includes('<img'));
+  });
+
+  test('Result Panel installs the packaged highlighter before its editor consumer', async () => {
+    const ext = vscode.extensions.getExtension('Siyet.viewstor');
+    assert.ok(ext, 'Extension not found');
+    const api = await ext!.activate();
+    const manager = api.resultPanelManager as {
+      show(result: Record<string, unknown>, title: string, options: Record<string, unknown>): void;
+      getPanelsForTesting(): readonly vscode.WebviewPanel[];
+      closePanel(title: string): void;
+    };
+    assert.ok(manager, 'resultPanelManager not exposed via extension API');
+
+    const title = 'SQL highlighter packaged smoke';
+    manager.show({
+      columns: [{ name: 'id', dataType: 'integer' }],
+      rows: [{ id: 1 }],
+      rowCount: 1,
+      executionTimeMs: 1,
+    }, title, { connectionId: 'smoke', tableName: 'items', query: 'SELECT * FROM items' });
+
+    try {
+      const panel = manager.getPanelsForTesting().find(candidate => candidate.title === title);
+      assert.ok(panel, 'Result Panel should be created');
+      const html = panel!.webview.html;
+      const compactBootstrap = html.indexOf('ViewstorSql=Object.assign');
+      const readableBootstrap = html.indexOf('ViewstorSql = Object.assign');
+      const consumer = html.indexOf('window.ViewstorSql.highlightSql');
+      const bootstrap = Math.max(compactBootstrap, readableBootstrap);
+      assert.ok(bootstrap >= 0, 'shared highlighter bootstrap must be inlined');
+      assert.ok(consumer > bootstrap, 'consumer must run after bootstrap');
+    } finally {
+      manager.closePanel(title);
+    }
+  });
+});
+
 suite('Diff Panel (vscode-elements)', () => {
   interface DiffStateLike {
     panel: vscode.WebviewPanel;
@@ -2444,6 +2431,10 @@ suite('Diff Panel (vscode-elements)', () => {
     assert.strictEqual(states.length, 1, 'exactly one diff panel should be created');
     const state = states[0];
     const html = state.panel.webview.html;
+    const sharedHighlighter = html.indexOf('/scripts/sql-highlight.js');
+    const diffConsumer = html.indexOf('/scripts/diff-panel.js');
+    assert.ok(sharedHighlighter >= 0, 'Diff Panel must load the shared SQL highlighter asset');
+    assert.ok(diffConsumer > sharedHighlighter, 'Diff Panel consumer must load after the shared highlighter');
     return { state, html, mgr };
   }
 

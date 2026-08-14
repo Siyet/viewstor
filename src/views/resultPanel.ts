@@ -11,6 +11,7 @@ import type { TempFileManager } from '../services/tempFileManager';
 // test tree where `dist/test/views/` has no sibling `scripts/` or `webview/`.
 let cachedCtxMenuScript: string | null = null;
 let cachedCtxMenuCss: string | null = null;
+let cachedSqlHighlightScript: string | null = null;
 
 function loadWebviewAsset(relative: string): string {
   const candidates = [
@@ -40,6 +41,10 @@ function getCtxMenuScript(): string {
 function getCtxMenuCss(): string {
   if (cachedCtxMenuCss === null) cachedCtxMenuCss = loadWebviewAsset('styles/context-menu.css');
   return cachedCtxMenuCss;
+}
+function getSqlHighlightScript(): string {
+  if (cachedSqlHighlightScript === null) cachedSqlHighlightScript = loadWebviewAsset('scripts/sql-highlight.js');
+  return cachedSqlHighlightScript;
 }
 
 export interface ShowOptions {
@@ -105,6 +110,11 @@ export class ResultPanelManager {
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   setTempFileManager(t: TempFileManager) { this._tempFileManager = t; }
+
+  /** Exposes live panels to the Extension Host regression suite. */
+  getPanelsForTesting(): readonly vscode.WebviewPanel[] {
+    return [...this.panels.values()];
+  }
 
   /** Set callback to notify chart panel of data changes */
   setChartNotifier(fn: (panelKey: string, columns: QueryColumn[], rows: Record<string, unknown>[], query?: string) => void) {
@@ -456,9 +466,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   .export-form p { font-size:12px; color:var(--vscode-descriptionForeground); margin:0 0 12px; }
   .query-bar { padding:4px 12px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; display:flex; gap:6px; align-items:center; }
   .query-bar button { font-size:11px; }
-  .query-editor-wrap { flex:1; position:relative; font-family:var(--vscode-editor-font-family); font-size:12px; line-height:1.4; }
-  .query-editor-highlight { position:absolute; top:0; left:0; right:0; bottom:0; padding:4px 8px; white-space:pre; overflow:hidden; pointer-events:none; color:transparent; border:1px solid transparent; border-radius:2px; }
-  .query-editor-textarea { display:block; width:100%; padding:4px 8px; font:inherit; line-height:inherit; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:2px; outline:none; resize:none; overflow:hidden; caret-color:var(--vscode-input-foreground); }
+  .query-editor-wrap { flex:1; min-width:0; position:relative; font-family:var(--vscode-editor-font-family); font-size:12px; line-height:1.4; }
+  .query-editor-highlight { position:absolute; top:0; left:0; right:0; bottom:0; padding:4px 8px; white-space:pre; overflow:hidden; pointer-events:none; color:var(--vscode-input-foreground); border:1px solid transparent; border-radius:2px; }
+  .query-editor-textarea { display:block; width:100%; padding:4px 8px; font:inherit; line-height:inherit; white-space:pre; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:2px; outline:none; resize:none; overflow-x:auto; overflow-y:hidden; caret-color:var(--vscode-input-foreground); }
   .query-editor-textarea:focus { border-color:var(--vscode-focusBorder); }
   .query-editor-textarea.has-highlight { color:transparent; background:var(--vscode-input-background); }
   .tk-op { color:var(--vscode-descriptionForeground); }
@@ -484,6 +494,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
 </style>
 <script>
 ${getCtxMenuScript()}
+</script>
+<script>
+${getSqlHighlightScript()}
 </script>
 </head>
 <body>
@@ -523,9 +536,9 @@ ${getCtxMenuScript()}
   ${isTableMode ? `<div class="query-bar">
     <div class="query-editor-wrap">
       <div class="query-editor-highlight" id="queryHighlight" aria-hidden="true"></div>
-      <textarea class="query-editor-textarea has-highlight" id="queryInput" rows="1" spellcheck="false">${esc(defaultQuery)}</textarea>
+      <textarea class="query-editor-textarea has-highlight" id="queryInput" rows="1" wrap="off" spellcheck="false">${esc(defaultQuery)}</textarea>
     </div>
-    <button id="queryRun" class="btn-primary" title="Run query (Enter)">▶</button>
+    <button id="queryRun" class="btn-primary" title="Run query (Enter); new line (Shift+Enter)">▶</button>
   </div>` : ''}
   <div class="container">
     <div id="loadingOverlay" class="loading-overlay hidden">
@@ -608,65 +621,15 @@ ${getCtxMenuScript()}
     return h;
   }
 
-  // --- Lightweight SQL syntax highlighting ---
-  var SQL_KEYWORDS = /\\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|IS|NULL|AS|ON|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|INDEX|VIEW|DISTINCT|BETWEEN|LIKE|ILIKE|EXISTS|CASE|WHEN|THEN|ELSE|END|UNION|ALL|ASC|DESC|WITH|DEFAULT|CASCADE|PRIMARY|KEY|REFERENCES|FOREIGN|CONSTRAINT|RETURNING|EXPLAIN|ANALYZE|COUNT|SUM|AVG|MIN|MAX|COALESCE|NULLIF|CAST|TRUE|FALSE|BOOLEAN|INTEGER|TEXT|VARCHAR|NUMERIC|SERIAL|BIGSERIAL|TIMESTAMP|TIMESTAMPTZ|DATE|TIME|INTERVAL|JSONB?|UUID|ARRAY|BIGINT|SMALLINT|REAL|DOUBLE|PRECISION|CHAR|DECIMAL|FLOAT)\\b/i;
-  function highlightSql(text) {
-    var tokens = [];
-    var remaining = text;
-    var pos = 0;
-    while (remaining.length > 0) {
-      // String literal
-      var strMatch = remaining.match(/^'(?:[^'\\\\]|\\\\.)*'|^'(?:[^']|'')*'/);
-      if (strMatch) {
-        tokens.push('<span class="tk-str">' + escHtml(strMatch[0]) + '</span>');
-        remaining = remaining.substring(strMatch[0].length);
-        continue;
-      }
-      // Quoted identifier ("table_name")
-      var qidMatch = remaining.match(/^"[^"]*"/);
-      if (qidMatch) {
-        tokens.push('<span class="tk-id">' + escHtml(qidMatch[0]) + '</span>');
-        remaining = remaining.substring(qidMatch[0].length);
-        continue;
-      }
-      // Comment
-      var cmtMatch = remaining.match(/^--[^\\n]*/);
-      if (cmtMatch) {
-        tokens.push('<span class="tk-cmt">' + escHtml(cmtMatch[0]) + '</span>');
-        remaining = remaining.substring(cmtMatch[0].length);
-        continue;
-      }
-      // Number
-      var numMatch = remaining.match(/^-?\\d+(?:\\.\\d+)?(?![a-zA-Z_])/);
-      if (numMatch) {
-        tokens.push('<span class="tk-num">' + escHtml(numMatch[0]) + '</span>');
-        remaining = remaining.substring(numMatch[0].length);
-        continue;
-      }
-      // Word (keyword or identifier)
-      var wordMatch = remaining.match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
-      if (wordMatch) {
-        var w = wordMatch[0];
-        if (SQL_KEYWORDS.test(w)) {
-          tokens.push('<span class="tk-kw">' + escHtml(w) + '</span>');
-        } else {
-          tokens.push('<span class="tk-id">' + escHtml(w) + '</span>');
-        }
-        remaining = remaining.substring(w.length);
-        continue;
-      }
-      // Operators
-      var opMatch = remaining.match(/^[<>=!]+|^[;,()*.]/);
-      if (opMatch) {
-        tokens.push('<span class="tk-op">' + escHtml(opMatch[0]) + '</span>');
-        remaining = remaining.substring(opMatch[0].length);
-        continue;
-      }
-      // Other (whitespace, etc.)
-      tokens.push(escHtml(remaining[0]));
-      remaining = remaining.substring(1);
-    }
-    return tokens.join('');
+  // Shared with Diff Panel; the same shipped asset is inlined above.
+  var highlightSql = window.ViewstorSql.highlightSql;
+
+  function autoSizeQueryInput(textarea) {
+    var maxHeight = 160;
+    textarea.style.height = 'auto';
+    var height = Math.min(textarea.scrollHeight, maxHeight);
+    if (height > 0) textarea.style.height = height + 'px';
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }
 
   function updateQueryHighlight() {
@@ -674,6 +637,9 @@ ${getCtxMenuScript()}
     var highlight = document.getElementById('queryHighlight');
     if (!textarea || !highlight) return;
     highlight.innerHTML = highlightSql(textarea.value) + '\\n';
+    autoSizeQueryInput(textarea);
+    highlight.scrollLeft = textarea.scrollLeft;
+    highlight.scrollTop = textarea.scrollTop;
   }
 
   let pendingEdits = new Map();
@@ -1708,12 +1674,15 @@ ${getCtxMenuScript()}
   var queryRunBtn = document.getElementById('queryRun');
   if (queryInput) {
     queryInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); runCustomQuery(); }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runCustomQuery(); }
     });
     queryInput.addEventListener('input', updateQueryHighlight);
     queryInput.addEventListener('scroll', function() {
       var highlight = document.getElementById('queryHighlight');
-      if (highlight) { highlight.scrollLeft = queryInput.scrollLeft; }
+      if (highlight) {
+        highlight.scrollLeft = queryInput.scrollLeft;
+        highlight.scrollTop = queryInput.scrollTop;
+      }
     });
     queryRunBtn.addEventListener('click', runCustomQuery);
     updateQueryHighlight();

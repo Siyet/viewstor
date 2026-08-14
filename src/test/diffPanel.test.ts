@@ -113,6 +113,12 @@ describe('DiffPanelManager cross-type statistics', () => {
     expect(html).toContain('2 PostgreSQL metrics and 1 ClickHouse metric not comparable and hidden.');
     expect(html).toContain('PostgreSQL row counts may be estimated.');
     expect(html).toContain('<vscode-icon name="info" aria-hidden="true"></vscode-icon>');
+    const sharedHighlighter = html.indexOf('/scripts/sql-highlight.js');
+    const diffConsumer = html.indexOf('/scripts/diff-panel.js');
+    expect(sharedHighlighter).toBeGreaterThan(-1);
+    expect(diffConsumer).toBeGreaterThan(-1);
+    expect(sharedHighlighter).toBeLessThan(diffConsumer);
+    expect(html.match(/class="diff-query-editor-textarea has-highlight"[^>]*wrap="off"/g)).toHaveLength(2);
     expect(manager.getDiffStatesForTesting()[0].statsDiff?.items.map(item => item.key)).toEqual(['row_count']);
   });
 

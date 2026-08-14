@@ -388,6 +388,7 @@ export class DiffPanelManager {
     const shellUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'webview-shell.js'));
     const elementsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'vscode-elements.js'));
     const ctxMenuJsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'context-menu.js'));
+    const sqlHighlightJsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'sql-highlight.js'));
     const jsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'diff-panel.js'));
     const echartsUri = webview.asWebviewUri(vscode.Uri.joinPath(distUri, 'scripts', 'echarts.min.js'));
     const cspSource = webview.cspSource;
@@ -460,6 +461,7 @@ export class DiffPanelManager {
 <link rel="stylesheet" href="${cssUri}">
 <script src="${shellUri}"></script>
 <script src="${ctxMenuJsUri}"></script>
+<script src="${sqlHighlightJsUri}"></script>
 <script type="module" src="${elementsUri}"></script>
 </head>
 <body>
@@ -536,7 +538,7 @@ export class DiffPanelManager {
               <div class="diff-query-editor-label" data-role="side-label">${esc(state.left.label)}</div>
               <div class="diff-query-editor-wrap">
                 <div class="diff-query-editor-highlight" id="diffQueryLeftHighlight" aria-hidden="true"></div>
-                <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryLeft" rows="1" spellcheck="false">${esc(state.leftQuery)}</textarea>
+                <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryLeft" rows="1" wrap="off" spellcheck="false">${esc(state.leftQuery)}</textarea>
               </div>
               <div class="diff-query-editor-error" id="diffQueryLeftError" hidden></div>
             </div>
@@ -544,7 +546,7 @@ export class DiffPanelManager {
               <div class="diff-query-editor-label" data-role="side-label">${esc(state.right.label)}</div>
               <div class="diff-query-editor-wrap">
                 <div class="diff-query-editor-highlight" id="diffQueryRightHighlight" aria-hidden="true"></div>
-                <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryRight" rows="1" spellcheck="false">${esc(state.rightQuery)}</textarea>
+                <textarea class="diff-query-editor-textarea has-highlight" id="diffQueryRight" rows="1" wrap="off" spellcheck="false">${esc(state.rightQuery)}</textarea>
               </div>
               <div class="diff-query-editor-error" id="diffQueryRightError" hidden></div>
             </div>

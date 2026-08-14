@@ -35,6 +35,30 @@ describe('buildResultHtml', () => {
     expect(html).toContain('id="statsInfo"');
   });
 
+  it('installs the shared SQL highlighter before the Result Panel consumer', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result, { connectionId: 'c', tableName: 'items' });
+    const bootstrap = html.indexOf('root.ViewstorSql = Object.assign');
+    const consumer = html.indexOf('var highlightSql = window.ViewstorSql.highlightSql');
+    expect(bootstrap).toBeGreaterThan(-1);
+    expect(consumer).toBeGreaterThan(bootstrap);
+    expect(html.match(/root\.ViewstorSql = Object\.assign/g)).toHaveLength(1);
+  });
+
+  it('keeps Shift+Enter for multiline SQL and runs on plain Enter', () => {
+    const result = makeResult([{ name: 'id', dataType: 'integer' }], [{ id: 1 }]);
+    const html = buildResultHtml(result, { connectionId: 'c', tableName: 'items' });
+    expect(html).toContain('if (e.key === \'Enter\' && !e.shiftKey)');
+    expect(html).not.toContain('if (e.key === \'Enter\') { e.preventDefault(); runCustomQuery(); }');
+    expect(html).toContain('title="Run query (Enter); new line (Shift+Enter)"');
+    expect(html).toContain('highlight.scrollTop = queryInput.scrollTop');
+    expect(html).toContain('autoSizeQueryInput(textarea)');
+    expect(html).toContain('color:var(--vscode-input-foreground)');
+    expect(html).toContain('id="queryInput" rows="1" wrap="off"');
+    expect(html).toContain('white-space:pre');
+    expect(html).toContain('overflow-x:auto');
+  });
+
   it('includes column headers', () => {
     const result = makeResult(
       [{ name: 'user_id', dataType: 'integer' }, { name: 'email', dataType: 'text' }],
