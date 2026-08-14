@@ -62,6 +62,14 @@ describe('diff-panel.css regressions', () => {
     expect(css).toMatch(/\.diff-table td\.search-focus\s*\{[^}]*--vscode-editor-findMatchBorder/s);
     expect(css).toMatch(/\.diff-table td\.search-focus\s*\{[^}]*--vscode-editor-findMatchBackground/s);
   });
+
+  it('keeps query editors on explicit lines with horizontal scrolling', () => {
+    const css = readCss();
+    expect(css).toMatch(/\.diff-query-editor-highlight\s*\{[^}]*white-space:\s*pre;/s);
+    expect(css).toMatch(/\.diff-query-editor-textarea\s*\{[^}]*white-space:\s*pre;/s);
+    expect(css).toMatch(/\.diff-query-editor-textarea\s*\{[^}]*overflow-x:\s*auto;/s);
+    expect(css).not.toMatch(/\.diff-query-editor-highlight\s*\{[^}]*white-space:\s*pre-wrap;/s);
+  });
 });
 
 describe('diff-panel.ts filter chip defaults', () => {

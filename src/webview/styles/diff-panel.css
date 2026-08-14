@@ -345,6 +345,7 @@ vscode-tab-panel[hidden] {
 
 .diff-query-editor-wrap {
   position: relative;
+  min-width: 0;
   font-family: var(--viewstor-font-mono);
   font-size: 12px;
   line-height: 1.4;
@@ -354,11 +355,10 @@ vscode-tab-panel[hidden] {
   position: absolute;
   inset: 0;
   padding: 4px 8px;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  white-space: pre;
   overflow: hidden;
   pointer-events: none;
-  color: transparent;
+  color: var(--vscode-input-foreground);
   border: 1px solid transparent;
   border-radius: 2px;
 }
@@ -369,13 +369,15 @@ vscode-tab-panel[hidden] {
   padding: 4px 8px;
   font: inherit;
   line-height: inherit;
+  white-space: pre;
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
   border: 1px solid var(--vscode-input-border, var(--viewstor-border-subtle));
   border-radius: 2px;
   outline: none;
   resize: none;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   caret-color: var(--vscode-input-foreground);
 }
 

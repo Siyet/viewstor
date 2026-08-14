@@ -4,6 +4,11 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-08-14
+
+### Changed
+- **One shared SQL highlighter for Result and Diff panels** — both editable-query surfaces now execute the same shipped `sql-highlight.js` asset instead of maintaining separate tokenizers. The shared scanner preserves arbitrary Unicode text, escapes HTML-like input, handles common PostgreSQL/MySQL/SQL Server quoting and comments, and is covered by multilingual runtime, consumer-order, large-input, and XSS regression tests. Query editors no longer soft-wrap long lines: they use horizontal scrolling and keep line breaks under explicit user control; in the Result table query bar `Shift+Enter` inserts a line while plain `Enter` runs the query ([#94](https://github.com/Siyet/viewstor/issues/94)).
+
 ## [0.5.1] — 2026-08-14
 
 ### Added
