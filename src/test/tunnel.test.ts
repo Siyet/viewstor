@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as net from 'net';
 
 const { instances, FakeEmitter, fakeForwardOutStream } = vi.hoisted(() => {
   class FakeEmitter {
@@ -119,5 +120,44 @@ describe('createSSHTunnel', () => {
     const err = await failure;
     expect(err).toBe(hop2Error);
     expect(instances[0].end).toHaveBeenCalled();
+  });
+
+  it('tears down the local listener and every hop when a hop drops after the tunnel is already established', async () => {
+    const proxy = {
+      type: 'ssh' as const,
+      sshHost: 'bastion.example.com',
+      sshUsername: 'u1',
+      sshPassword: 'p1',
+      sshHops: [{ host: 'internal.example.com', username: 'u2', password: 'p2' }],
+    };
+
+    const promise = createSSHTunnel(proxy, '127.0.0.1', 5432);
+    await new Promise((r) => setTimeout(r, 10));
+    instances[0].emit('ready');
+    await new Promise((r) => setTimeout(r, 10));
+    instances[1].emit('ready');
+    const tunnel = await promise;
+
+    // Real TCP connect against the real local port createSSHTunnel opened —
+    // proves the listener is actually open, not just that a mock resolved.
+    await new Promise<void>((resolve, reject) => {
+      const probe = net.connect(tunnel.localPort, tunnel.localHost);
+      probe.on('connect', () => { probe.destroy(); resolve(); });
+      probe.on('error', reject);
+    });
+
+    // Simulate hop 1 dropping well after the tunnel is live (network blip, idle timeout).
+    instances[0].emit('error', new Error('connection reset'));
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(instances[0].end).toHaveBeenCalled();
+    expect(instances[1].end).toHaveBeenCalled();
+
+    // The local listener must be gone — connecting now should fail outright.
+    await new Promise<void>((resolve, reject) => {
+      const probe = net.connect(tunnel.localPort, tunnel.localHost);
+      probe.on('connect', () => { probe.destroy(); reject(new Error('local listener is still accepting connections')); });
+      probe.on('error', () => resolve());
+    });
   });
 });

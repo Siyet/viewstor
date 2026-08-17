@@ -85,7 +85,13 @@ export function createSSHTunnel(
     // immediately after this promise resolves can race the SSH handshake and crash it.
     connectHopChain(hops).then((clients) => {
       const lastHop = clients[clients.length - 1];
-      const closeAll = () => clients.forEach((c) => c.end());
+      let tornDown = false;
+      const closeAll = () => {
+        if (tornDown) return;
+        tornDown = true;
+        server.close();
+        clients.forEach((c) => c.end());
+      };
 
       const server = net.createServer((sock) => {
         lastHop.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, stream) => {
@@ -94,20 +100,21 @@ export function createSSHTunnel(
         });
       });
 
+      // A hop can drop after the tunnel is already established (network blip, idle
+      // timeout, server-side restart) — tear down the whole chain instead of leaking
+      // the local listener and the other hops' now-orphaned SSH clients.
+      clients.forEach((c) => c.on('error', closeAll));
+
       server.listen(0, '127.0.0.1', () => {
         const addr = server.address() as net.AddressInfo;
         resolve({
           localHost: '127.0.0.1',
           localPort: addr.port,
-          close: () => {
-            server.close();
-            closeAll();
-          },
+          close: closeAll,
         });
       });
 
       server.on('error', (err) => {
-        server.close();
         closeAll();
         reject(err);
       });
