@@ -14,6 +14,33 @@ const PROJECT_FILE = '.vscode/viewstor.json';
 const USER_CONFIG_DIR = path.join(os.homedir(), '.viewstor');
 const USER_CONFIG_FILE = path.join(USER_CONFIG_DIR, 'connections.json');
 
+/**
+ * Project-scope connections are written to `.vscode/viewstor.json`, which is meant to be
+ * shareable/committable — so every credential (DB password, proxy/SSH password, private key,
+ * passphrase, on every hop) must be stripped, not just the top-level DB password.
+ */
+function stripSecretsForProjectFile(config: ConnectionConfig): ConnectionConfig {
+  const { password: _password, proxy, ...rest } = config;
+  if (!proxy) return rest as ConnectionConfig;
+
+  const {
+    sshPassword: _sshPassword,
+    sshPrivateKey: _sshPrivateKey,
+    sshPassphrase: _sshPassphrase,
+    proxyPassword: _proxyPassword,
+    sshHops,
+    ...restProxy
+  } = proxy;
+
+  return {
+    ...rest,
+    proxy: {
+      ...restProxy,
+      sshHops: sshHops?.map(({ password: _hopPassword, privateKey: _hopPrivateKey, passphrase: _hopPassphrase, ...restHop }) => restHop),
+    },
+  } as ConnectionConfig;
+}
+
 interface ProjectData {
   connections: ConnectionConfig[];
   folders: ConnectionFolder[];
@@ -151,11 +178,7 @@ export class ConnectionManager {
 
     const projectConns = Array.from(this.connections.values())
       .filter(s => s.config.scope === 'project')
-      .map(s => {
-        // Strip password from project file for security
-        const { password: _password, ...rest } = s.config;
-        return rest as ConnectionConfig;
-      });
+      .map(s => stripSecretsForProjectFile(s.config));
     const projectFolders = Array.from(this.folders.values())
       .filter(f => f.scope === 'project');
 

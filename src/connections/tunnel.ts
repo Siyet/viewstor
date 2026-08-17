@@ -107,6 +107,7 @@ export function createSSHTunnel(
       });
 
       server.on('error', (err) => {
+        server.close();
         closeAll();
         reject(err);
       });

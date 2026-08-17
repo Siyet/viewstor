@@ -11,6 +11,7 @@ const {
   watcherListeners,
   mockFileSystemWatcher,
   readFileHolder,
+  writtenProjectFile,
 } = vi.hoisted(() => {
   const globalStateStore = new Map<string, unknown>();
   const mockGlobalState = {
@@ -41,8 +42,9 @@ const {
   };
 
   const readFileHolder = { result: null as Uint8Array | null };
+  const writtenProjectFile = { last: null as string | null };
 
-  return { globalStateStore, mockGlobalState, watcherListeners, mockFileSystemWatcher, readFileHolder };
+  return { globalStateStore, mockGlobalState, watcherListeners, mockFileSystemWatcher, readFileHolder, writtenProjectFile };
 });
 
 function createFreshMockDriver() {
@@ -90,7 +92,9 @@ vi.mock('vscode', () => {
           if (readFileHolder.result) return readFileHolder.result;
           throw new Error('File not found');
         },
-        writeFile: async () => {},
+        writeFile: async (_uri: unknown, content: Uint8Array) => {
+          writtenProjectFile.last = Buffer.from(content).toString('utf8');
+        },
       },
       createFileSystemWatcher: () => mockFileSystemWatcher,
     },
@@ -152,6 +156,7 @@ function createManager(): ConnectionManager {
 beforeEach(() => {
   globalStateStore.clear();
   readFileHolder.result = null;
+  writtenProjectFile.last = null;
   watcherListeners.onChange = [];
   watcherListeners.onCreate = [];
   watcherListeners.onDelete = [];
@@ -277,6 +282,55 @@ describe('ConnectionManager', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
 
       expect(manager.get('shared-id')!.config.name).toBe('User Version');
+    });
+  });
+
+  describe('saveProjectData — secret stripping', () => {
+    it('strips the DB password and every SSH/proxy secret on every hop before writing the project file', async () => {
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-secret',
+        scope: 'project',
+        password: 'db-secret',
+        proxy: {
+          type: 'ssh',
+          sshHost: 'bastion.example.com',
+          sshUsername: 'u1',
+          sshPassword: 'hop1-secret',
+          sshPrivateKey: 'hop1-key',
+          sshPassphrase: 'hop1-passphrase',
+          sshHops: [{
+            host: 'internal.example.com',
+            username: 'u2',
+            password: 'hop2-secret',
+            privateKey: 'hop2-key',
+            passphrase: 'hop2-passphrase',
+          }],
+        },
+      }));
+
+      expect(writtenProjectFile.last).not.toBeNull();
+      const written = JSON.parse(writtenProjectFile.last!);
+      const savedConn = written.connections.find((c: { id: string }) => c.id === 'proj-secret');
+
+      expect(savedConn.password).toBeUndefined();
+      expect(savedConn.proxy.sshUsername).toBe('u1'); // non-secret fields survive
+      expect(savedConn.proxy.sshPassword).toBeUndefined();
+      expect(savedConn.proxy.sshPrivateKey).toBeUndefined();
+      expect(savedConn.proxy.sshPassphrase).toBeUndefined();
+      expect(savedConn.proxy.sshHops[0].host).toBe('internal.example.com'); // non-secret fields survive
+      expect(savedConn.proxy.sshHops[0].password).toBeUndefined();
+      expect(savedConn.proxy.sshHops[0].privateKey).toBeUndefined();
+      expect(savedConn.proxy.sshHops[0].passphrase).toBeUndefined();
+
+      // None of the secret values appear anywhere in the written file, under any key.
+      expect(writtenProjectFile.last).not.toContain('db-secret');
+      expect(writtenProjectFile.last).not.toContain('hop1-secret');
+      expect(writtenProjectFile.last).not.toContain('hop1-key');
+      expect(writtenProjectFile.last).not.toContain('hop1-passphrase');
+      expect(writtenProjectFile.last).not.toContain('hop2-secret');
+      expect(writtenProjectFile.last).not.toContain('hop2-key');
+      expect(writtenProjectFile.last).not.toContain('hop2-passphrase');
     });
   });
 
