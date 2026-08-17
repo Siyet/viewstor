@@ -102,10 +102,20 @@ export function createSSHTunnel(
 
       // A hop can drop after the tunnel is already established (network blip, idle
       // timeout, server-side restart) — tear down the whole chain instead of leaking
-      // the local listener and the other hops' now-orphaned SSH clients.
-      clients.forEach((c) => c.on('error', closeAll));
+      // the local listener and the other hops' now-orphaned SSH clients. It can also
+      // drop in the short async window between server.listen() being called and its
+      // callback firing; reject() is a no-op once resolve() has already run, so this
+      // covers both cases without needing to know which one happened.
+      clients.forEach((c) => c.on('error', (err) => {
+        closeAll();
+        reject(err);
+      }));
 
       server.listen(0, '127.0.0.1', () => {
+        // A hop can die between listen() being called and this callback firing;
+        // closeAll() already rejected the promise in that case, and server.address()
+        // returns null once the server is closed — bail out instead of crashing on it.
+        if (tornDown) return;
         const addr = server.address() as net.AddressInfo;
         resolve({
           localHost: '127.0.0.1',

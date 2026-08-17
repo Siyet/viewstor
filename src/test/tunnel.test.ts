@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as net from 'net';
 
-const { instances, FakeEmitter, fakeForwardOutStream } = vi.hoisted(() => {
+const { instances, FakeEmitter, FakeStream, createdForwardOutStreams, listenGateState } = vi.hoisted(() => {
   class FakeEmitter {
     private listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
     on(event: string, cb: (...args: unknown[]) => void) {
@@ -12,19 +12,33 @@ const { instances, FakeEmitter, fakeForwardOutStream } = vi.hoisted(() => {
       (this.listeners[event] || []).forEach((cb) => cb(...args));
     }
   }
-  // A single identifiable marker object stands in for the ClientChannel forwardOut()
-  // would normally return, so tests can assert the *same* stream is threaded into
-  // the next hop's connect({ sock }) rather than just that forwardOut was called.
-  const fakeForwardOutStream = { marker: 'fake-forward-out-stream' };
-  return { instances: [] as FakeEmitter[], FakeEmitter, fakeForwardOutStream };
+  // Stands in for the ClientChannel forwardOut() would normally return. real Socket.pipe()
+  // requires a working Writable *and* Readable (its return value gets piped right back into
+  // the socket) — a plain object makes .pipe() throw the moment a real local connection
+  // actually reaches it, so this implements just enough of both ends to be pipe-safe. No
+  // bytes need to move for these tests, so write/pipe are inert.
+  class FakeStream extends FakeEmitter {
+    write() { return true; }
+    end() { /* no-op */ }
+    pipe(dest: unknown) { return dest; }
+  }
+  const createdForwardOutStreams: FakeStream[] = [];
+  // Off by default (net.createServer behaves exactly like the real thing). One test
+  // flips this on to deterministically hold back listen()'s success callback, standing
+  // in for the real (but hard-to-time) async gap between listen() being called and its
+  // callback firing.
+  const listenGateState = { active: false, gate: null as Promise<void> | null };
+  return { instances: [] as FakeEmitter[], FakeEmitter, FakeStream, createdForwardOutStreams, listenGateState };
 });
 
 vi.mock('ssh2', () => {
   class FakeSSHClient extends FakeEmitter {
     connect = vi.fn();
-    // By default, forwardOut succeeds synchronously with the shared stand-in stream.
+    // By default, forwardOut succeeds synchronously with a fresh pipe-safe stream.
     forwardOut = vi.fn((_srcHost: string, _srcPort: number, _dstHost: string, _dstPort: number, cb: (err: Error | null, stream?: unknown) => void) => {
-      cb(null, fakeForwardOutStream);
+      const stream = new FakeStream();
+      createdForwardOutStreams.push(stream);
+      cb(null, stream);
     });
     end = vi.fn();
     constructor() {
@@ -35,10 +49,28 @@ vi.mock('ssh2', () => {
   return { Client: FakeSSHClient };
 });
 
+vi.mock('net', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('net')>();
+  return {
+    ...actual,
+    createServer: (connectionListener?: (sock: net.Socket) => void) => {
+      const server = actual.createServer(connectionListener);
+      if (!listenGateState.active) return server;
+      const realListen = server.listen.bind(server);
+      server.listen = ((...args: unknown[]) => {
+        const cb = args[args.length - 1] as () => void;
+        return realListen(args[0] as number, args[1] as string, () => { (listenGateState.gate as Promise<void>).then(cb); });
+      }) as typeof server.listen;
+      return server;
+    },
+  };
+});
+
 import { createSSHTunnel } from '../connections/tunnel';
 
 beforeEach(() => {
   instances.length = 0;
+  createdForwardOutStreams.length = 0;
 });
 
 describe('createSSHTunnel', () => {
@@ -86,7 +118,7 @@ describe('createSSHTunnel', () => {
     expect(instances.length).toBe(2);
     // Hop 2 must be dialed *through* hop 1's stream (ssh2's ConnectConfig.sock), not
     // over a direct network connection — otherwise the whole point of chaining is lost.
-    expect(instances[1].connect).toHaveBeenCalledWith(expect.objectContaining({ sock: fakeForwardOutStream }));
+    expect(instances[1].connect).toHaveBeenCalledWith(expect.objectContaining({ sock: createdForwardOutStreams[0] }));
     expect(resolved).toBe(false); // hop 2 not ready yet
 
     instances[1].emit('ready');
@@ -159,5 +191,45 @@ describe('createSSHTunnel', () => {
       probe.on('connect', () => { probe.destroy(); reject(new Error('local listener is still accepting connections')); });
       probe.on('error', () => resolve());
     });
+  });
+
+  it('rejects instead of hanging forever when a hop errors while the local listener is still binding', async () => {
+    // net.Server.listen()'s success callback fires asynchronously (a real OS bind,
+    // not a microtask) — there's a genuine gap between createSSHTunnel calling
+    // listen() and that callback (and thus resolve()) running. A hop dying in that
+    // gap must still reject the promise, not leave it pending forever. Real OS
+    // timing can't reproduce that gap deterministically, so the mocked 'net' module
+    // gates the real listen() callback behind a promise we control here, standing
+    // in for "still binding".
+    let releaseListenCallback: () => void = () => {};
+    listenGateState.gate = new Promise<void>((resolve) => { releaseListenCallback = resolve; });
+    listenGateState.active = true;
+
+    try {
+      const proxy = { type: 'ssh' as const, sshHost: 'example.com', sshUsername: 'u', sshPassword: 'p' };
+      const promise = createSSHTunnel(proxy, '127.0.0.1', 5432);
+
+      let settled: 'pending' | 'resolved' | 'rejected' = 'pending';
+      promise.then(() => { settled = 'resolved'; }, () => { settled = 'rejected'; });
+
+      await new Promise((r) => setTimeout(r, 10));
+      instances[0].emit('ready');
+      // listen() has now been called (and, underneath, actually bound) but our gate
+      // is holding back its callback — this is the "still binding" window.
+      await new Promise((r) => setTimeout(r, 10));
+      expect(settled).toBe('pending');
+
+      instances[0].emit('error', new Error('dropped mid-bind'));
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(settled).toBe('rejected'); // must not still be 'pending' — that would be a permanent hang
+      expect(instances[0].end).toHaveBeenCalled();
+
+      releaseListenCallback(); // let the gated callback run too; must not throw or double-settle anything
+      await new Promise((r) => setTimeout(r, 10));
+    } finally {
+      listenGateState.active = false;
+      listenGateState.gate = null;
+    }
   });
 });
