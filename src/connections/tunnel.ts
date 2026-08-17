@@ -1,6 +1,6 @@
-import { Client as SSHClient } from 'ssh2';
+import { Client as SSHClient, type ClientChannel } from 'ssh2';
 import * as net from 'net';
-import { ProxyConfig } from '../types/connection';
+import { ProxyConfig, SshHop } from '../types/connection';
 
 export interface TunnelInfo {
   localHost: string;
@@ -8,9 +8,69 @@ export interface TunnelInfo {
   close: () => void;
 }
 
+/** proxy's flat ssh* fields are hop 1; proxy.sshHops are chained after it. */
+function buildHopChain(proxy: ProxyConfig): SshHop[] {
+  const firstHop: SshHop = {
+    host: proxy.sshHost || '',
+    port: proxy.sshPort,
+    username: proxy.sshUsername,
+    password: proxy.sshPassword,
+    privateKey: proxy.sshPrivateKey,
+    passphrase: proxy.sshPassphrase,
+  };
+  return [firstHop, ...(proxy.sshHops || [])];
+}
+
+/** Connects one SSH hop, optionally tunneling the connection itself through `sock` (a stream from a previous hop's forwardOut). */
+function connectHop(hop: SshHop, sock?: ClientChannel): Promise<SSHClient> {
+  return new Promise((resolve, reject) => {
+    const client = new SSHClient();
+    const connectConfig: Record<string, unknown> = {
+      host: hop.host,
+      port: hop.port || 22,
+      username: hop.username,
+    };
+    if (hop.privateKey) {
+      connectConfig.privateKey = hop.privateKey;
+      if (hop.passphrase) connectConfig.passphrase = hop.passphrase;
+    } else if (hop.password) {
+      connectConfig.password = hop.password;
+    }
+    if (sock) connectConfig.sock = sock;
+
+    client.on('ready', () => resolve(client));
+    client.on('error', (err) => reject(err));
+    client.connect(connectConfig);
+  });
+}
+
+/** Connects each hop in order, tunneling hop N+1's SSH connection through hop N's forwardOut. */
+async function connectHopChain(hops: SshHop[]): Promise<SSHClient[]> {
+  const clients: SSHClient[] = [];
+  try {
+    for (const hop of hops) {
+      let sock: ClientChannel | undefined;
+      if (clients.length > 0) {
+        const previous = clients[clients.length - 1];
+        sock = await new Promise<ClientChannel>((resolve, reject) => {
+          previous.forwardOut('127.0.0.1', 0, hop.host, hop.port || 22, (err, stream) => {
+            if (err) reject(err); else resolve(stream);
+          });
+        });
+      }
+      clients.push(await connectHop(hop, sock));
+    }
+    return clients;
+  } catch (err) {
+    clients.forEach((c) => c.end());
+    throw err;
+  }
+}
+
 /**
- * Creates an SSH tunnel that forwards a local port to a remote host:port.
- * Returns the local host:port to connect the DB driver to.
+ * Creates an SSH tunnel — through one or more chained hops — that forwards a local
+ * port to a remote host:port reachable from the last hop. Returns the local
+ * host:port to connect the DB driver to.
  */
 export function createSSHTunnel(
   proxy: ProxyConfig,
@@ -18,26 +78,17 @@ export function createSSHTunnel(
   remotePort: number,
 ): Promise<TunnelInfo> {
   return new Promise((resolve, reject) => {
-    const ssh = new SSHClient();
-
-    const connectConfig: Record<string, unknown> = {
-      host: proxy.sshHost,
-      port: proxy.sshPort || 22,
-      username: proxy.sshUsername,
-    };
-    if (proxy.sshPrivateKey) {
-      connectConfig.privateKey = proxy.sshPrivateKey;
-      if (proxy.sshPassphrase) connectConfig.passphrase = proxy.sshPassphrase;
-    } else if (proxy.sshPassword) {
-      connectConfig.password = proxy.sshPassword;
-    }
+    const hops = buildHopChain(proxy);
 
     // The local server must not accept connections (and forwardOut must not be called)
-    // until the SSH session is authenticated — otherwise a DB client that dials in
+    // until every hop is authenticated — otherwise a DB client that dials in
     // immediately after this promise resolves can race the SSH handshake and crash it.
-    ssh.on('ready', () => {
+    connectHopChain(hops).then((clients) => {
+      const lastHop = clients[clients.length - 1];
+      const closeAll = () => clients.forEach((c) => c.end());
+
       const server = net.createServer((sock) => {
-        ssh.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, stream) => {
+        lastHop.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, stream) => {
           if (err) { sock.destroy(); return; }
           sock.pipe(stream).pipe(sock);
         });
@@ -50,20 +101,16 @@ export function createSSHTunnel(
           localPort: addr.port,
           close: () => {
             server.close();
-            ssh.end();
+            closeAll();
           },
         });
       });
 
       server.on('error', (err) => {
-        ssh.end();
+        closeAll();
         reject(err);
       });
-    });
-    ssh.on('error', (err) => {
-      reject(err);
-    });
-    ssh.connect(connectConfig);
+    }, reject);
   });
 }
 

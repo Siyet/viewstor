@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from '../connections/connectionManager';
-import { ConnectionState } from '../types/connection';
+import { ConnectionConfig, ConnectionState } from '../types/connection';
 import { SchemaObject, SchemaObjectType } from '../types/schema';
 
 const MIME_TYPE = 'application/vnd.code.tree.viewstor.connections';
@@ -245,7 +245,7 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     const iconColor = colorToThemeColor(this.connectionManager.getConnectionColor(config.id));
     item.iconPath = new vscode.ThemeIcon(`viewstor-${config.type}`, iconColor);
     item.description = connected
-      ? (config.type === 'sqlite' ? (config.database || ':memory:') : `${config.host}:${config.port}`)
+      ? (config.type === 'sqlite' ? (config.database || ':memory:') : describeEndpoint(config))
       : '';
     item.command = { command: 'viewstor._noop', title: '' };
     return item;
@@ -300,6 +300,15 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
 
     return item;
   }
+}
+
+// SSH-proxied connections dial 127.0.0.1:<forwarded-port> internally — showing that
+// in the tree is meaningless to the user, so show the SSH endpoint they actually reach.
+function describeEndpoint(config: ConnectionConfig): string {
+  if (config.proxy?.type === 'ssh' && config.proxy.sshHost) {
+    return `${config.proxy.sshHost}:${config.proxy.sshPort || 22}`;
+  }
+  return `${config.host}:${config.port}`;
 }
 
 function schemaIcon(type: SchemaObjectType): string {

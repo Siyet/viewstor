@@ -170,6 +170,13 @@ export class ConnectionFormPanel {
         sshUsername: data.sshUsername || undefined,
         sshPassword: data.sshPassword || undefined,
         sshPrivateKey: data.sshPrivateKey || undefined,
+        sshHops: data.sshHop2Enabled === 'true' && data.sshHop2Host ? [{
+          host: data.sshHop2Host,
+          port: parseInt(data.sshHop2Port, 10) || 22,
+          username: data.sshHop2Username || undefined,
+          password: data.sshHop2Password || undefined,
+          privateKey: data.sshHop2PrivateKey || undefined,
+        }] : undefined,
         proxyHost: data.proxyHost || undefined,
         proxyPort: parseInt(data.proxyPort, 10) || 1080,
         proxyUsername: data.proxyUsername || undefined,
@@ -319,6 +326,33 @@ export class ConnectionFormPanel {
       <div class="form-group">
         <label for="sshPrivateKey">Private Key (paste content)</label>
         <vscode-textarea id="sshPrivateKey" rows="3" monospace value="${esc(c?.proxy?.sshPrivateKey)}"></vscode-textarea>
+      </div>
+      <div class="form-group checkbox-group">
+        <vscode-checkbox id="sshHop2Enabled"${(c?.proxy?.sshHops && c.proxy.sshHops.length > 0) ? ' checked' : ''}>Connect through a second SSH hop (jump host)</vscode-checkbox>
+      </div>
+      <div id="sshHop2Fields" class="hidden">
+        <div class="form-row">
+          <div class="form-group flex-grow">
+            <label for="sshHop2Host">Host</label>
+            <vscode-textfield id="sshHop2Host" placeholder="db-host.internal" value="${esc(c?.proxy?.sshHops?.[0]?.host)}"></vscode-textfield>
+          </div>
+          <div class="form-group port-field">
+            <label for="sshHop2Port">Port</label>
+            <vscode-textfield id="sshHop2Port" type="number" value="${c?.proxy?.sshHops?.[0]?.port || 22}"></vscode-textfield>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="sshHop2Username">Username</label>
+          <vscode-textfield id="sshHop2Username" value="${esc(c?.proxy?.sshHops?.[0]?.username)}"></vscode-textfield>
+        </div>
+        <div class="form-group">
+          <label for="sshHop2Password">Password</label>
+          <vscode-textfield id="sshHop2Password" type="password" value="${esc(c?.proxy?.sshHops?.[0]?.password)}"></vscode-textfield>
+        </div>
+        <div class="form-group">
+          <label for="sshHop2PrivateKey">Private Key (paste content)</label>
+          <vscode-textarea id="sshHop2PrivateKey" rows="3" monospace value="${esc(c?.proxy?.sshHops?.[0]?.privateKey)}"></vscode-textarea>
+        </div>
       </div>
     </div>
 
