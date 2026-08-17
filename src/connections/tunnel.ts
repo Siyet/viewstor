@@ -19,24 +19,6 @@ export function createSSHTunnel(
 ): Promise<TunnelInfo> {
   return new Promise((resolve, reject) => {
     const ssh = new SSHClient();
-    const server = net.createServer((sock) => {
-      ssh.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, stream) => {
-        if (err) { sock.destroy(); return; }
-        sock.pipe(stream).pipe(sock);
-      });
-    });
-
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address() as net.AddressInfo;
-      resolve({
-        localHost: '127.0.0.1',
-        localPort: addr.port,
-        close: () => {
-          server.close();
-          ssh.end();
-        },
-      });
-    });
 
     const connectConfig: Record<string, unknown> = {
       host: proxy.sshHost,
@@ -50,11 +32,35 @@ export function createSSHTunnel(
       connectConfig.password = proxy.sshPassword;
     }
 
+    // The local server must not accept connections (and forwardOut must not be called)
+    // until the SSH session is authenticated — otherwise a DB client that dials in
+    // immediately after this promise resolves can race the SSH handshake and crash it.
     ssh.on('ready', () => {
-      // SSH connected — local server is already listening
+      const server = net.createServer((sock) => {
+        ssh.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, stream) => {
+          if (err) { sock.destroy(); return; }
+          sock.pipe(stream).pipe(sock);
+        });
+      });
+
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address() as net.AddressInfo;
+        resolve({
+          localHost: '127.0.0.1',
+          localPort: addr.port,
+          close: () => {
+            server.close();
+            ssh.end();
+          },
+        });
+      });
+
+      server.on('error', (err) => {
+        ssh.end();
+        reject(err);
+      });
     });
     ssh.on('error', (err) => {
-      server.close();
       reject(err);
     });
     ssh.connect(connectConfig);
