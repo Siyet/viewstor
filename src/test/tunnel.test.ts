@@ -1,49 +1,44 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as net from 'net';
+import type { EventEmitter } from 'events';
+import type { PassThrough } from 'stream';
 
-const { instances, FakeEmitter, FakeStream, createdForwardOutStreams, listenGateState } = vi.hoisted(() => {
-  class FakeEmitter {
-    private listeners: Record<string, Array<(...args: unknown[]) => void>> = {};
-    on(event: string, cb: (...args: unknown[]) => void) {
-      (this.listeners[event] ||= []).push(cb);
-      return this;
-    }
-    emit(event: string, ...args: unknown[]) {
-      (this.listeners[event] || []).forEach((cb) => cb(...args));
-    }
-  }
-  // Stands in for the ClientChannel forwardOut() would normally return. real Socket.pipe()
-  // requires a working Writable *and* Readable (its return value gets piped right back into
-  // the socket) — a plain object makes .pipe() throw the moment a real local connection
-  // actually reaches it, so this implements just enough of both ends to be pipe-safe. No
-  // bytes need to move for these tests, so write/pipe are inert.
-  class FakeStream extends FakeEmitter {
-    write() { return true; }
-    end() { /* no-op */ }
-    pipe(dest: unknown) { return dest; }
-  }
-  const createdForwardOutStreams: FakeStream[] = [];
-  // Off by default (net.createServer behaves exactly like the real thing). One test
-  // flips this on to deterministically hold back listen()'s success callback, standing
-  // in for the real (but hard-to-time) async gap between listen() being called and its
-  // callback firing.
-  const listenGateState = { active: false, gate: null as Promise<void> | null };
-  return { instances: [] as FakeEmitter[], FakeEmitter, FakeStream, createdForwardOutStreams, listenGateState };
+// Type-only imports above are erased at compile time, so referencing them in the
+// vi.hoisted/vi.mock factories below is safe — using the real *values* (not just
+// types) there would hit vitest's hoisting TDZ (mock factories run before the
+// module's own top-level imports are linked). The factories instead grab the real
+// classes via dynamic import(), which isn't subject to that ordering constraint.
+const { instances, createdForwardOutStreams, listenGateState } = vi.hoisted(() => {
+  return {
+    instances: [] as EventEmitter[],
+    // ClientChannel forwardOut() would normally return — using a real PassThrough
+    // (not a hand-rolled fake) so a real local socket piping through it
+    // (sock.pipe(stream).pipe(sock)) works exactly like the genuine ssh2 stream would.
+    createdForwardOutStreams: [] as PassThrough[],
+    // Off by default (net.createServer behaves exactly like the real thing). One test
+    // flips this on to deterministically hold back listen()'s success callback, standing
+    // in for the real (but hard-to-time) async gap between listen() being called and its
+    // callback firing.
+    listenGateState: { active: false, gate: null as Promise<void> | null },
+  };
 });
 
-vi.mock('ssh2', () => {
-  class FakeSSHClient extends FakeEmitter {
+vi.mock('ssh2', async () => {
+  const { EventEmitter } = await import('events');
+  const { PassThrough } = await import('stream');
+
+  class FakeSSHClient extends EventEmitter {
     connect = vi.fn();
-    // By default, forwardOut succeeds synchronously with a fresh pipe-safe stream.
+    // By default, forwardOut succeeds synchronously with a fresh real stream.
     forwardOut = vi.fn((_srcHost: string, _srcPort: number, _dstHost: string, _dstPort: number, cb: (err: Error | null, stream?: unknown) => void) => {
-      const stream = new FakeStream();
+      const stream = new PassThrough();
       createdForwardOutStreams.push(stream);
       cb(null, stream);
     });
     end = vi.fn();
     constructor() {
       super();
-      instances.push(this);
+      instances.push(this as unknown as EventEmitter);
     }
   }
   return { Client: FakeSSHClient };
@@ -231,5 +226,71 @@ describe('createSSHTunnel', () => {
       listenGateState.active = false;
       listenGateState.gate = null;
     }
+  });
+
+  it('does not crash the process when the forwarded SSH channel errors mid-connection', async () => {
+    const proxy = { type: 'ssh' as const, sshHost: 'example.com', sshUsername: 'u', sshPassword: 'p' };
+    const promise = createSSHTunnel(proxy, '127.0.0.1', 5432);
+    await new Promise((r) => setTimeout(r, 10));
+    instances[0].emit('ready');
+    const tunnel = await promise;
+
+    // A real connection, so the server's connection handler actually runs forwardOut
+    // and pipes a real local socket into the (fake) SSH channel — not a probe that
+    // disconnects before that handler fires.
+    const probe = net.connect(tunnel.localPort, tunnel.localHost);
+    await new Promise<void>((resolve, reject) => {
+      probe.on('connect', () => resolve());
+      probe.on('error', reject);
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(createdForwardOutStreams.length).toBe(1);
+
+    // Without an 'error' listener on the forwarded stream, this throws synchronously —
+    // an uncaught exception that would crash the whole extension host, not just this
+    // connection. Reaching the assertions below at all is part of what this proves.
+    createdForwardOutStreams[0].emit('error', new Error('ssh channel closed'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    // The tunnel itself must still be healthy — only the one bad connection should
+    // have been torn down, not the whole local listener.
+    await new Promise<void>((resolve, reject) => {
+      const secondProbe = net.connect(tunnel.localPort, tunnel.localHost);
+      secondProbe.on('connect', () => { secondProbe.destroy(); resolve(); });
+      secondProbe.on('error', reject);
+    });
+
+    probe.destroy();
+    tunnel.close();
+  });
+
+  it('does not crash the process when the local client socket resets mid-connection', async () => {
+    const proxy = { type: 'ssh' as const, sshHost: 'example.com', sshUsername: 'u', sshPassword: 'p' };
+    const promise = createSSHTunnel(proxy, '127.0.0.1', 5432);
+    await new Promise((r) => setTimeout(r, 10));
+    instances[0].emit('ready');
+    const tunnel = await promise;
+
+    const probe = net.connect(tunnel.localPort, tunnel.localHost);
+    await new Promise<void>((resolve, reject) => {
+      probe.on('connect', () => resolve());
+      probe.on('error', reject);
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    // A genuine TCP RST (query cancellation, client crash, network blip) rather than
+    // a clean close — this is what an unhandled 'error' on the server-side `sock`
+    // would previously have crashed the process on.
+    probe.resetAndDestroy();
+    await new Promise((r) => setTimeout(r, 10));
+
+    // The tunnel itself must still be healthy.
+    await new Promise<void>((resolve, reject) => {
+      const secondProbe = net.connect(tunnel.localPort, tunnel.localHost);
+      secondProbe.on('connect', () => { secondProbe.destroy(); resolve(); });
+      secondProbe.on('error', reject);
+    });
+
+    tunnel.close();
   });
 });

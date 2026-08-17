@@ -94,8 +94,14 @@ export function createSSHTunnel(
       };
 
       const server = net.createServer((sock) => {
+        // Neither side of an ordinary TCP reset (query cancellation, DB restart, a
+        // client that drops without reading) is handled by .pipe() itself — an
+        // EventEmitter that emits 'error' with no listener throws, which without
+        // these would crash the whole extension host, not just this connection.
+        sock.on('error', () => sock.destroy());
         lastHop.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, stream) => {
           if (err) { sock.destroy(); return; }
+          stream.on('error', () => sock.destroy());
           sock.pipe(stream).pipe(sock);
         });
       });
