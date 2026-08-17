@@ -252,6 +252,10 @@ describe('createSSHTunnel', () => {
     createdForwardOutStreams[0].emit('error', new Error('ssh channel closed'));
     await new Promise((r) => setTimeout(r, 10));
 
+    // .pipe() doesn't cascade destruction on error — the local socket being gone must
+    // not leave the SSH channel (the real connection out to the database) dangling.
+    expect(createdForwardOutStreams[0].destroyed).toBe(true);
+
     // The tunnel itself must still be healthy — only the one bad connection should
     // have been torn down, not the whole local listener.
     await new Promise<void>((resolve, reject) => {
@@ -277,12 +281,17 @@ describe('createSSHTunnel', () => {
       probe.on('error', reject);
     });
     await new Promise((r) => setTimeout(r, 10));
+    expect(createdForwardOutStreams.length).toBe(1);
 
     // A genuine TCP RST (query cancellation, client crash, network blip) rather than
     // a clean close — this is what an unhandled 'error' on the server-side `sock`
     // would previously have crashed the process on.
     probe.resetAndDestroy();
     await new Promise((r) => setTimeout(r, 10));
+
+    // The SSH channel (the real connection out to the database) must not be left
+    // dangling just because the local leg reset — .pipe() doesn't cascade destruction.
+    expect(createdForwardOutStreams[0].destroyed).toBe(true);
 
     // The tunnel itself must still be healthy.
     await new Promise<void>((resolve, reject) => {

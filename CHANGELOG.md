@@ -13,7 +13,7 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 ### Fixed
 - **SSH-tunneled connections could fail with "Connection terminated unexpectedly"** — the tunnel could start accepting traffic before the SSH session finished authenticating, occasionally crashing the SSH session outright. This showed up most often on password-authenticated connections, whose slower handshake made the race easier to hit. The tunnel now always waits for the SSH session to be ready first ([#128](https://github.com/Siyet/viewstor/issues/128)).
 - Project-scope connections (`.vscode/viewstor.json`) no longer write SSH/proxy passwords or private keys to disk — only the database password was being stripped before.
-- **An SSH-tunneled connection dropping mid-session (query cancellation, DB restart, an idle timeout) could crash the whole extension host**, not just that connection — an ordinary TCP reset reaching the tunnel had no error handling and threw uncaught. The tunnel now closes just the affected connection and keeps running.
+- **An SSH-tunneled connection dropping mid-session (query cancellation, DB restart, an idle timeout) could crash the whole extension host**, not just that connection — an ordinary TCP reset reaching the tunnel had no error handling and threw uncaught. The tunnel now closes just the affected connection (both its local side and its actual SSH-forwarded connection to the database) and keeps running.
 
 ## [0.5.2] — 2026-08-14
 

@@ -98,10 +98,16 @@ export function createSSHTunnel(
         // client that drops without reading) is handled by .pipe() itself — an
         // EventEmitter that emits 'error' with no listener throws, which without
         // these would crash the whole extension host, not just this connection.
-        sock.on('error', () => sock.destroy());
-        lastHop.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, stream) => {
+        // .pipe() also doesn't cascade destruction on error, so each handler must
+        // destroy *both* ends itself — leaving `stream` (the actual SSH channel,
+        // i.e. the real connection out to the database) open otherwise leaks one
+        // channel and one DB-side connection per reset, for the tunnel's lifetime.
+        let stream: ClientChannel | undefined;
+        sock.on('error', () => { sock.destroy(); stream?.destroy(); });
+        lastHop.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, s) => {
           if (err) { sock.destroy(); return; }
-          stream.on('error', () => sock.destroy());
+          stream = s;
+          stream.on('error', () => { sock.destroy(); stream?.destroy(); });
           sock.pipe(stream).pipe(sock);
         });
       });
