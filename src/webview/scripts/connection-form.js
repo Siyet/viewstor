@@ -278,6 +278,7 @@
       sshHop2Username: valueOf($('sshHop2Username')).trim(),
       sshHop2Password: valueOf($('sshHop2Password')),
       sshHop2PrivateKey: valueOf($('sshHop2PrivateKey')).trim(),
+      sshHop2Passphrase: valueOf($('sshHop2Passphrase')),
       proxyHost: valueOf($('proxyHost')).trim(),
       proxyPort: valueOf($('proxyPort')),
       proxyUsername: valueOf($('proxyUsername')).trim(),
@@ -378,6 +379,7 @@
             $('sshHop2Username').value = (hop2 && hop2.username) || '';
             $('sshHop2Password').value = (hop2 && hop2.password) || '';
             $('sshHop2PrivateKey').value = (hop2 && hop2.privateKey) || '';
+            $('sshHop2Passphrase').value = (hop2 && hop2.passphrase) || '';
             $('proxyHost').value = c.proxy.proxyHost || '';
             $('proxyPort').value = String(c.proxy.proxyPort || 1080);
             $('proxyUsername').value = c.proxy.proxyUsername || '';

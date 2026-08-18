@@ -176,6 +176,7 @@ export class ConnectionFormPanel {
           username: data.sshHop2Username || undefined,
           password: data.sshHop2Password || undefined,
           privateKey: data.sshHop2PrivateKey || undefined,
+          passphrase: data.sshHop2Passphrase || undefined,
         }] : undefined,
         proxyHost: data.proxyHost || undefined,
         proxyPort: parseInt(data.proxyPort, 10) || 1080,
@@ -352,6 +353,10 @@ export class ConnectionFormPanel {
         <div class="form-group">
           <label for="sshHop2PrivateKey">Private Key (paste content)</label>
           <vscode-textarea id="sshHop2PrivateKey" rows="3" monospace value="${esc(c?.proxy?.sshHops?.[0]?.privateKey)}"></vscode-textarea>
+        </div>
+        <div class="form-group">
+          <label for="sshHop2Passphrase">Private Key Passphrase</label>
+          <vscode-textfield id="sshHop2Passphrase" type="password" value="${esc(c?.proxy?.sshHops?.[0]?.passphrase)}"></vscode-textfield>
         </div>
       </div>
     </div>

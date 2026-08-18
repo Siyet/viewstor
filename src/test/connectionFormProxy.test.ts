@@ -68,4 +68,15 @@ describe('ConnectionFormPanel.parseFormData — SSH proxy', () => {
     });
     expect(config.proxy?.sshHops?.[0].port).toBe(22);
   });
+
+  it('includes the second hop passphrase, for encrypted private keys', () => {
+    const config = parse({
+      ...baseData,
+      sshHop2Enabled: 'true',
+      sshHop2Host: 'internal.example.com',
+      sshHop2PrivateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\n...',
+      sshHop2Passphrase: 'hunter2',
+    });
+    expect(config.proxy?.sshHops?.[0].passphrase).toBe('hunter2');
+  });
 });

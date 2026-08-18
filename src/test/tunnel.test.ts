@@ -8,7 +8,7 @@ import type { PassThrough } from 'stream';
 // types) there would hit vitest's hoisting TDZ (mock factories run before the
 // module's own top-level imports are linked). The factories instead grab the real
 // classes via dynamic import(), which isn't subject to that ordering constraint.
-const { instances, createdForwardOutStreams, listenGateState } = vi.hoisted(() => {
+const { instances, createdForwardOutStreams, listenGateState, forwardOutGateState } = vi.hoisted(() => {
   return {
     instances: [] as EventEmitter[],
     // ClientChannel forwardOut() would normally return — using a real PassThrough
@@ -20,6 +20,9 @@ const { instances, createdForwardOutStreams, listenGateState } = vi.hoisted(() =
     // in for the real (but hard-to-time) async gap between listen() being called and its
     // callback firing.
     listenGateState: { active: false, gate: null as Promise<void> | null },
+    // Same idea, for forwardOut()'s callback — standing in for the real (but
+    // hard-to-time) async gap between dialing the SSH channel and it opening.
+    forwardOutGateState: { active: false, gate: null as Promise<void> | null },
   };
 });
 
@@ -33,7 +36,11 @@ vi.mock('ssh2', async () => {
     forwardOut = vi.fn((_srcHost: string, _srcPort: number, _dstHost: string, _dstPort: number, cb: (err: Error | null, stream?: unknown) => void) => {
       const stream = new PassThrough();
       createdForwardOutStreams.push(stream);
-      cb(null, stream);
+      if (forwardOutGateState.active) {
+        (forwardOutGateState.gate as Promise<void>).then(() => cb(null, stream));
+      } else {
+        cb(null, stream);
+      }
     });
     end = vi.fn();
     constructor() {
@@ -301,5 +308,55 @@ describe('createSSHTunnel', () => {
     });
 
     tunnel.close();
+  });
+
+  it('destroys the SSH channel if the local socket dies before forwardOut finishes opening it', async () => {
+    // forwardOut is a real round trip to the SSH server — the local socket can die
+    // (reset, or a driver's own connect-timeout) while that's still in flight. Real
+    // network timing can't be relied on to land in that exact window, so this gates
+    // the mocked forwardOut's callback behind a promise we control.
+    let releaseForwardOut: () => void = () => {};
+    forwardOutGateState.gate = new Promise<void>((resolve) => { releaseForwardOut = resolve; });
+    forwardOutGateState.active = true;
+
+    try {
+      const proxy = { type: 'ssh' as const, sshHost: 'example.com', sshUsername: 'u', sshPassword: 'p' };
+      const promise = createSSHTunnel(proxy, '127.0.0.1', 5432);
+      await new Promise((r) => setTimeout(r, 10));
+      instances[0].emit('ready');
+      const tunnel = await promise;
+
+      const probe = net.connect(tunnel.localPort, tunnel.localHost);
+      await new Promise<void>((resolve, reject) => {
+        probe.on('connect', () => resolve());
+        probe.on('error', reject);
+      });
+      // forwardOut has now been called (and captured a channel) but our gate is
+      // holding back its callback — this is the "channel still opening" window.
+      await new Promise((r) => setTimeout(r, 10));
+      expect(createdForwardOutStreams.length).toBe(1);
+
+      probe.resetAndDestroy();
+      await new Promise((r) => setTimeout(r, 10));
+
+      releaseForwardOut(); // the gated callback now runs with sock already destroyed
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Piping into/from an already-destroyed socket is a silent no-op — without an
+      // explicit guard, the channel opened after the fact would never get destroyed.
+      expect(createdForwardOutStreams[0].destroyed).toBe(true);
+
+      // The tunnel itself must still be healthy.
+      await new Promise<void>((resolve, reject) => {
+        const secondProbe = net.connect(tunnel.localPort, tunnel.localHost);
+        secondProbe.on('connect', () => { secondProbe.destroy(); resolve(); });
+        secondProbe.on('error', reject);
+      });
+
+      tunnel.close();
+    } finally {
+      forwardOutGateState.active = false;
+      forwardOutGateState.gate = null;
+    }
   });
 });

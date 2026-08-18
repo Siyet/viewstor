@@ -106,6 +106,11 @@ export function createSSHTunnel(
         sock.on('error', () => { sock.destroy(); stream?.destroy(); });
         lastHop.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, s) => {
           if (err) { sock.destroy(); return; }
+          // forwardOut is a real round trip to the SSH server — sock can already be
+          // dead (reset, or a driver's own connect timeout) by the time this fires.
+          // Piping into/from an already-destroyed socket is a silent no-op, so
+          // without this the freshly opened channel would never get destroyed.
+          if (sock.destroyed) { s.destroy(); return; }
           stream = s;
           stream.on('error', () => { sock.destroy(); stream?.destroy(); });
           sock.pipe(stream).pipe(sock);
