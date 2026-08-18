@@ -4,6 +4,23 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+- **Chained (double-hop) SSH tunnels** — an SSH-proxied connection can now hop through an additional jump host before reaching the database, for bastion + private-subnet topologies where the target isn't reachable directly from the first hop. Configure it under Proxy / Tunnel → "Connect through a second SSH hop (jump host)" in the connection form, including a passphrase field for an encrypted private key on that second hop.
+
+### Changed
+- SSH-proxied connections in the Connections tree now show the SSH host:port you actually connect through, instead of the tunnel's internal local-forwarded-port address.
+- The connection form gained a Private Key Passphrase field for the first SSH hop, alongside the one for the second — an encrypted key could not be used there before.
+
+### Fixed
+- **SSH-tunneled connections could fail with "Connection terminated unexpectedly"** — the tunnel could start accepting traffic before the SSH session finished authenticating, occasionally crashing the SSH session outright. This showed up most often on password-authenticated connections, whose slower handshake made the race easier to hit. The tunnel now always waits for the SSH session to be ready first ([#128](https://github.com/Siyet/viewstor/issues/128)).
+- Project-scope connections (`.vscode/viewstor.json`) no longer write SSH/proxy passwords or private keys to disk — only the database password was being stripped before.
+- Saving a project-scope connection's SSH password or private key no longer wipes it back out of the current session — reloading `.vscode/viewstor.json` (which by design holds no credentials) now restores the ones entered this session instead of dropping them, whether the reload was triggered by the extension's own save or by a genuine outside change. Credentials are only restored to the host and user they were entered for, so a connection repointed at a different server in the shared file asks for its own credentials rather than reusing the previous host's.
+- **An SSH-tunneled connection dropping mid-session (query cancellation, DB restart, an idle timeout) could crash the whole extension host**, not just that connection — an ordinary TCP reset reaching the tunnel had no error handling and threw uncaught. The tunnel now closes just the affected connection (both its local side and its actual SSH-forwarded connection to the database) and keeps running.
+- **Chained SSH tunnels could hang indefinitely while connecting** if an already-connected hop dropped while the next hop was still connecting through it — that failure mode never raised an error to react to. Connecting now aborts cleanly with an error instead of hanging.
+- **An SSH tunnel could go zombie** — still listening locally, but talking to nothing — if a hop's connection closed cleanly (an sshd restart or graceful shutdown, not a reset) once the tunnel was already established; that case never emitted an error either. The tunnel is now torn down correctly either way.
+- A connecting SSH hop that lost out to a chain failure elsewhere (see above) could keep running in the background indefinitely instead of being closed along with the rest of the failed connection attempt.
+- **Connecting to an SSH-tunneled database could hang forever with no error** if the SSH connection dropped mid-handshake (an sshd hitting its connection/login limits, a network blip during key exchange, a bastion actively rejecting the attempt) — past the very first moment of the handshake, that failure mode only ever closes the connection, it doesn't raise an error. This predates chained tunnels entirely; connecting now always fails with a clear error instead of hanging.
+
 ## [0.5.2] — 2026-08-14
 
 ### Changed

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { ConnectionConfig, ConnectionState, ConnectionFolder } from '../types/connection';
+import { ConnectionConfig, ConnectionState, ConnectionFolder, ProxyConfig, SshHop, DEFAULT_PORTS } from '../types/connection';
 import { DatabaseDriver } from '../types/driver';
 import { SchemaObject } from '../types/schema';
 import { createDriver } from '../drivers';
@@ -13,6 +13,125 @@ const FOLDERS_KEY = 'viewstor.connectionFolders';
 const PROJECT_FILE = '.vscode/viewstor.json';
 const USER_CONFIG_DIR = path.join(os.homedir(), '.viewstor');
 const USER_CONFIG_FILE = path.join(USER_CONFIG_DIR, 'connections.json');
+
+/**
+ * Project-scope connections are written to `.vscode/viewstor.json`, which is meant to be
+ * shareable/committable — so every credential (DB password, proxy/SSH password, private key,
+ * passphrase, on every hop) must be stripped, not just the top-level DB password.
+ */
+function stripSecretsForProjectFile(config: ConnectionConfig): ConnectionConfig {
+  // Allowlists, not denylists: this file gets committed, so a credential field added
+  // to ConnectionConfig/ProxyConfig/SshHop later must fail closed (silently absent
+  // from the file) rather than fail open (silently published). The Exclude<> typing
+  // additionally makes listing a known secret here a compile error.
+  const CONFIG_KEYS: ReadonlyArray<Exclude<keyof ConnectionConfig, 'password'>> = [
+    'id', 'name', 'type', 'host', 'port', 'username', 'database', 'databases', 'ssl',
+    'options', 'folderId', 'color', 'readonly', 'hiddenSchemas', 'hiddenDatabases',
+    'safeMode', 'scope', 'agentAnonymization', 'agentAnonymizationStrategy', 'proxy',
+  ];
+  const PROXY_KEYS: ReadonlyArray<Exclude<keyof ProxyConfig, 'sshPassword' | 'sshPrivateKey' | 'sshPassphrase' | 'proxyPassword'>> = [
+    'type', 'sshHost', 'sshPort', 'sshUsername', 'sshHops', 'proxyHost', 'proxyPort', 'proxyUsername',
+  ];
+  const HOP_KEYS: ReadonlyArray<Exclude<keyof SshHop, 'password' | 'privateKey' | 'passphrase'>> = [
+    'host', 'port', 'username',
+  ];
+
+  const pick = <T extends object, K extends keyof T>(source: T, keys: ReadonlyArray<K>): Pick<T, K> => {
+    const out = {} as Pick<T, K>;
+    for (const key of keys) if (source[key] !== undefined) out[key] = source[key];
+    return out;
+  };
+
+  const stripped = pick(config, CONFIG_KEYS) as ConnectionConfig;
+  if (config.proxy) {
+    stripped.proxy = pick(config.proxy, PROXY_KEYS) as ProxyConfig;
+    if (config.proxy.sshHops) {
+      stripped.proxy.sshHops = config.proxy.sshHops.map(hop => pick(hop, HOP_KEYS) as SshHop);
+    }
+  }
+  return stripped;
+}
+
+/**
+ * Who a credential was entered for. Remembered credentials are only reapplied to the
+ * same endpoint — the project file is shared and committed, so a pulled change to a
+ * host/user must fail closed (prompting the user) rather than silently forwarding the
+ * password they typed for the old one to whatever host now sits in its place.
+ */
+function endpointIdentity(host: string | undefined, port: number | undefined, username: string | undefined, defaultPort?: number): string {
+  // An omitted port and its default are the same endpoint — the config in memory and
+  // the one read back from the file often differ only in whether it was spelled out.
+  return `${host ?? ''}:${port ?? defaultPort ?? ''}:${username ?? ''}`;
+}
+
+/** The proxy's own endpoint — SSH hop 1, or the SOCKS5/HTTP proxy for those types. */
+function proxyIdentityOf(proxy: ProxyConfig): string {
+  // Type is part of the identity: the same host/user reached as an SSH bastion and as
+  // a SOCKS5 proxy are different things to hold a credential for.
+  return proxy.type === 'ssh'
+    ? `ssh|${endpointIdentity(proxy.sshHost, proxy.sshPort, proxy.sshUsername, 22)}`
+    : `${proxy.type}|${endpointIdentity(proxy.proxyHost, proxy.proxyPort, proxy.proxyUsername, 1080)}`;
+}
+
+/** Exactly the fields stripSecretsForProjectFile() drops, kept in memory so a reload can put them back. */
+interface ProjectSecrets {
+  dbIdentity: string;
+  password?: string;
+  proxyIdentity?: string;
+  sshPassword?: string;
+  sshPrivateKey?: string;
+  sshPassphrase?: string;
+  proxyPassword?: string;
+  hops?: Array<{ identity: string; password?: string; privateKey?: string; passphrase?: string }>;
+}
+
+function extractProjectSecrets(config: ConnectionConfig): ProjectSecrets | undefined {
+  const proxy = config.proxy;
+  const secrets: ProjectSecrets = {
+    dbIdentity: endpointIdentity(config.host, config.port, config.username, DEFAULT_PORTS[config.type]),
+    password: config.password,
+    proxyIdentity: proxy && proxyIdentityOf(proxy),
+    sshPassword: proxy?.sshPassword,
+    sshPrivateKey: proxy?.sshPrivateKey,
+    sshPassphrase: proxy?.sshPassphrase,
+    proxyPassword: proxy?.proxyPassword,
+    hops: proxy?.sshHops?.map(hop => ({
+      identity: endpointIdentity(hop.host, hop.port, hop.username, 22),
+      password: hop.password,
+      privateKey: hop.privateKey,
+      passphrase: hop.passphrase,
+    })),
+  };
+  const hasAny = secrets.password || secrets.sshPassword || secrets.sshPrivateKey || secrets.sshPassphrase
+    || secrets.proxyPassword || secrets.hops?.some(h => h.password || h.privateKey || h.passphrase);
+  return hasAny ? secrets : undefined;
+}
+
+/** Mutates `config` in place, restoring only fields it doesn't already carry, and only for unchanged endpoints. */
+function applyProjectSecrets(config: ConnectionConfig, secrets: ProjectSecrets) {
+  if (endpointIdentity(config.host, config.port, config.username, DEFAULT_PORTS[config.type]) === secrets.dbIdentity) {
+    config.password ??= secrets.password;
+  }
+  const proxy = config.proxy;
+  if (!proxy) return;
+
+  if (proxyIdentityOf(proxy) === secrets.proxyIdentity) {
+    proxy.sshPassword ??= secrets.sshPassword;
+    proxy.sshPrivateKey ??= secrets.sshPrivateKey;
+    proxy.sshPassphrase ??= secrets.sshPassphrase;
+    proxy.proxyPassword ??= secrets.proxyPassword;
+  }
+  // Matched by identity, not position: a reordered chain keeps each hop's own
+  // credential, and an inserted or retargeted hop simply gets none.
+  proxy.sshHops?.forEach(hop => {
+    const identity = endpointIdentity(hop.host, hop.port, hop.username, 22);
+    const remembered = secrets.hops?.find(h => h.identity === identity);
+    if (!remembered) return;
+    hop.password ??= remembered.password;
+    hop.privateKey ??= remembered.privateKey;
+    hop.passphrase ??= remembered.passphrase;
+  });
+}
 
 interface ProjectData {
   connections: ConnectionConfig[];
@@ -29,6 +148,28 @@ export class ConnectionManager {
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChange = this._onDidChange.event;
   private projectFileWatcher: vscode.FileSystemWatcher | undefined;
+  // VS Code's FileSystemWatcher doesn't exempt the extension's own writes — saving a
+  // project-scope connection fires onDidChange for the file this same save just
+  // wrote. Without this, that triggers reloadProjectData(), which re-reads the
+  // just-stripped file and wipes live-session-only secrets (SSH/DB passwords,
+  // private keys) straight back out of the in-memory config.
+  private lastWrittenProjectContent: string | undefined;
+  // Chained to serialize saveProjectData() calls — see its own doc comment.
+  private projectSaveQueue: Promise<void> = Promise.resolve();
+  private projectSavesInFlight = 0;
+  // Bumped by every completed write, so a guard check can tell whether the file it
+  // read is still the one lastWrittenProjectContent describes.
+  private projectSaveGeneration = 0;
+  // Credentials belonging to project-scope connections, which by design never reach
+  // `.vscode/viewstor.json`. Reloading takes that file as the truth, so without a copy
+  // held outside the reloaded config a reload silently wipes them. Keeping them here
+  // makes a reload harmless by construction, rather than something the watcher guards
+  // above have to be perfect at avoiding.
+  private projectSecrets: Map<string, ProjectSecrets> = new Map();
+  // True between dropping project connections from memory and successfully reloading
+  // them. While set, an empty in-memory project set means "not loaded yet", not
+  // "none exist" — so projectSecrets must not be rebuilt from it.
+  private projectLoadPending = false;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadConnections();
@@ -79,6 +220,10 @@ export class ConnectionManager {
         const data: ProjectData = JSON.parse(Buffer.from(content).toString('utf8'));
         for (const config of data.connections || []) {
           config.scope = 'project';
+          // The file never holds credentials, so anything we still remember for this
+          // connection is put back — otherwise every reload silently logs the user out.
+          const secrets = this.projectSecrets.get(config.id);
+          if (secrets) applyProjectSecrets(config, secrets);
           if (!this.connections.has(config.id)) {
             this.connections.set(config.id, { config, connected: false });
           }
@@ -89,8 +234,15 @@ export class ConnectionManager {
             this.folders.set(folder.id, folder);
           }
         }
+        // In-memory project data now reflects the file again.
+        this.projectLoadPending = false;
         this._onDidChange.fire();
-      }).then(undefined, () => { /* file doesn't exist — ok */ });
+      }).then(undefined, () => {
+        // File is missing or mid-edit (invalid JSON), so project connections stay
+        // unloaded — deliberately leaving projectLoadPending set, so a save landing
+        // in that stretch doesn't mistake "none in memory" for "none exist" and drop
+        // the credentials we're holding for them.
+      });
     } catch { /* ignore */ }
   }
 
@@ -99,12 +251,39 @@ export class ConnectionManager {
     if (!workspaceFolders) return;
     const pattern = new vscode.RelativePattern(workspaceFolders[0], PROJECT_FILE);
     this.projectFileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-    this.projectFileWatcher.onDidChange(() => this.reloadProjectData());
-    this.projectFileWatcher.onDidCreate(() => this.reloadProjectData());
+    this.projectFileWatcher.onDidChange(() => this.reloadProjectDataIfChanged());
+    this.projectFileWatcher.onDidCreate(() => this.reloadProjectDataIfChanged());
     this.projectFileWatcher.onDidDelete(() => this.reloadProjectData());
   }
 
+  /** Skips the reload if the file on disk is exactly what this same instance just wrote — see lastWrittenProjectContent. */
+  private async reloadProjectDataIfChanged() {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) return;
+    // A save that hasn't landed yet means disk still holds the *previous* write while
+    // the marker already names the pending one — every comparison in that window is
+    // meaningless, and treating it as an external edit would wipe live secrets.
+    if (this.projectSavesInFlight > 0) return;
+    const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, PROJECT_FILE);
+    const generation = this.projectSaveGeneration;
+    try {
+      const content = Buffer.from(await vscode.workspace.fs.readFile(fileUri)).toString('utf8');
+      // This read is only comparable to the marker if no save landed while it was in
+      // flight. If one did, `content` predates the marker and would look like an
+      // external edit — that save's own watcher event will re-check against fresh state.
+      if (this.projectSaveGeneration !== generation) return;
+      if (content === this.lastWrittenProjectContent) return;
+    } catch { /* unreadable — fall through and let reloadProjectData's own read handle/report it */ }
+    this.reloadProjectData();
+  }
+
   private reloadProjectData() {
+    // Disk is about to become the source of truth, so the marker — which describes the
+    // file we last wrote — must stop matching. Otherwise a later restore of exactly
+    // those bytes (git stash pop, undo-and-save, switching back to a branch) looks
+    // like our own write and is silently ignored.
+    this.lastWrittenProjectContent = undefined;
+    this.projectLoadPending = true;
     // Remove old project-scoped items
     for (const [id, state] of this.connections) {
       if (state.config.scope === 'project') this.connections.delete(id);
@@ -145,25 +324,54 @@ export class ConnectionManager {
     await this.saveProjectData();
   }
 
-  private async saveProjectData() {
+  /**
+   * Serializes writes to the project file. Several public methods (add/update/remove,
+   * folder moves, hidden-schema toggles, ...) each call this independently with no
+   * lock between them — without a queue, two overlapping saves' writes could complete
+   * out of order, leaving lastWrittenProjectContent out of sync with what's actually
+   * on disk and making reloadProjectDataIfChanged() treat the extension's own write
+   * as an external edit, wiping secrets (or reverting other changes) for real.
+   */
+  private saveProjectData(): Promise<void> {
+    this.projectSavesInFlight++;
+    const run = this.projectSaveQueue.then(() => this.doSaveProjectData());
+    // A failed save must not permanently block every save queued after it.
+    this.projectSaveQueue = run.catch(() => {}).then(() => { this.projectSavesInFlight--; });
+    return run;
+  }
+
+  private async doSaveProjectData() {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) return;
 
-    const projectConns = Array.from(this.connections.values())
-      .filter(s => s.config.scope === 'project')
-      .map(s => {
-        // Strip password from project file for security
-        const { password: _password, ...rest } = s.config;
-        return rest as ConnectionConfig;
-      });
+    const projectStates = Array.from(this.connections.values())
+      .filter(s => s.config.scope === 'project');
+    // Every save records the credentials it is about to strip, and normally starts
+    // from scratch so a removed connection doesn't leave its own behind. While a
+    // reload is outstanding the set in memory isn't the whole picture — the file
+    // hasn't been read back yet, and may stay unreadable indefinitely (deleted,
+    // merge-conflicted) — so carry the existing entries over instead: only pruning is
+    // deferred, never the recording, or credentials entered in that stretch would
+    // reach disk stripped with nothing left remembering them.
+    const nextSecrets = this.projectLoadPending ? new Map(this.projectSecrets) : new Map<string, ProjectSecrets>();
+    for (const s of projectStates) {
+      const secrets = extractProjectSecrets(s.config);
+      if (secrets) nextSecrets.set(s.config.id, secrets);
+      else nextSecrets.delete(s.config.id);
+    }
+    this.projectSecrets = nextSecrets;
+    const projectConns = projectStates.map(s => stripSecretsForProjectFile(s.config));
     const projectFolders = Array.from(this.folders.values())
       .filter(f => f.scope === 'project');
 
     if (projectConns.length === 0 && projectFolders.length === 0) return;
 
     const data: ProjectData = { connections: projectConns, folders: projectFolders };
+    const json = JSON.stringify(data, null, 2);
+    this.lastWrittenProjectContent = json;
+    this.projectSaveGeneration++;
     const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, PROJECT_FILE);
-    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(JSON.stringify(data, null, 2), 'utf8'));
+    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(json, 'utf8'));
   }
 
   // --- Connections ---

@@ -11,6 +11,9 @@ const {
   watcherListeners,
   mockFileSystemWatcher,
   readFileHolder,
+  writtenProjectFile,
+  writeDelay,
+  readDelay,
 } = vi.hoisted(() => {
   const globalStateStore = new Map<string, unknown>();
   const mockGlobalState = {
@@ -41,8 +44,14 @@ const {
   };
 
   const readFileHolder = { result: null as Uint8Array | null };
+  const writtenProjectFile = { last: null as string | null };
+  // Lets one test hold back individual writeFile() completions, to check that
+  // overlapping saves can't land on disk out of the order they were issued.
+  const writeDelay = { forContent: null as ((content: string) => Promise<void> | undefined) | null };
+  // Same idea for reads, so a test can hold a guard-check read open across a save.
+  const readDelay = { gate: null as (() => Promise<void> | undefined) | null };
 
-  return { globalStateStore, mockGlobalState, watcherListeners, mockFileSystemWatcher, readFileHolder };
+  return { globalStateStore, mockGlobalState, watcherListeners, mockFileSystemWatcher, readFileHolder, writtenProjectFile, writeDelay, readDelay };
 });
 
 function createFreshMockDriver() {
@@ -87,10 +96,18 @@ vi.mock('vscode', () => {
       workspaceFolders: [{ uri: mockWorkspaceFolderUri }],
       fs: {
         readFile: async () => {
-          if (readFileHolder.result) return readFileHolder.result;
+          // Snapshot first, like a real read: a write that lands while this call is
+          // in flight doesn't retroactively change what it returns.
+          const snapshot = readFileHolder.result;
+          await readDelay.gate?.();
+          if (snapshot) return snapshot;
           throw new Error('File not found');
         },
-        writeFile: async () => {},
+        writeFile: async (_uri: unknown, content: Uint8Array) => {
+          const text = Buffer.from(content).toString('utf8');
+          await writeDelay.forContent?.(text);
+          writtenProjectFile.last = text;
+        },
       },
       createFileSystemWatcher: () => mockFileSystemWatcher,
     },
@@ -152,6 +169,9 @@ function createManager(): ConnectionManager {
 beforeEach(() => {
   globalStateStore.clear();
   readFileHolder.result = null;
+  writtenProjectFile.last = null;
+  writeDelay.forContent = null;
+  readDelay.gate = null;
   watcherListeners.onChange = [];
   watcherListeners.onCreate = [];
   watcherListeners.onDelete = [];
@@ -277,6 +297,55 @@ describe('ConnectionManager', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
 
       expect(manager.get('shared-id')!.config.name).toBe('User Version');
+    });
+  });
+
+  describe('saveProjectData — secret stripping', () => {
+    it('strips the DB password and every SSH/proxy secret on every hop before writing the project file', async () => {
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-secret',
+        scope: 'project',
+        password: 'db-secret',
+        proxy: {
+          type: 'ssh',
+          sshHost: 'bastion.example.com',
+          sshUsername: 'u1',
+          sshPassword: 'hop1-secret',
+          sshPrivateKey: 'hop1-key',
+          sshPassphrase: 'hop1-passphrase',
+          sshHops: [{
+            host: 'internal.example.com',
+            username: 'u2',
+            password: 'hop2-secret',
+            privateKey: 'hop2-key',
+            passphrase: 'hop2-passphrase',
+          }],
+        },
+      }));
+
+      expect(writtenProjectFile.last).not.toBeNull();
+      const written = JSON.parse(writtenProjectFile.last!);
+      const savedConn = written.connections.find((c: { id: string }) => c.id === 'proj-secret');
+
+      expect(savedConn.password).toBeUndefined();
+      expect(savedConn.proxy.sshUsername).toBe('u1'); // non-secret fields survive
+      expect(savedConn.proxy.sshPassword).toBeUndefined();
+      expect(savedConn.proxy.sshPrivateKey).toBeUndefined();
+      expect(savedConn.proxy.sshPassphrase).toBeUndefined();
+      expect(savedConn.proxy.sshHops[0].host).toBe('internal.example.com'); // non-secret fields survive
+      expect(savedConn.proxy.sshHops[0].password).toBeUndefined();
+      expect(savedConn.proxy.sshHops[0].privateKey).toBeUndefined();
+      expect(savedConn.proxy.sshHops[0].passphrase).toBeUndefined();
+
+      // None of the secret values appear anywhere in the written file, under any key.
+      expect(writtenProjectFile.last).not.toContain('db-secret');
+      expect(writtenProjectFile.last).not.toContain('hop1-secret');
+      expect(writtenProjectFile.last).not.toContain('hop1-key');
+      expect(writtenProjectFile.last).not.toContain('hop1-passphrase');
+      expect(writtenProjectFile.last).not.toContain('hop2-secret');
+      expect(writtenProjectFile.last).not.toContain('hop2-key');
+      expect(writtenProjectFile.last).not.toContain('hop2-passphrase');
     });
   });
 
@@ -1014,6 +1083,496 @@ describe('ConnectionManager', () => {
 
       // Old project connection should be removed
       expect(manager.get('watch-conn')).toBeUndefined();
+    });
+
+    it('does not wipe a live SSH secret when the watcher fires for the manager\'s own save', async () => {
+      // VS Code's FileSystemWatcher doesn't exempt the extension's own writes — saving
+      // a project-scope connection fires onDidChange for the file that same save just
+      // wrote. A naive reload would re-read the just-secret-stripped file and wipe the
+      // live in-memory password/private key straight back out.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-ssh',
+        scope: 'project',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'live-secret' },
+      }));
+
+      expect(manager.get('proj-ssh')!.config.proxy?.sshPassword).toBe('live-secret');
+
+      // The mock filesystem now reflects exactly what saveProjectData() just wrote —
+      // simulate the watcher observing that same write.
+      readFileHolder.result = Buffer.from(writtenProjectFile.last!, 'utf8');
+      for (const listener of watcherListeners.onChange) {
+        listener();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(manager.get('proj-ssh')!.config.proxy?.sshPassword).toBe('live-secret');
+    });
+
+    it('still reloads (and applies) a genuine external edit to the project file', async () => {
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'proj-ext', scope: 'project', name: 'Original' }));
+
+      const externalData = {
+        connections: [makeConfig({ id: 'proj-ext', scope: 'project' as const, name: 'Edited outside VS Code' })],
+        folders: [],
+      };
+      readFileHolder.result = Buffer.from(JSON.stringify(externalData), 'utf8');
+      for (const listener of watcherListeners.onChange) {
+        listener();
+      }
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-ext')!.config.name).toBe('Edited outside VS Code');
+      });
+    });
+
+    it('keeps disk and the self-write marker in sync when two saves overlap', async () => {
+      // Many public methods each call saveProjectData() independently. If two
+      // overlapping saves' writes land out of issue order, the last-written marker
+      // no longer matches what's actually on disk — and the next watcher event
+      // treats the extension's own write as an external edit, wiping live secrets.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-race',
+        scope: 'project',
+        name: 'v1',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'live-secret' },
+      }));
+
+      // Hold the first write open (its content already snapshotted as "v1") and only
+      // then make the second edit. Unserialized, the second write lands first and the
+      // stale first write overwrites it — leaving disk on v1 while the manager's
+      // self-write marker says v2.
+      let releaseFirstWrite: () => void = () => {};
+      const firstWriteGate = new Promise<void>((resolve) => { releaseFirstWrite = resolve; });
+      let seenWrites = 0;
+      let firstWriteStarted: () => void = () => {};
+      const firstWriteReached = new Promise<void>((resolve) => { firstWriteStarted = resolve; });
+      writeDelay.forContent = () => {
+        seenWrites++;
+        if (seenWrites > 1) return undefined;
+        firstWriteStarted();
+        return firstWriteGate;
+      };
+
+      const firstSave = manager.setConnectionColor('proj-race', '#111111');
+      // If saves are serialized this resolves on the first write; if not, it also
+      // resolves — either way the second edit below is issued after v1 is snapshotted.
+      await Promise.race([firstWriteReached, new Promise((r) => setTimeout(r, 50))]);
+
+      const secondSave = manager.update({ ...manager.get('proj-race')!.config, name: 'v2' });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      releaseFirstWrite();
+      await Promise.all([firstSave, secondSave]);
+
+      // Whatever ended up on disk must be exactly what the manager thinks it wrote.
+      readFileHolder.result = Buffer.from(writtenProjectFile.last!, 'utf8');
+      for (const listener of watcherListeners.onChange) {
+        listener();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(manager.get('proj-race')!.config.proxy?.sshPassword).toBe('live-secret');
+      expect(manager.get('proj-race')!.config.name).toBe('v2');
+    });
+
+    it('picks the file back up when it is deleted and then restored byte-identical', async () => {
+      // git stash / branch switch away and back. The restored file matches what the
+      // manager last wrote, so a self-write marker that is never invalidated would
+      // classify the restore as its own write and ignore it forever.
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'proj-restore', scope: 'project', name: 'Prod DB' }));
+      const onDisk = writtenProjectFile.last!;
+
+      readFileHolder.result = null;
+      for (const listener of watcherListeners.onDelete) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(manager.get('proj-restore')).toBeUndefined();
+
+      readFileHolder.result = Buffer.from(onDisk, 'utf8');
+      for (const listener of watcherListeners.onCreate) listener();
+      await vi.waitFor(() => {
+        expect(manager.get('proj-restore')).toBeDefined();
+      });
+    });
+
+    it('picks up an external revert back to the previously self-written content', async () => {
+      // Undo-and-save, or `git checkout --`, restoring exactly the bytes the manager
+      // wrote before someone edited the file by hand.
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'proj-revert', scope: 'project', name: 'Original' }));
+      const selfWritten = writtenProjectFile.last!;
+
+      const edited = JSON.stringify({
+        connections: [makeConfig({ id: 'proj-revert', scope: 'project' as const, name: 'Edited outside' })],
+        folders: [],
+      }, null, 2);
+      readFileHolder.result = Buffer.from(edited, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+      await vi.waitFor(() => {
+        expect(manager.get('proj-revert')!.config.name).toBe('Edited outside');
+      });
+
+      readFileHolder.result = Buffer.from(selfWritten, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+      await vi.waitFor(() => {
+        expect(manager.get('proj-revert')!.config.name).toBe('Original');
+      });
+    });
+
+    it('does not erase a restored file\'s other connections on the next save', async () => {
+      // The damaging consequence of ignoring a restore: in-memory state has dropped
+      // the restored connections, so the next save writes that shorter list over a
+      // file that is shared and committed.
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'p1', scope: 'project', name: 'Shared prod' }));
+      const onDisk = writtenProjectFile.last!;
+
+      readFileHolder.result = null;
+      for (const listener of watcherListeners.onDelete) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      readFileHolder.result = Buffer.from(onDisk, 'utf8');
+      for (const listener of watcherListeners.onCreate) listener();
+      await vi.waitFor(() => {
+        expect(manager.get('p1')).toBeDefined();
+      });
+
+      await manager.add(makeConfig({ id: 'p2', scope: 'project', name: 'Shared staging' }));
+
+      expect(writtenProjectFile.last).toContain('p1');
+      expect(writtenProjectFile.last).toContain('p2');
+    });
+
+    it('ignores a watcher event that arrives while one of its own writes is still in flight', async () => {
+      // The marker is set when a save computes its content, but disk only catches up
+      // when that write lands. An event delivered in between sees the *previous*
+      // write's content, which mismatches the marker — that must not be mistaken for
+      // an external edit.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-inflight',
+        scope: 'project',
+        name: 'v1',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'live-secret' },
+      }));
+      readFileHolder.result = Buffer.from(writtenProjectFile.last!, 'utf8'); // disk = write #1
+
+      let releaseSecondWrite: () => void = () => {};
+      const gate = new Promise<void>((resolve) => { releaseSecondWrite = resolve; });
+      writeDelay.forContent = () => gate;
+
+      const secondSave = manager.setConnectionColor('proj-inflight', '#123456');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // The watcher fires for write #1 while write #2 is still held open.
+      for (const listener of watcherListeners.onChange) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      releaseSecondWrite();
+      await secondSave;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(manager.get('proj-inflight')!.config.proxy?.sshPassword).toBe('live-secret');
+    });
+
+    it('ignores a guard-check read that a save overtook while it was in flight', async () => {
+      // The guard reads the file to compare it against the marker, but that read is
+      // async: a save completing before it resolves moves the marker on, so the
+      // (now stale) content it returns no longer matches and looks like an external
+      // edit. Real watchers deliver well after the write, so this window is ordinary.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-toctou',
+        scope: 'project',
+        name: 'v1',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'live-secret' },
+      }));
+      const jsonA = writtenProjectFile.last!;
+      readFileHolder.result = Buffer.from(jsonA, 'utf8'); // disk = save #1
+
+      // Hold the *next* read (the guard's) open.
+      let releaseRead: () => void = () => {};
+      const readGate = new Promise<void>((resolve) => { releaseRead = resolve; });
+      let guardReadStarted: () => void = () => {};
+      const guardReadReached = new Promise<void>((resolve) => { guardReadStarted = resolve; });
+      let gated = false;
+      readDelay.gate = () => {
+        if (gated) return undefined;
+        gated = true;
+        guardReadStarted();
+        return readGate;
+      };
+
+      // Watcher event for the manager's own save #1 arrives late.
+      for (const listener of watcherListeners.onChange) listener();
+      await guardReadReached;
+
+      // While that read is in flight, an ordinary save runs to completion.
+      await manager.setConnectionColor('proj-toctou', '#123456');
+      readFileHolder.result = Buffer.from(writtenProjectFile.last!, 'utf8'); // disk = save #2
+      expect(writtenProjectFile.last).not.toBe(jsonA);
+
+      // The guard read now resolves — with save #1's content, which no longer
+      // matches the marker (save #2's).
+      releaseRead();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(manager.get('proj-toctou')!.config.proxy?.sshPassword).toBe('live-secret');
+      expect(manager.get('proj-toctou')!.config.color).toBe('#123456');
+    });
+
+    it('restores every stripped credential after a reload, on every hop', async () => {
+      // The invariant the watcher guards above are an optimization on top of: a reload
+      // reads a file that by design holds no credentials, so it must put back the ones
+      // it remembers. Without this, correctness depends on never reloading at the
+      // wrong moment — which is what kept going wrong.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-secrets',
+        scope: 'project',
+        name: 'v1',
+        password: 'db-secret',
+        proxy: {
+          type: 'ssh',
+          sshHost: 'bastion.example.com',
+          sshUsername: 'u1',
+          sshPassword: 'hop1-secret',
+          sshPrivateKey: 'hop1-key',
+          sshPassphrase: 'hop1-passphrase',
+          sshHops: [{
+            host: 'internal.example.com',
+            username: 'u2',
+            password: 'hop2-secret',
+            privateKey: 'hop2-key',
+            passphrase: 'hop2-passphrase',
+          }],
+        },
+      }));
+
+      // A genuine external edit — the file legitimately reloads, and (as always) the
+      // file it reloads from contains none of the credentials above.
+      const external = writtenProjectFile.last!.replace('"name": "v1"', '"name": "renamed externally"');
+      expect(external).not.toContain('hop1-secret');
+      readFileHolder.result = Buffer.from(external, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-secrets')!.config.name).toBe('renamed externally');
+      });
+
+      const restored = manager.get('proj-secrets')!.config;
+      expect(restored.password).toBe('db-secret');
+      expect(restored.proxy?.sshPassword).toBe('hop1-secret');
+      expect(restored.proxy?.sshPrivateKey).toBe('hop1-key');
+      expect(restored.proxy?.sshPassphrase).toBe('hop1-passphrase');
+      expect(restored.proxy?.sshHops?.[0].password).toBe('hop2-secret');
+      expect(restored.proxy?.sshHops?.[0].privateKey).toBe('hop2-key');
+      expect(restored.proxy?.sshHops?.[0].passphrase).toBe('hop2-passphrase');
+    });
+
+    it('keeps remembered credentials through a save made while the file is away', async () => {
+      // git stash / branch switch: the project file is gone for as long as the user
+      // leaves it gone, and any save in that stretch — even for an unrelated
+      // user-scope connection — must not mistake the empty project set for "the user
+      // deleted everything" and throw the credentials away.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-away',
+        scope: 'project',
+        password: 'db-secret',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'ssh-secret' },
+      }));
+      const onDisk = writtenProjectFile.last!;
+
+      readFileHolder.result = null;
+      for (const listener of watcherListeners.onDelete) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(manager.get('proj-away')).toBeUndefined();
+
+      // Something entirely unrelated saves while the file is away.
+      await manager.add(makeConfig({ id: 'unrelated-user-conn', scope: 'user' }));
+
+      readFileHolder.result = Buffer.from(onDisk, 'utf8');
+      for (const listener of watcherListeners.onCreate) listener();
+      await vi.waitFor(() => {
+        expect(manager.get('proj-away')).toBeDefined();
+      });
+
+      expect(manager.get('proj-away')!.config.password).toBe('db-secret');
+      expect(manager.get('proj-away')!.config.proxy?.sshPassword).toBe('ssh-secret');
+    });
+
+    it('remembers a credential entered while the project file is unreadable', async () => {
+      // The file can stay unreadable indefinitely — deleted on this branch, or left
+      // with merge-conflict markers. Saves still run and still strip credentials out
+      // of the file, so they must still be recorded; deferring only the pruning.
+      const manager = createManager();
+      readFileHolder.result = Buffer.from('{{ not json', 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      await manager.add(makeConfig({
+        id: 'proj-during-outage',
+        scope: 'project',
+        password: 'db-secret',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'ssh-secret' },
+      }));
+      // What reached disk carries no credentials, as always.
+      expect(writtenProjectFile.last).not.toContain('ssh-secret');
+
+      // The file becomes readable again, carrying a teammate's edit — so this is a
+      // genuine reload, not one the self-write marker short-circuits.
+      const resolved = writtenProjectFile.last!.replace('"name": "Test PG"', '"name": "Renamed by teammate"');
+      expect(resolved).not.toBe(writtenProjectFile.last);
+      readFileHolder.result = Buffer.from(resolved, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-during-outage')!.config.name).toBe('Renamed by teammate');
+      });
+
+      expect(manager.get('proj-during-outage')!.config.password).toBe('db-secret');
+      expect(manager.get('proj-during-outage')!.config.proxy?.sshPassword).toBe('ssh-secret');
+    });
+
+    it('does not hand a remembered credential to a different endpoint', async () => {
+      // The project file is shared and committed. If a pulled change repoints a
+      // connection at another host, the password typed for the old one must not
+      // follow it there — failing to connect is the correct, visible outcome.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-moved',
+        scope: 'project',
+        host: 'db.internal',
+        password: 'db-secret',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'bastion-secret' },
+      }));
+
+      const repointed = writtenProjectFile.last!
+        .replace('"host": "db.internal"', '"host": "other-db.internal"')
+        .replace('"sshHost": "bastion.example.com"', '"sshHost": "evil.attacker.tld"');
+      readFileHolder.result = Buffer.from(repointed, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-moved')!.config.proxy?.sshHost).toBe('evil.attacker.tld');
+      });
+
+      expect(manager.get('proj-moved')!.config.password).toBeUndefined();
+      expect(manager.get('proj-moved')!.config.proxy?.sshPassword).toBeUndefined();
+    });
+
+    it('matches remembered hop credentials by endpoint, not by position', async () => {
+      // A hand-edited chain can drop or reorder hops. Position-matching would give
+      // the removed hop's password to whichever hop slid into its slot.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-hops',
+        scope: 'project',
+        proxy: {
+          type: 'ssh',
+          sshHost: 'bastion.example.com',
+          sshUsername: 'u0',
+          sshPassword: 'bastion-secret',
+          sshHops: [
+            { host: 'jump-a.internal', username: 'ua', password: 'pw-for-jump-a' },
+            { host: 'jump-b.internal', username: 'ub', password: 'pw-for-jump-b' },
+          ],
+        },
+      }));
+
+      // Someone removes jump-a from the shared file, so jump-b is now first.
+      const withoutJumpA = JSON.parse(writtenProjectFile.last!);
+      withoutJumpA.connections[0].proxy.sshHops = [{ host: 'jump-b.internal', port: 22, username: 'ub' }];
+      readFileHolder.result = Buffer.from(JSON.stringify(withoutJumpA, null, 2), 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-hops')!.config.proxy?.sshHops).toHaveLength(1);
+      });
+
+      const hop = manager.get('proj-hops')!.config.proxy!.sshHops![0];
+      expect(hop.host).toBe('jump-b.internal');
+      expect(hop.password).toBe('pw-for-jump-b'); // its own, never jump-a's
+    });
+
+    it('does not reuse an SSH credential for a SOCKS5 proxy on the same host', async () => {
+      // Same host and user reached as a bastion and as a SOCKS5 proxy are different
+      // things to hold a credential for, so the proxy type is part of the identity.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-typeflip',
+        scope: 'project',
+        proxy: { type: 'ssh', sshHost: 'gateway.example.com', sshUsername: 'u1', sshPassword: 'ssh-secret' },
+      }));
+
+      const flipped = JSON.parse(writtenProjectFile.last!);
+      flipped.connections[0].proxy = { type: 'socks5', proxyHost: 'gateway.example.com', proxyPort: 22, proxyUsername: 'u1' };
+      readFileHolder.result = Buffer.from(JSON.stringify(flipped, null, 2), 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-typeflip')!.config.proxy?.type).toBe('socks5');
+      });
+
+      expect(manager.get('proj-typeflip')!.config.proxy?.proxyPassword).toBeUndefined();
+      expect(manager.get('proj-typeflip')!.config.proxy?.sshPassword).toBeUndefined();
+    });
+
+    it('restores the DB password when the file omits the default port', async () => {
+      // A hand-written file may leave "port" out. Omitted and the type's default are
+      // the same endpoint, so the credential must still be recognised as belonging.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-defaultport',
+        scope: 'project',
+        host: 'db.internal',
+        port: 5432, // the postgresql default
+        password: 'db-secret',
+      }));
+
+      const withoutPort = JSON.parse(writtenProjectFile.last!);
+      delete withoutPort.connections[0].port;
+      withoutPort.connections[0].name = 'edited by hand';
+      readFileHolder.result = Buffer.from(JSON.stringify(withoutPort, null, 2), 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-defaultport')!.config.name).toBe('edited by hand');
+      });
+
+      expect(manager.get('proj-defaultport')!.config.password).toBe('db-secret');
+    });
+
+    it('forgets a credential the user cleared, rather than restoring it later', async () => {
+      const manager = createManager();
+      const config = makeConfig({
+        id: 'proj-cleared',
+        scope: 'project',
+        password: 'db-secret',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'ssh-secret' },
+      });
+      await manager.add(config);
+
+      // The user blanks both credential fields and saves.
+      await manager.update({
+        ...config,
+        password: undefined,
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: undefined },
+      });
+
+      const external = writtenProjectFile.last!.replace('"name": "Test PG"', '"name": "renamed externally"');
+      readFileHolder.result = Buffer.from(external, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-cleared')!.config.name).toBe('renamed externally');
+      });
+
+      expect(manager.get('proj-cleared')!.config.password).toBeUndefined();
+      expect(manager.get('proj-cleared')!.config.proxy?.sshPassword).toBeUndefined();
     });
   });
 

@@ -38,15 +38,27 @@ export interface ConnectionConfig {
 
 export type ProxyType = 'none' | 'ssh' | 'socks5' | 'http';
 
+/** An additional SSH hop, reached through the previous hop's connection (ProxyJump-style chaining). */
+export interface SshHop {
+  host: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  privateKey?: string;
+  passphrase?: string;
+}
+
 export interface ProxyConfig {
   type: ProxyType;
-  /** SSH tunnel */
+  /** SSH tunnel — first hop, dialed directly */
   sshHost?: string;
   sshPort?: number;
   sshUsername?: string;
   sshPassword?: string;
   sshPrivateKey?: string;
   sshPassphrase?: string;
+  /** Further SSH hops, each reached through the previous one. The last hop is the one that forwards to the connection's host:port. */
+  sshHops?: SshHop[];
   /** SOCKS5 / HTTP proxy */
   proxyHost?: string;
   proxyPort?: number;
