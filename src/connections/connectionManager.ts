@@ -56,6 +56,12 @@ export class ConnectionManager {
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChange = this._onDidChange.event;
   private projectFileWatcher: vscode.FileSystemWatcher | undefined;
+  // VS Code's FileSystemWatcher doesn't exempt the extension's own writes — saving a
+  // project-scope connection fires onDidChange for the file this same save just
+  // wrote. Without this, that triggers reloadProjectData(), which re-reads the
+  // just-stripped file and wipes live-session-only secrets (SSH/DB passwords,
+  // private keys) straight back out of the in-memory config.
+  private lastWrittenProjectContent: string | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadConnections();
@@ -126,9 +132,21 @@ export class ConnectionManager {
     if (!workspaceFolders) return;
     const pattern = new vscode.RelativePattern(workspaceFolders[0], PROJECT_FILE);
     this.projectFileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-    this.projectFileWatcher.onDidChange(() => this.reloadProjectData());
-    this.projectFileWatcher.onDidCreate(() => this.reloadProjectData());
+    this.projectFileWatcher.onDidChange(() => this.reloadProjectDataIfChanged());
+    this.projectFileWatcher.onDidCreate(() => this.reloadProjectDataIfChanged());
     this.projectFileWatcher.onDidDelete(() => this.reloadProjectData());
+  }
+
+  /** Skips the reload if the file on disk is exactly what this same instance just wrote — see lastWrittenProjectContent. */
+  private async reloadProjectDataIfChanged() {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) return;
+    const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, PROJECT_FILE);
+    try {
+      const content = Buffer.from(await vscode.workspace.fs.readFile(fileUri)).toString('utf8');
+      if (content === this.lastWrittenProjectContent) return;
+    } catch { /* unreadable — fall through and let reloadProjectData's own read handle/report it */ }
+    this.reloadProjectData();
   }
 
   private reloadProjectData() {
@@ -185,8 +203,10 @@ export class ConnectionManager {
     if (projectConns.length === 0 && projectFolders.length === 0) return;
 
     const data: ProjectData = { connections: projectConns, folders: projectFolders };
+    const json = JSON.stringify(data, null, 2);
+    this.lastWrittenProjectContent = json;
     const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, PROJECT_FILE);
-    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(JSON.stringify(data, null, 2), 'utf8'));
+    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(json, 'utf8'));
   }
 
   // --- Connections ---

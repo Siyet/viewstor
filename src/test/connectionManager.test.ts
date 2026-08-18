@@ -1069,6 +1069,49 @@ describe('ConnectionManager', () => {
       // Old project connection should be removed
       expect(manager.get('watch-conn')).toBeUndefined();
     });
+
+    it('does not wipe a live SSH secret when the watcher fires for the manager\'s own save', async () => {
+      // VS Code's FileSystemWatcher doesn't exempt the extension's own writes — saving
+      // a project-scope connection fires onDidChange for the file that same save just
+      // wrote. A naive reload would re-read the just-secret-stripped file and wipe the
+      // live in-memory password/private key straight back out.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-ssh',
+        scope: 'project',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'live-secret' },
+      }));
+
+      expect(manager.get('proj-ssh')!.config.proxy?.sshPassword).toBe('live-secret');
+
+      // The mock filesystem now reflects exactly what saveProjectData() just wrote —
+      // simulate the watcher observing that same write.
+      readFileHolder.result = Buffer.from(writtenProjectFile.last!, 'utf8');
+      for (const listener of watcherListeners.onChange) {
+        listener();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(manager.get('proj-ssh')!.config.proxy?.sshPassword).toBe('live-secret');
+    });
+
+    it('still reloads (and applies) a genuine external edit to the project file', async () => {
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'proj-ext', scope: 'project', name: 'Original' }));
+
+      const externalData = {
+        connections: [makeConfig({ id: 'proj-ext', scope: 'project' as const, name: 'Edited outside VS Code' })],
+        folders: [],
+      };
+      readFileHolder.result = Buffer.from(JSON.stringify(externalData), 'utf8');
+      for (const listener of watcherListeners.onChange) {
+        listener();
+      }
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-ext')!.config.name).toBe('Edited outside VS Code');
+      });
+    });
   });
 
   // -----------------------------------------------------------------------
