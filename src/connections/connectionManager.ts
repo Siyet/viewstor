@@ -41,6 +41,52 @@ function stripSecretsForProjectFile(config: ConnectionConfig): ConnectionConfig 
   } as ConnectionConfig;
 }
 
+/** Exactly the fields stripSecretsForProjectFile() drops, kept in memory so a reload can put them back. */
+interface ProjectSecrets {
+  password?: string;
+  sshPassword?: string;
+  sshPrivateKey?: string;
+  sshPassphrase?: string;
+  proxyPassword?: string;
+  hops?: Array<{ password?: string; privateKey?: string; passphrase?: string }>;
+}
+
+function extractProjectSecrets(config: ConnectionConfig): ProjectSecrets | undefined {
+  const secrets: ProjectSecrets = {
+    password: config.password,
+    sshPassword: config.proxy?.sshPassword,
+    sshPrivateKey: config.proxy?.sshPrivateKey,
+    sshPassphrase: config.proxy?.sshPassphrase,
+    proxyPassword: config.proxy?.proxyPassword,
+    hops: config.proxy?.sshHops?.map(hop => ({
+      password: hop.password,
+      privateKey: hop.privateKey,
+      passphrase: hop.passphrase,
+    })),
+  };
+  const hasAny = secrets.password || secrets.sshPassword || secrets.sshPrivateKey || secrets.sshPassphrase
+    || secrets.proxyPassword || secrets.hops?.some(h => h.password || h.privateKey || h.passphrase);
+  return hasAny ? secrets : undefined;
+}
+
+/** Mutates `config` in place, restoring only fields it doesn't already carry. */
+function applyProjectSecrets(config: ConnectionConfig, secrets: ProjectSecrets) {
+  config.password ??= secrets.password;
+  if (config.proxy) {
+    config.proxy.sshPassword ??= secrets.sshPassword;
+    config.proxy.sshPrivateKey ??= secrets.sshPrivateKey;
+    config.proxy.sshPassphrase ??= secrets.sshPassphrase;
+    config.proxy.proxyPassword ??= secrets.proxyPassword;
+    config.proxy.sshHops?.forEach((hop, i) => {
+      const remembered = secrets.hops?.[i];
+      if (!remembered) return;
+      hop.password ??= remembered.password;
+      hop.privateKey ??= remembered.privateKey;
+      hop.passphrase ??= remembered.passphrase;
+    });
+  }
+}
+
 interface ProjectData {
   connections: ConnectionConfig[];
   folders: ConnectionFolder[];
@@ -68,6 +114,12 @@ export class ConnectionManager {
   // Bumped by every completed write, so a guard check can tell whether the file it
   // read is still the one lastWrittenProjectContent describes.
   private projectSaveGeneration = 0;
+  // Credentials belonging to project-scope connections, which by design never reach
+  // `.vscode/viewstor.json`. Reloading takes that file as the truth, so without a copy
+  // held outside the reloaded config a reload silently wipes them. Keeping them here
+  // makes a reload harmless by construction, rather than something the watcher guards
+  // above have to be perfect at avoiding.
+  private projectSecrets: Map<string, ProjectSecrets> = new Map();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadConnections();
@@ -118,6 +170,10 @@ export class ConnectionManager {
         const data: ProjectData = JSON.parse(Buffer.from(content).toString('utf8'));
         for (const config of data.connections || []) {
           config.scope = 'project';
+          // The file never holds credentials, so anything we still remember for this
+          // connection is put back — otherwise every reload silently logs the user out.
+          const secrets = this.projectSecrets.get(config.id);
+          if (secrets) applyProjectSecrets(config, secrets);
           if (!this.connections.has(config.id)) {
             this.connections.set(config.id, { config, connected: false });
           }
@@ -230,9 +286,16 @@ export class ConnectionManager {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) return;
 
-    const projectConns = Array.from(this.connections.values())
-      .filter(s => s.config.scope === 'project')
-      .map(s => stripSecretsForProjectFile(s.config));
+    const projectStates = Array.from(this.connections.values())
+      .filter(s => s.config.scope === 'project');
+    // Rebuilt from scratch each save, so removed connections don't leave their
+    // credentials behind and a same-id connection can't inherit stale ones.
+    this.projectSecrets = new Map();
+    for (const s of projectStates) {
+      const secrets = extractProjectSecrets(s.config);
+      if (secrets) this.projectSecrets.set(s.config.id, secrets);
+    }
+    const projectConns = projectStates.map(s => stripSecretsForProjectFile(s.config));
     const projectFolders = Array.from(this.folders.values())
       .filter(f => f.scope === 'project');
 

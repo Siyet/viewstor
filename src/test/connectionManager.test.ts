@@ -1322,6 +1322,55 @@ describe('ConnectionManager', () => {
       expect(manager.get('proj-toctou')!.config.proxy?.sshPassword).toBe('live-secret');
       expect(manager.get('proj-toctou')!.config.color).toBe('#123456');
     });
+
+    it('restores every stripped credential after a reload, on every hop', async () => {
+      // The invariant the watcher guards above are an optimization on top of: a reload
+      // reads a file that by design holds no credentials, so it must put back the ones
+      // it remembers. Without this, correctness depends on never reloading at the
+      // wrong moment — which is what kept going wrong.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-secrets',
+        scope: 'project',
+        name: 'v1',
+        password: 'db-secret',
+        proxy: {
+          type: 'ssh',
+          sshHost: 'bastion.example.com',
+          sshUsername: 'u1',
+          sshPassword: 'hop1-secret',
+          sshPrivateKey: 'hop1-key',
+          sshPassphrase: 'hop1-passphrase',
+          sshHops: [{
+            host: 'internal.example.com',
+            username: 'u2',
+            password: 'hop2-secret',
+            privateKey: 'hop2-key',
+            passphrase: 'hop2-passphrase',
+          }],
+        },
+      }));
+
+      // A genuine external edit — the file legitimately reloads, and (as always) the
+      // file it reloads from contains none of the credentials above.
+      const external = writtenProjectFile.last!.replace('"name": "v1"', '"name": "renamed externally"');
+      expect(external).not.toContain('hop1-secret');
+      readFileHolder.result = Buffer.from(external, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-secrets')!.config.name).toBe('renamed externally');
+      });
+
+      const restored = manager.get('proj-secrets')!.config;
+      expect(restored.password).toBe('db-secret');
+      expect(restored.proxy?.sshPassword).toBe('hop1-secret');
+      expect(restored.proxy?.sshPrivateKey).toBe('hop1-key');
+      expect(restored.proxy?.sshPassphrase).toBe('hop1-passphrase');
+      expect(restored.proxy?.sshHops?.[0].password).toBe('hop2-secret');
+      expect(restored.proxy?.sshHops?.[0].privateKey).toBe('hop2-key');
+      expect(restored.proxy?.sshHops?.[0].passphrase).toBe('hop2-passphrase');
+    });
   });
 
   // -----------------------------------------------------------------------
