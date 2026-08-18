@@ -22,8 +22,8 @@ const USER_CONFIG_FILE = path.join(USER_CONFIG_DIR, 'connections.json');
 function stripSecretsForProjectFile(config: ConnectionConfig): ConnectionConfig {
   // Allowlists, not denylists: this file gets committed, so a credential field added
   // to ConnectionConfig/ProxyConfig/SshHop later must fail closed (silently absent
-  // from the file) rather than fail open (silently published). The types below are
-  // what make that a compile error instead of a leak.
+  // from the file) rather than fail open (silently published). The Exclude<> typing
+  // additionally makes listing a known secret here a compile error.
   const CONFIG_KEYS: ReadonlyArray<Exclude<keyof ConnectionConfig, 'password'>> = [
     'id', 'name', 'type', 'host', 'port', 'username', 'database', 'databases', 'ssl',
     'options', 'folderId', 'color', 'readonly', 'hiddenSchemas', 'hiddenDatabases',
