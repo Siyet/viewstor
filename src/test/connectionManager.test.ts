@@ -12,6 +12,7 @@ const {
   mockFileSystemWatcher,
   readFileHolder,
   writtenProjectFile,
+  writeDelay,
 } = vi.hoisted(() => {
   const globalStateStore = new Map<string, unknown>();
   const mockGlobalState = {
@@ -43,8 +44,11 @@ const {
 
   const readFileHolder = { result: null as Uint8Array | null };
   const writtenProjectFile = { last: null as string | null };
+  // Lets one test hold back individual writeFile() completions, to check that
+  // overlapping saves can't land on disk out of the order they were issued.
+  const writeDelay = { forContent: null as ((content: string) => Promise<void> | undefined) | null };
 
-  return { globalStateStore, mockGlobalState, watcherListeners, mockFileSystemWatcher, readFileHolder, writtenProjectFile };
+  return { globalStateStore, mockGlobalState, watcherListeners, mockFileSystemWatcher, readFileHolder, writtenProjectFile, writeDelay };
 });
 
 function createFreshMockDriver() {
@@ -93,7 +97,9 @@ vi.mock('vscode', () => {
           throw new Error('File not found');
         },
         writeFile: async (_uri: unknown, content: Uint8Array) => {
-          writtenProjectFile.last = Buffer.from(content).toString('utf8');
+          const text = Buffer.from(content).toString('utf8');
+          await writeDelay.forContent?.(text);
+          writtenProjectFile.last = text;
         },
       },
       createFileSystemWatcher: () => mockFileSystemWatcher,
@@ -157,6 +163,7 @@ beforeEach(() => {
   globalStateStore.clear();
   readFileHolder.result = null;
   writtenProjectFile.last = null;
+  writeDelay.forContent = null;
   watcherListeners.onChange = [];
   watcherListeners.onCreate = [];
   watcherListeners.onDelete = [];
@@ -1111,6 +1118,56 @@ describe('ConnectionManager', () => {
       await vi.waitFor(() => {
         expect(manager.get('proj-ext')!.config.name).toBe('Edited outside VS Code');
       });
+    });
+
+    it('keeps disk and the self-write marker in sync when two saves overlap', async () => {
+      // Many public methods each call saveProjectData() independently. If two
+      // overlapping saves' writes land out of issue order, the last-written marker
+      // no longer matches what's actually on disk — and the next watcher event
+      // treats the extension's own write as an external edit, wiping live secrets.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-race',
+        scope: 'project',
+        name: 'v1',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'live-secret' },
+      }));
+
+      // Hold the first write open (its content already snapshotted as "v1") and only
+      // then make the second edit. Unserialized, the second write lands first and the
+      // stale first write overwrites it — leaving disk on v1 while the manager's
+      // self-write marker says v2.
+      let releaseFirstWrite: () => void = () => {};
+      const firstWriteGate = new Promise<void>((resolve) => { releaseFirstWrite = resolve; });
+      let seenWrites = 0;
+      let firstWriteStarted: () => void = () => {};
+      const firstWriteReached = new Promise<void>((resolve) => { firstWriteStarted = resolve; });
+      writeDelay.forContent = () => {
+        seenWrites++;
+        if (seenWrites > 1) return undefined;
+        firstWriteStarted();
+        return firstWriteGate;
+      };
+
+      const firstSave = manager.setConnectionColor('proj-race', '#111111');
+      // If saves are serialized this resolves on the first write; if not, it also
+      // resolves — either way the second edit below is issued after v1 is snapshotted.
+      await Promise.race([firstWriteReached, new Promise((r) => setTimeout(r, 50))]);
+
+      const secondSave = manager.update({ ...manager.get('proj-race')!.config, name: 'v2' });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      releaseFirstWrite();
+      await Promise.all([firstSave, secondSave]);
+
+      // Whatever ended up on disk must be exactly what the manager thinks it wrote.
+      readFileHolder.result = Buffer.from(writtenProjectFile.last!, 'utf8');
+      for (const listener of watcherListeners.onChange) {
+        listener();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(manager.get('proj-race')!.config.proxy?.sshPassword).toBe('live-secret');
+      expect(manager.get('proj-race')!.config.name).toBe('v2');
     });
   });
 

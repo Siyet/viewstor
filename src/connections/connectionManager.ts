@@ -62,6 +62,8 @@ export class ConnectionManager {
   // just-stripped file and wipes live-session-only secrets (SSH/DB passwords,
   // private keys) straight back out of the in-memory config.
   private lastWrittenProjectContent: string | undefined;
+  // Chained to serialize saveProjectData() calls — see its own doc comment.
+  private projectSaveQueue: Promise<void> = Promise.resolve();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadConnections();
@@ -190,7 +192,22 @@ export class ConnectionManager {
     await this.saveProjectData();
   }
 
-  private async saveProjectData() {
+  /**
+   * Serializes writes to the project file. Several public methods (add/update/remove,
+   * folder moves, hidden-schema toggles, ...) each call this independently with no
+   * lock between them — without a queue, two overlapping saves' writes could complete
+   * out of order, leaving lastWrittenProjectContent out of sync with what's actually
+   * on disk and making reloadProjectDataIfChanged() treat the extension's own write
+   * as an external edit, wiping secrets (or reverting other changes) for real.
+   */
+  private saveProjectData(): Promise<void> {
+    const run = this.projectSaveQueue.then(() => this.doSaveProjectData());
+    // A failed save must not permanently block every save queued after it.
+    this.projectSaveQueue = run.catch(() => {});
+    return run;
+  }
+
+  private async doSaveProjectData() {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) return;
 
