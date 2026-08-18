@@ -47,18 +47,41 @@ function connectHop(hop: SshHop, sock?: ClientChannel): Promise<SSHClient> {
 /** Connects each hop in order, tunneling hop N+1's SSH connection through hop N's forwardOut. */
 async function connectHopChain(hops: SshHop[]): Promise<SSHClient[]> {
   const clients: SSHClient[] = [];
+
+  // If an already-connected hop dies while a later hop is still connecting through
+  // it, that later hop's connect attempt can hang forever instead of erroring: its
+  // `sock` is a channel over the dead hop, and a custom `sock` stream ending quietly
+  // cancels ssh2's own internal connect timeout without ever emitting 'error' — only
+  // 'close'. Racing every connect step against this lets a mid-chain death abort
+  // whatever's currently in flight instead of leaving it stuck. Left armed (and
+  // harmlessly inert) after the chain finishes; a promise nothing awaits doesn't need
+  // to be observed, but must not raise an unhandled rejection if it fires later.
+  let onChainDeath: (err: Error) => void = () => {};
+  const chainDeath = new Promise<never>((_, reject) => { onChainDeath = reject; });
+  chainDeath.catch(() => {});
+  const armDeathWatch = (client: SSHClient) => {
+    const die = (err?: Error) => onChainDeath(err || new Error('SSH hop closed unexpectedly'));
+    client.on('error', die);
+    client.on('close', die);
+  };
+
   try {
     for (const hop of hops) {
       let sock: ClientChannel | undefined;
       if (clients.length > 0) {
         const previous = clients[clients.length - 1];
-        sock = await new Promise<ClientChannel>((resolve, reject) => {
-          previous.forwardOut('127.0.0.1', 0, hop.host, hop.port || 22, (err, stream) => {
-            if (err) reject(err); else resolve(stream);
-          });
-        });
+        sock = await Promise.race([
+          new Promise<ClientChannel>((resolve, reject) => {
+            previous.forwardOut('127.0.0.1', 0, hop.host, hop.port || 22, (err, stream) => {
+              if (err) reject(err); else resolve(stream);
+            });
+          }),
+          chainDeath,
+        ]);
       }
-      clients.push(await connectHop(hop, sock));
+      const client = await Promise.race([connectHop(hop, sock), chainDeath]);
+      armDeathWatch(client);
+      clients.push(client);
     }
     return clients;
   } catch (err) {

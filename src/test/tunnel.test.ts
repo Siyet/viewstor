@@ -156,6 +156,40 @@ describe('createSSHTunnel', () => {
     expect(instances[0].end).toHaveBeenCalled();
   });
 
+  it('rejects instead of hanging forever when an already-connected hop dies while the next hop is still connecting', async () => {
+    // A hop's own 'sock' (when it's a channel over a previous hop, not a real TCP
+    // socket) ending quietly only emits 'close', never 'error' — this is real ssh2
+    // behavior (a custom `sock` stream ending cancels its internal connect-timeout
+    // without raising one), so a listener for 'error' alone isn't enough to unstick
+    // a hop that's still mid-connect over a now-dead earlier hop.
+    const proxy = {
+      type: 'ssh' as const,
+      sshHost: 'bastion.example.com',
+      sshUsername: 'u1',
+      sshPassword: 'p1',
+      sshHops: [{ host: 'internal.example.com', username: 'u2', password: 'p2' }],
+    };
+
+    const promise = createSSHTunnel(proxy, '127.0.0.1', 5432);
+    const failure = promise.catch((err: Error) => err);
+
+    await new Promise((r) => setTimeout(r, 10));
+    instances[0].emit('ready'); // hop 1 connects; hop 2's connect (through it) starts
+    await new Promise((r) => setTimeout(r, 10));
+    expect(instances.length).toBe(2); // hop 2's client now exists and is mid-connect
+
+    let settled: 'pending' | 'settled' = 'pending';
+    failure.then(() => { settled = 'settled'; });
+
+    instances[0].emit('close'); // hop 1 dies with no 'error', only 'close'
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(settled).toBe('settled'); // must not still be pending — that would be a permanent hang
+    const err = await failure;
+    expect(err).toBeInstanceOf(Error);
+    expect(instances[0].end).toHaveBeenCalled();
+  });
+
   it('tears down the local listener and every hop when a hop drops after the tunnel is already established', async () => {
     const proxy = {
       type: 'ssh' as const,
