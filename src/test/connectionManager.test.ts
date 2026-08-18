@@ -1169,6 +1169,105 @@ describe('ConnectionManager', () => {
       expect(manager.get('proj-race')!.config.proxy?.sshPassword).toBe('live-secret');
       expect(manager.get('proj-race')!.config.name).toBe('v2');
     });
+
+    it('picks the file back up when it is deleted and then restored byte-identical', async () => {
+      // git stash / branch switch away and back. The restored file matches what the
+      // manager last wrote, so a self-write marker that is never invalidated would
+      // classify the restore as its own write and ignore it forever.
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'proj-restore', scope: 'project', name: 'Prod DB' }));
+      const onDisk = writtenProjectFile.last!;
+
+      readFileHolder.result = null;
+      for (const listener of watcherListeners.onDelete) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(manager.get('proj-restore')).toBeUndefined();
+
+      readFileHolder.result = Buffer.from(onDisk, 'utf8');
+      for (const listener of watcherListeners.onCreate) listener();
+      await vi.waitFor(() => {
+        expect(manager.get('proj-restore')).toBeDefined();
+      });
+    });
+
+    it('picks up an external revert back to the previously self-written content', async () => {
+      // Undo-and-save, or `git checkout --`, restoring exactly the bytes the manager
+      // wrote before someone edited the file by hand.
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'proj-revert', scope: 'project', name: 'Original' }));
+      const selfWritten = writtenProjectFile.last!;
+
+      const edited = JSON.stringify({
+        connections: [makeConfig({ id: 'proj-revert', scope: 'project' as const, name: 'Edited outside' })],
+        folders: [],
+      }, null, 2);
+      readFileHolder.result = Buffer.from(edited, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+      await vi.waitFor(() => {
+        expect(manager.get('proj-revert')!.config.name).toBe('Edited outside');
+      });
+
+      readFileHolder.result = Buffer.from(selfWritten, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+      await vi.waitFor(() => {
+        expect(manager.get('proj-revert')!.config.name).toBe('Original');
+      });
+    });
+
+    it('does not erase a restored file\'s other connections on the next save', async () => {
+      // The damaging consequence of ignoring a restore: in-memory state has dropped
+      // the restored connections, so the next save writes that shorter list over a
+      // file that is shared and committed.
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'p1', scope: 'project', name: 'Shared prod' }));
+      const onDisk = writtenProjectFile.last!;
+
+      readFileHolder.result = null;
+      for (const listener of watcherListeners.onDelete) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      readFileHolder.result = Buffer.from(onDisk, 'utf8');
+      for (const listener of watcherListeners.onCreate) listener();
+      await vi.waitFor(() => {
+        expect(manager.get('p1')).toBeDefined();
+      });
+
+      await manager.add(makeConfig({ id: 'p2', scope: 'project', name: 'Shared staging' }));
+
+      expect(writtenProjectFile.last).toContain('p1');
+      expect(writtenProjectFile.last).toContain('p2');
+    });
+
+    it('ignores a watcher event that arrives while one of its own writes is still in flight', async () => {
+      // The marker is set when a save computes its content, but disk only catches up
+      // when that write lands. An event delivered in between sees the *previous*
+      // write's content, which mismatches the marker — that must not be mistaken for
+      // an external edit.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-inflight',
+        scope: 'project',
+        name: 'v1',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'live-secret' },
+      }));
+      readFileHolder.result = Buffer.from(writtenProjectFile.last!, 'utf8'); // disk = write #1
+
+      let releaseSecondWrite: () => void = () => {};
+      const gate = new Promise<void>((resolve) => { releaseSecondWrite = resolve; });
+      writeDelay.forContent = () => gate;
+
+      const secondSave = manager.setConnectionColor('proj-inflight', '#123456');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // The watcher fires for write #1 while write #2 is still held open.
+      for (const listener of watcherListeners.onChange) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      releaseSecondWrite();
+      await secondSave;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(manager.get('proj-inflight')!.config.proxy?.sshPassword).toBe('live-secret');
+    });
   });
 
   // -----------------------------------------------------------------------

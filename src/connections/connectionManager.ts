@@ -64,6 +64,7 @@ export class ConnectionManager {
   private lastWrittenProjectContent: string | undefined;
   // Chained to serialize saveProjectData() calls — see its own doc comment.
   private projectSaveQueue: Promise<void> = Promise.resolve();
+  private projectSavesInFlight = 0;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadConnections();
@@ -143,6 +144,10 @@ export class ConnectionManager {
   private async reloadProjectDataIfChanged() {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) return;
+    // A save that hasn't landed yet means disk still holds the *previous* write while
+    // the marker already names the pending one — every comparison in that window is
+    // meaningless, and treating it as an external edit would wipe live secrets.
+    if (this.projectSavesInFlight > 0) return;
     const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, PROJECT_FILE);
     try {
       const content = Buffer.from(await vscode.workspace.fs.readFile(fileUri)).toString('utf8');
@@ -152,6 +157,11 @@ export class ConnectionManager {
   }
 
   private reloadProjectData() {
+    // Disk is about to become the source of truth, so the marker — which describes the
+    // file we last wrote — must stop matching. Otherwise a later restore of exactly
+    // those bytes (git stash pop, undo-and-save, switching back to a branch) looks
+    // like our own write and is silently ignored.
+    this.lastWrittenProjectContent = undefined;
     // Remove old project-scoped items
     for (const [id, state] of this.connections) {
       if (state.config.scope === 'project') this.connections.delete(id);
@@ -201,9 +211,10 @@ export class ConnectionManager {
    * as an external edit, wiping secrets (or reverting other changes) for real.
    */
   private saveProjectData(): Promise<void> {
+    this.projectSavesInFlight++;
     const run = this.projectSaveQueue.then(() => this.doSaveProjectData());
     // A failed save must not permanently block every save queued after it.
-    this.projectSaveQueue = run.catch(() => {});
+    this.projectSaveQueue = run.catch(() => {}).then(() => { this.projectSavesInFlight--; });
     return run;
   }
 
