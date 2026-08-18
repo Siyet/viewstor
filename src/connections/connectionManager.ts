@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { ConnectionConfig, ConnectionState, ConnectionFolder, ProxyConfig } from '../types/connection';
+import { ConnectionConfig, ConnectionState, ConnectionFolder, ProxyConfig, DEFAULT_PORTS } from '../types/connection';
 import { DatabaseDriver } from '../types/driver';
 import { SchemaObject } from '../types/schema';
 import { createDriver } from '../drivers';
@@ -55,9 +55,11 @@ function endpointIdentity(host: string | undefined, port: number | undefined, us
 
 /** The proxy's own endpoint — SSH hop 1, or the SOCKS5/HTTP proxy for those types. */
 function proxyIdentityOf(proxy: ProxyConfig): string {
+  // Type is part of the identity: the same host/user reached as an SSH bastion and as
+  // a SOCKS5 proxy are different things to hold a credential for.
   return proxy.type === 'ssh'
-    ? endpointIdentity(proxy.sshHost, proxy.sshPort, proxy.sshUsername, 22)
-    : endpointIdentity(proxy.proxyHost, proxy.proxyPort, proxy.proxyUsername, 1080);
+    ? `ssh|${endpointIdentity(proxy.sshHost, proxy.sshPort, proxy.sshUsername, 22)}`
+    : `${proxy.type}|${endpointIdentity(proxy.proxyHost, proxy.proxyPort, proxy.proxyUsername, 1080)}`;
 }
 
 /** Exactly the fields stripSecretsForProjectFile() drops, kept in memory so a reload can put them back. */
@@ -75,7 +77,7 @@ interface ProjectSecrets {
 function extractProjectSecrets(config: ConnectionConfig): ProjectSecrets | undefined {
   const proxy = config.proxy;
   const secrets: ProjectSecrets = {
-    dbIdentity: endpointIdentity(config.host, config.port, config.username),
+    dbIdentity: endpointIdentity(config.host, config.port, config.username, DEFAULT_PORTS[config.type]),
     password: config.password,
     proxyIdentity: proxy && proxyIdentityOf(proxy),
     sshPassword: proxy?.sshPassword,
@@ -96,7 +98,7 @@ function extractProjectSecrets(config: ConnectionConfig): ProjectSecrets | undef
 
 /** Mutates `config` in place, restoring only fields it doesn't already carry, and only for unchanged endpoints. */
 function applyProjectSecrets(config: ConnectionConfig, secrets: ProjectSecrets) {
-  if (endpointIdentity(config.host, config.port, config.username) === secrets.dbIdentity) {
+  if (endpointIdentity(config.host, config.port, config.username, DEFAULT_PORTS[config.type]) === secrets.dbIdentity) {
     config.password ??= secrets.password;
   }
   const proxy = config.proxy;
@@ -333,17 +335,20 @@ export class ConnectionManager {
 
     const projectStates = Array.from(this.connections.values())
       .filter(s => s.config.scope === 'project');
-    // Rebuilt from scratch each save, so removed connections don't leave their
-    // credentials behind and a same-id connection can't inherit stale ones. Skipped
-    // while a reload is outstanding: the project set is empty then because it hasn't
-    // been read back yet, not because the user deleted everything.
-    if (!this.projectLoadPending) {
-      this.projectSecrets = new Map();
-      for (const s of projectStates) {
-        const secrets = extractProjectSecrets(s.config);
-        if (secrets) this.projectSecrets.set(s.config.id, secrets);
-      }
+    // Every save records the credentials it is about to strip, and normally starts
+    // from scratch so a removed connection doesn't leave its own behind. While a
+    // reload is outstanding the set in memory isn't the whole picture — the file
+    // hasn't been read back yet, and may stay unreadable indefinitely (deleted,
+    // merge-conflicted) — so carry the existing entries over instead: only pruning is
+    // deferred, never the recording, or credentials entered in that stretch would
+    // reach disk stripped with nothing left remembering them.
+    const nextSecrets = this.projectLoadPending ? new Map(this.projectSecrets) : new Map<string, ProjectSecrets>();
+    for (const s of projectStates) {
+      const secrets = extractProjectSecrets(s.config);
+      if (secrets) nextSecrets.set(s.config.id, secrets);
+      else nextSecrets.delete(s.config.id);
     }
+    this.projectSecrets = nextSecrets;
     const projectConns = projectStates.map(s => stripSecretsForProjectFile(s.config));
     const projectFolders = Array.from(this.folders.values())
       .filter(f => f.scope === 'project');

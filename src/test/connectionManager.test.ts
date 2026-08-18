@@ -1404,6 +1404,39 @@ describe('ConnectionManager', () => {
       expect(manager.get('proj-away')!.config.proxy?.sshPassword).toBe('ssh-secret');
     });
 
+    it('remembers a credential entered while the project file is unreadable', async () => {
+      // The file can stay unreadable indefinitely — deleted on this branch, or left
+      // with merge-conflict markers. Saves still run and still strip credentials out
+      // of the file, so they must still be recorded; deferring only the pruning.
+      const manager = createManager();
+      readFileHolder.result = Buffer.from('{{ not json', 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      await manager.add(makeConfig({
+        id: 'proj-during-outage',
+        scope: 'project',
+        password: 'db-secret',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'ssh-secret' },
+      }));
+      // What reached disk carries no credentials, as always.
+      expect(writtenProjectFile.last).not.toContain('ssh-secret');
+
+      // The file becomes readable again, carrying a teammate's edit — so this is a
+      // genuine reload, not one the self-write marker short-circuits.
+      const resolved = writtenProjectFile.last!.replace('"name": "Test PG"', '"name": "Renamed by teammate"');
+      expect(resolved).not.toBe(writtenProjectFile.last);
+      readFileHolder.result = Buffer.from(resolved, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-during-outage')!.config.name).toBe('Renamed by teammate');
+      });
+
+      expect(manager.get('proj-during-outage')!.config.password).toBe('db-secret');
+      expect(manager.get('proj-during-outage')!.config.proxy?.sshPassword).toBe('ssh-secret');
+    });
+
     it('does not hand a remembered credential to a different endpoint', async () => {
       // The project file is shared and committed. If a pulled change repoints a
       // connection at another host, the password typed for the old one must not
