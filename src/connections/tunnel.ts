@@ -41,6 +41,12 @@ function connectHop(hop: SshHop, sock: ClientChannel | undefined, onCreated: (cl
 
     client.on('ready', () => resolve(client));
     client.on('error', (err) => reject(err));
+    // ssh2 only synthesizes an 'error' before 'close' if the connection drops before
+    // the identification banner is exchanged; past that point (i.e. for nearly all
+    // of a real handshake) a transport that closes mid-auth emits 'close' alone and
+    // cancels ssh2's own internal handshake timeout — without this, that leaves the
+    // connect attempt (and the whole tunnel) hanging forever with no error raised.
+    client.on('close', () => reject(new Error('SSH hop closed unexpectedly')));
     client.connect(connectConfig);
   });
 }

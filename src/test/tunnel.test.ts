@@ -93,6 +93,29 @@ describe('createSSHTunnel', () => {
     tunnel.close();
   });
 
+  it('rejects instead of hanging forever when a hop closes mid-handshake, before "ready" or "error"', async () => {
+    // Real ssh2 only synthesizes an 'error' before 'close' if the transport drops
+    // before the identification banner is exchanged — past that point (i.e. for
+    // nearly all of a real handshake) a dropped connection emits 'close' alone and
+    // cancels ssh2's own internal handshake-timeout backstop. No listener for
+    // 'error' would ever fire, and nothing else in this codebase times the connect
+    // out either.
+    const proxy = { type: 'ssh' as const, sshHost: 'example.com', sshUsername: 'u', sshPassword: 'p' };
+    const promise = createSSHTunnel(proxy, '127.0.0.1', 5432);
+    const failure = promise.catch((err: Error) => err);
+
+    let settled: 'pending' | 'settled' = 'pending';
+    failure.then(() => { settled = 'settled'; });
+
+    await new Promise((r) => setTimeout(r, 10));
+    instances[0].emit('close'); // no 'ready', no 'error' — just closes mid-handshake
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(settled).toBe('settled'); // must not still be pending — that would be a permanent hang
+    const err = await failure;
+    expect(err).toBeInstanceOf(Error);
+  });
+
   it('chains through proxy.sshHops and does not resolve until every hop is ready', async () => {
     const proxy = {
       type: 'ssh' as const,
