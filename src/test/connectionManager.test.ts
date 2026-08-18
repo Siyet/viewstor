@@ -13,6 +13,7 @@ const {
   readFileHolder,
   writtenProjectFile,
   writeDelay,
+  readDelay,
 } = vi.hoisted(() => {
   const globalStateStore = new Map<string, unknown>();
   const mockGlobalState = {
@@ -47,8 +48,10 @@ const {
   // Lets one test hold back individual writeFile() completions, to check that
   // overlapping saves can't land on disk out of the order they were issued.
   const writeDelay = { forContent: null as ((content: string) => Promise<void> | undefined) | null };
+  // Same idea for reads, so a test can hold a guard-check read open across a save.
+  const readDelay = { gate: null as (() => Promise<void> | undefined) | null };
 
-  return { globalStateStore, mockGlobalState, watcherListeners, mockFileSystemWatcher, readFileHolder, writtenProjectFile, writeDelay };
+  return { globalStateStore, mockGlobalState, watcherListeners, mockFileSystemWatcher, readFileHolder, writtenProjectFile, writeDelay, readDelay };
 });
 
 function createFreshMockDriver() {
@@ -93,7 +96,11 @@ vi.mock('vscode', () => {
       workspaceFolders: [{ uri: mockWorkspaceFolderUri }],
       fs: {
         readFile: async () => {
-          if (readFileHolder.result) return readFileHolder.result;
+          // Snapshot first, like a real read: a write that lands while this call is
+          // in flight doesn't retroactively change what it returns.
+          const snapshot = readFileHolder.result;
+          await readDelay.gate?.();
+          if (snapshot) return snapshot;
           throw new Error('File not found');
         },
         writeFile: async (_uri: unknown, content: Uint8Array) => {
@@ -164,6 +171,7 @@ beforeEach(() => {
   readFileHolder.result = null;
   writtenProjectFile.last = null;
   writeDelay.forContent = null;
+  readDelay.gate = null;
   watcherListeners.onChange = [];
   watcherListeners.onCreate = [];
   watcherListeners.onDelete = [];
@@ -1267,6 +1275,52 @@ describe('ConnectionManager', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(manager.get('proj-inflight')!.config.proxy?.sshPassword).toBe('live-secret');
+    });
+
+    it('ignores a guard-check read that a save overtook while it was in flight', async () => {
+      // The guard reads the file to compare it against the marker, but that read is
+      // async: a save completing before it resolves moves the marker on, so the
+      // (now stale) content it returns no longer matches and looks like an external
+      // edit. Real watchers deliver well after the write, so this window is ordinary.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-toctou',
+        scope: 'project',
+        name: 'v1',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'live-secret' },
+      }));
+      const jsonA = writtenProjectFile.last!;
+      readFileHolder.result = Buffer.from(jsonA, 'utf8'); // disk = save #1
+
+      // Hold the *next* read (the guard's) open.
+      let releaseRead: () => void = () => {};
+      const readGate = new Promise<void>((resolve) => { releaseRead = resolve; });
+      let guardReadStarted: () => void = () => {};
+      const guardReadReached = new Promise<void>((resolve) => { guardReadStarted = resolve; });
+      let gated = false;
+      readDelay.gate = () => {
+        if (gated) return undefined;
+        gated = true;
+        guardReadStarted();
+        return readGate;
+      };
+
+      // Watcher event for the manager's own save #1 arrives late.
+      for (const listener of watcherListeners.onChange) listener();
+      await guardReadReached;
+
+      // While that read is in flight, an ordinary save runs to completion.
+      await manager.setConnectionColor('proj-toctou', '#123456');
+      readFileHolder.result = Buffer.from(writtenProjectFile.last!, 'utf8'); // disk = save #2
+      expect(writtenProjectFile.last).not.toBe(jsonA);
+
+      // The guard read now resolves — with save #1's content, which no longer
+      // matches the marker (save #2's).
+      releaseRead();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(manager.get('proj-toctou')!.config.proxy?.sshPassword).toBe('live-secret');
+      expect(manager.get('proj-toctou')!.config.color).toBe('#123456');
     });
   });
 

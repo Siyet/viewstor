@@ -65,6 +65,9 @@ export class ConnectionManager {
   // Chained to serialize saveProjectData() calls — see its own doc comment.
   private projectSaveQueue: Promise<void> = Promise.resolve();
   private projectSavesInFlight = 0;
+  // Bumped by every completed write, so a guard check can tell whether the file it
+  // read is still the one lastWrittenProjectContent describes.
+  private projectSaveGeneration = 0;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadConnections();
@@ -149,8 +152,13 @@ export class ConnectionManager {
     // meaningless, and treating it as an external edit would wipe live secrets.
     if (this.projectSavesInFlight > 0) return;
     const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, PROJECT_FILE);
+    const generation = this.projectSaveGeneration;
     try {
       const content = Buffer.from(await vscode.workspace.fs.readFile(fileUri)).toString('utf8');
+      // This read is only comparable to the marker if no save landed while it was in
+      // flight. If one did, `content` predates the marker and would look like an
+      // external edit — that save's own watcher event will re-check against fresh state.
+      if (this.projectSaveGeneration !== generation) return;
       if (content === this.lastWrittenProjectContent) return;
     } catch { /* unreadable — fall through and let reloadProjectData's own read handle/report it */ }
     this.reloadProjectData();
@@ -233,6 +241,7 @@ export class ConnectionManager {
     const data: ProjectData = { connections: projectConns, folders: projectFolders };
     const json = JSON.stringify(data, null, 2);
     this.lastWrittenProjectContent = json;
+    this.projectSaveGeneration++;
     const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, PROJECT_FILE);
     await vscode.workspace.fs.writeFile(fileUri, Buffer.from(json, 'utf8'));
   }
