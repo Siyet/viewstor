@@ -188,6 +188,10 @@ describe('createSSHTunnel', () => {
     const err = await failure;
     expect(err).toBeInstanceOf(Error);
     expect(instances[0].end).toHaveBeenCalled();
+    // Hop 2's client was created (and started connecting) before losing the
+    // chainDeath race — connectHop's own promise settling isn't what makes it safe
+    // to abandon; without ending it explicitly it keeps connecting in the background.
+    expect(instances[1].end).toHaveBeenCalled();
   });
 
   it('tears down the local listener and every hop when a hop drops after the tunnel is already established', async () => {
@@ -227,6 +231,56 @@ describe('createSSHTunnel', () => {
       probe.on('connect', () => { probe.destroy(); reject(new Error('local listener is still accepting connections')); });
       probe.on('error', () => resolve());
     });
+  });
+
+  it('tears down the tunnel when a hop closes cleanly post-establishment, with no error event at all', async () => {
+    // A real ssh2 client whose underlying TCP connection closes cleanly (remote sshd
+    // restart, idle timeout, graceful process exit — not a reset) only ever emits
+    // 'close', never 'error'. Listening for 'error' alone leaves a zombie tunnel: the
+    // local listener stays up against a fully dead SSH chain.
+    const proxy = { type: 'ssh' as const, sshHost: 'example.com', sshUsername: 'u', sshPassword: 'p' };
+    const promise = createSSHTunnel(proxy, '127.0.0.1', 5432);
+    await new Promise((r) => setTimeout(r, 10));
+    instances[0].emit('ready');
+    const tunnel = await promise;
+
+    instances[0].emit('close'); // no 'error' at all
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(instances[0].end).toHaveBeenCalled();
+
+    // The local listener must be gone, not a zombie still accepting doomed connections.
+    await new Promise<void>((resolve, reject) => {
+      const probe = net.connect(tunnel.localPort, tunnel.localHost);
+      probe.on('connect', () => { probe.destroy(); reject(new Error('local listener is still accepting connections')); });
+      probe.on('error', () => resolve());
+    });
+  });
+
+  it('does not crash when forwardOut throws synchronously ("Not connected") for a dead hop', async () => {
+    // ssh2's Client.forwardOut() throws synchronously rather than erroring via
+    // callback once the client's underlying socket is already gone — a real,
+    // observed behavior, not a hypothetical one.
+    const proxy = { type: 'ssh' as const, sshHost: 'example.com', sshUsername: 'u', sshPassword: 'p' };
+    const promise = createSSHTunnel(proxy, '127.0.0.1', 5432);
+    await new Promise((r) => setTimeout(r, 10));
+    instances[0].emit('ready');
+    const tunnel = await promise;
+
+    (instances[0] as unknown as { forwardOut: ReturnType<typeof vi.fn> }).forwardOut.mockImplementationOnce(() => {
+      throw new Error('Not connected');
+    });
+
+    // Reaching the assertions below at all (rather than crashing the process) is
+    // most of what this test proves.
+    const probe = net.connect(tunnel.localPort, tunnel.localHost);
+    await new Promise<void>((resolve, reject) => {
+      probe.on('connect', () => resolve());
+      probe.on('error', reject);
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    tunnel.close();
   });
 
   it('rejects instead of hanging forever when a hop errors while the local listener is still binding', async () => {

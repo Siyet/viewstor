@@ -21,10 +21,11 @@ function buildHopChain(proxy: ProxyConfig): SshHop[] {
   return [firstHop, ...(proxy.sshHops || [])];
 }
 
-/** Connects one SSH hop, optionally tunneling the connection itself through `sock` (a stream from a previous hop's forwardOut). */
-function connectHop(hop: SshHop, sock?: ClientChannel): Promise<SSHClient> {
+/** Connects one SSH hop, optionally tunneling the connection itself through `sock` (a stream from a previous hop's forwardOut). `onCreated` fires synchronously with the client, before any connect/auth I/O — the caller needs it even if this hop later loses a race and its promise is abandoned. */
+function connectHop(hop: SshHop, sock: ClientChannel | undefined, onCreated: (client: SSHClient) => void): Promise<SSHClient> {
   return new Promise((resolve, reject) => {
     const client = new SSHClient();
+    onCreated(client);
     const connectConfig: Record<string, unknown> = {
       host: hop.host,
       port: hop.port || 22,
@@ -47,6 +48,12 @@ function connectHop(hop: SshHop, sock?: ClientChannel): Promise<SSHClient> {
 /** Connects each hop in order, tunneling hop N+1's SSH connection through hop N's forwardOut. */
 async function connectHopChain(hops: SshHop[]): Promise<SSHClient[]> {
   const clients: SSHClient[] = [];
+  // Every SSHClient ever created, including one that loses the chainDeath race below
+  // while still mid-connect. `clients` alone isn't enough to clean up on failure — a
+  // client is only pushed there once its own connect *wins* its race, but a loser is
+  // still a real, live socket that keeps connecting/authenticating in the background
+  // unless something ends it too.
+  const allCreated: SSHClient[] = [];
 
   // If an already-connected hop dies while a later hop is still connecting through
   // it, that later hop's connect attempt can hang forever instead of erroring: its
@@ -70,22 +77,25 @@ async function connectHopChain(hops: SshHop[]): Promise<SSHClient[]> {
       let sock: ClientChannel | undefined;
       if (clients.length > 0) {
         const previous = clients[clients.length - 1];
-        sock = await Promise.race([
-          new Promise<ClientChannel>((resolve, reject) => {
-            previous.forwardOut('127.0.0.1', 0, hop.host, hop.port || 22, (err, stream) => {
-              if (err) reject(err); else resolve(stream);
-            });
-          }),
-          chainDeath,
-        ]);
+        const forwardOutPromise = new Promise<ClientChannel>((resolve, reject) => {
+          previous.forwardOut('127.0.0.1', 0, hop.host, hop.port || 22, (err, stream) => {
+            if (err) reject(err); else resolve(stream);
+          });
+        });
+        forwardOutPromise.catch(() => {}); // don't leave an unhandled rejection if chainDeath wins first
+        sock = await Promise.race([forwardOutPromise, chainDeath]);
       }
-      const client = await Promise.race([connectHop(hop, sock), chainDeath]);
+      const connectPromise = connectHop(hop, sock, (c) => allCreated.push(c));
+      connectPromise.catch(() => {}); // same — a losing hop keeps connecting in the background
+      const client = await Promise.race([connectPromise, chainDeath]);
       armDeathWatch(client);
       clients.push(client);
     }
     return clients;
   } catch (err) {
-    clients.forEach((c) => c.end());
+    // Sweep every client ever created, not just the ones that made it into `clients`
+    // — a hop that lost its chainDeath race is still a real, live connecting socket.
+    allCreated.forEach((c) => c.end());
     throw err;
   }
 }
@@ -127,17 +137,24 @@ export function createSSHTunnel(
         // channel and one DB-side connection per reset, for the tunnel's lifetime.
         let stream: ClientChannel | undefined;
         sock.on('error', () => { sock.destroy(); stream?.destroy(); });
-        lastHop.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, s) => {
-          if (err) { sock.destroy(); return; }
-          // forwardOut is a real round trip to the SSH server — sock can already be
-          // dead (reset, or a driver's own connect timeout) by the time this fires.
-          // Piping into/from an already-destroyed socket is a silent no-op, so
-          // without this the freshly opened channel would never get destroyed.
-          if (sock.destroyed) { s.destroy(); return; }
-          stream = s;
-          stream.on('error', () => { sock.destroy(); stream?.destroy(); });
-          sock.pipe(stream).pipe(sock);
-        });
+        try {
+          lastHop.forwardOut(sock.remoteAddress || '127.0.0.1', sock.remotePort || 0, remoteHost, remotePort, (err, s) => {
+            if (err) { sock.destroy(); return; }
+            // forwardOut is a real round trip to the SSH server — sock can already be
+            // dead (reset, or a driver's own connect timeout) by the time this fires.
+            // Piping into/from an already-destroyed socket is a silent no-op, so
+            // without this the freshly opened channel would never get destroyed.
+            if (sock.destroyed) { s.destroy(); return; }
+            stream = s;
+            stream.on('error', () => { sock.destroy(); stream?.destroy(); });
+            sock.pipe(stream).pipe(sock);
+          });
+        } catch {
+          // ssh2's forwardOut() throws synchronously ("Not connected") once the
+          // client's underlying socket is gone, rather than erroring via callback —
+          // same outcome as the async `err` case above, just a different shape.
+          sock.destroy();
+        }
       });
 
       // A hop can drop after the tunnel is already established (network blip, idle
@@ -145,11 +162,18 @@ export function createSSHTunnel(
       // the local listener and the other hops' now-orphaned SSH clients. It can also
       // drop in the short async window between server.listen() being called and its
       // callback firing; reject() is a no-op once resolve() has already run, so this
-      // covers both cases without needing to know which one happened.
-      clients.forEach((c) => c.on('error', (err) => {
-        closeAll();
-        reject(err);
-      }));
+      // covers both cases without needing to know which one happened. A real ssh2
+      // client that dies cleanly (remote end closed the TCP connection, no reset)
+      // only ever emits 'close', never 'error' — 'error' alone would leave a zombie
+      // listener up against a fully dead chain.
+      clients.forEach((c) => {
+        const die = (err?: Error) => {
+          closeAll();
+          reject(err || new Error('SSH hop closed unexpectedly'));
+        };
+        c.on('error', die);
+        c.on('close', die);
+      });
 
       server.listen(0, '127.0.0.1', () => {
         // A hop can die between listen() being called and this callback firing;

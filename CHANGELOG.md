@@ -15,6 +15,8 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 - Project-scope connections (`.vscode/viewstor.json`) no longer write SSH/proxy passwords or private keys to disk — only the database password was being stripped before.
 - **An SSH-tunneled connection dropping mid-session (query cancellation, DB restart, an idle timeout) could crash the whole extension host**, not just that connection — an ordinary TCP reset reaching the tunnel had no error handling and threw uncaught. The tunnel now closes just the affected connection (both its local side and its actual SSH-forwarded connection to the database) and keeps running.
 - **Chained SSH tunnels could hang indefinitely while connecting** if an already-connected hop dropped while the next hop was still connecting through it — that failure mode never raised an error to react to. Connecting now aborts cleanly with an error instead of hanging.
+- **An SSH tunnel could go zombie** — still listening locally, but talking to nothing — if a hop's connection closed cleanly (an sshd restart or graceful shutdown, not a reset) once the tunnel was already established; that case never emitted an error either. The tunnel is now torn down correctly either way.
+- A connecting SSH hop that lost out to a chain failure elsewhere (see above) could keep running in the background indefinitely instead of being closed along with the rest of the failed connection attempt.
 
 ## [0.5.2] — 2026-08-14
 
