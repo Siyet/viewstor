@@ -1371,6 +1371,99 @@ describe('ConnectionManager', () => {
       expect(restored.proxy?.sshHops?.[0].privateKey).toBe('hop2-key');
       expect(restored.proxy?.sshHops?.[0].passphrase).toBe('hop2-passphrase');
     });
+
+    it('keeps remembered credentials through a save made while the file is away', async () => {
+      // git stash / branch switch: the project file is gone for as long as the user
+      // leaves it gone, and any save in that stretch — even for an unrelated
+      // user-scope connection — must not mistake the empty project set for "the user
+      // deleted everything" and throw the credentials away.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-away',
+        scope: 'project',
+        password: 'db-secret',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'ssh-secret' },
+      }));
+      const onDisk = writtenProjectFile.last!;
+
+      readFileHolder.result = null;
+      for (const listener of watcherListeners.onDelete) listener();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(manager.get('proj-away')).toBeUndefined();
+
+      // Something entirely unrelated saves while the file is away.
+      await manager.add(makeConfig({ id: 'unrelated-user-conn', scope: 'user' }));
+
+      readFileHolder.result = Buffer.from(onDisk, 'utf8');
+      for (const listener of watcherListeners.onCreate) listener();
+      await vi.waitFor(() => {
+        expect(manager.get('proj-away')).toBeDefined();
+      });
+
+      expect(manager.get('proj-away')!.config.password).toBe('db-secret');
+      expect(manager.get('proj-away')!.config.proxy?.sshPassword).toBe('ssh-secret');
+    });
+
+    it('does not hand a remembered credential to a different endpoint', async () => {
+      // The project file is shared and committed. If a pulled change repoints a
+      // connection at another host, the password typed for the old one must not
+      // follow it there — failing to connect is the correct, visible outcome.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-moved',
+        scope: 'project',
+        host: 'db.internal',
+        password: 'db-secret',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'bastion-secret' },
+      }));
+
+      const repointed = writtenProjectFile.last!
+        .replace('"host": "db.internal"', '"host": "other-db.internal"')
+        .replace('"sshHost": "bastion.example.com"', '"sshHost": "evil.attacker.tld"');
+      readFileHolder.result = Buffer.from(repointed, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-moved')!.config.proxy?.sshHost).toBe('evil.attacker.tld');
+      });
+
+      expect(manager.get('proj-moved')!.config.password).toBeUndefined();
+      expect(manager.get('proj-moved')!.config.proxy?.sshPassword).toBeUndefined();
+    });
+
+    it('matches remembered hop credentials by endpoint, not by position', async () => {
+      // A hand-edited chain can drop or reorder hops. Position-matching would give
+      // the removed hop's password to whichever hop slid into its slot.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-hops',
+        scope: 'project',
+        proxy: {
+          type: 'ssh',
+          sshHost: 'bastion.example.com',
+          sshUsername: 'u0',
+          sshPassword: 'bastion-secret',
+          sshHops: [
+            { host: 'jump-a.internal', username: 'ua', password: 'pw-for-jump-a' },
+            { host: 'jump-b.internal', username: 'ub', password: 'pw-for-jump-b' },
+          ],
+        },
+      }));
+
+      // Someone removes jump-a from the shared file, so jump-b is now first.
+      const withoutJumpA = JSON.parse(writtenProjectFile.last!);
+      withoutJumpA.connections[0].proxy.sshHops = [{ host: 'jump-b.internal', port: 22, username: 'ub' }];
+      readFileHolder.result = Buffer.from(JSON.stringify(withoutJumpA, null, 2), 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-hops')!.config.proxy?.sshHops).toHaveLength(1);
+      });
+
+      const hop = manager.get('proj-hops')!.config.proxy!.sshHops![0];
+      expect(hop.host).toBe('jump-b.internal');
+      expect(hop.password).toBe('pw-for-jump-b'); // its own, never jump-a's
+    });
   });
 
   // -----------------------------------------------------------------------

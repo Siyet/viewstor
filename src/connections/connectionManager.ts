@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { ConnectionConfig, ConnectionState, ConnectionFolder } from '../types/connection';
+import { ConnectionConfig, ConnectionState, ConnectionFolder, ProxyConfig } from '../types/connection';
 import { DatabaseDriver } from '../types/driver';
 import { SchemaObject } from '../types/schema';
 import { createDriver } from '../drivers';
@@ -41,24 +41,49 @@ function stripSecretsForProjectFile(config: ConnectionConfig): ConnectionConfig 
   } as ConnectionConfig;
 }
 
+/**
+ * Who a credential was entered for. Remembered credentials are only reapplied to the
+ * same endpoint — the project file is shared and committed, so a pulled change to a
+ * host/user must fail closed (prompting the user) rather than silently forwarding the
+ * password they typed for the old one to whatever host now sits in its place.
+ */
+function endpointIdentity(host: string | undefined, port: number | undefined, username: string | undefined, defaultPort?: number): string {
+  // An omitted port and its default are the same endpoint — the config in memory and
+  // the one read back from the file often differ only in whether it was spelled out.
+  return `${host ?? ''}:${port ?? defaultPort ?? ''}:${username ?? ''}`;
+}
+
+/** The proxy's own endpoint — SSH hop 1, or the SOCKS5/HTTP proxy for those types. */
+function proxyIdentityOf(proxy: ProxyConfig): string {
+  return proxy.type === 'ssh'
+    ? endpointIdentity(proxy.sshHost, proxy.sshPort, proxy.sshUsername, 22)
+    : endpointIdentity(proxy.proxyHost, proxy.proxyPort, proxy.proxyUsername, 1080);
+}
+
 /** Exactly the fields stripSecretsForProjectFile() drops, kept in memory so a reload can put them back. */
 interface ProjectSecrets {
+  dbIdentity: string;
   password?: string;
+  proxyIdentity?: string;
   sshPassword?: string;
   sshPrivateKey?: string;
   sshPassphrase?: string;
   proxyPassword?: string;
-  hops?: Array<{ password?: string; privateKey?: string; passphrase?: string }>;
+  hops?: Array<{ identity: string; password?: string; privateKey?: string; passphrase?: string }>;
 }
 
 function extractProjectSecrets(config: ConnectionConfig): ProjectSecrets | undefined {
+  const proxy = config.proxy;
   const secrets: ProjectSecrets = {
+    dbIdentity: endpointIdentity(config.host, config.port, config.username),
     password: config.password,
-    sshPassword: config.proxy?.sshPassword,
-    sshPrivateKey: config.proxy?.sshPrivateKey,
-    sshPassphrase: config.proxy?.sshPassphrase,
-    proxyPassword: config.proxy?.proxyPassword,
-    hops: config.proxy?.sshHops?.map(hop => ({
+    proxyIdentity: proxy && proxyIdentityOf(proxy),
+    sshPassword: proxy?.sshPassword,
+    sshPrivateKey: proxy?.sshPrivateKey,
+    sshPassphrase: proxy?.sshPassphrase,
+    proxyPassword: proxy?.proxyPassword,
+    hops: proxy?.sshHops?.map(hop => ({
+      identity: endpointIdentity(hop.host, hop.port, hop.username, 22),
       password: hop.password,
       privateKey: hop.privateKey,
       passphrase: hop.passphrase,
@@ -69,22 +94,30 @@ function extractProjectSecrets(config: ConnectionConfig): ProjectSecrets | undef
   return hasAny ? secrets : undefined;
 }
 
-/** Mutates `config` in place, restoring only fields it doesn't already carry. */
+/** Mutates `config` in place, restoring only fields it doesn't already carry, and only for unchanged endpoints. */
 function applyProjectSecrets(config: ConnectionConfig, secrets: ProjectSecrets) {
-  config.password ??= secrets.password;
-  if (config.proxy) {
-    config.proxy.sshPassword ??= secrets.sshPassword;
-    config.proxy.sshPrivateKey ??= secrets.sshPrivateKey;
-    config.proxy.sshPassphrase ??= secrets.sshPassphrase;
-    config.proxy.proxyPassword ??= secrets.proxyPassword;
-    config.proxy.sshHops?.forEach((hop, i) => {
-      const remembered = secrets.hops?.[i];
-      if (!remembered) return;
-      hop.password ??= remembered.password;
-      hop.privateKey ??= remembered.privateKey;
-      hop.passphrase ??= remembered.passphrase;
-    });
+  if (endpointIdentity(config.host, config.port, config.username) === secrets.dbIdentity) {
+    config.password ??= secrets.password;
   }
+  const proxy = config.proxy;
+  if (!proxy) return;
+
+  if (proxyIdentityOf(proxy) === secrets.proxyIdentity) {
+    proxy.sshPassword ??= secrets.sshPassword;
+    proxy.sshPrivateKey ??= secrets.sshPrivateKey;
+    proxy.sshPassphrase ??= secrets.sshPassphrase;
+    proxy.proxyPassword ??= secrets.proxyPassword;
+  }
+  // Matched by identity, not position: a reordered chain keeps each hop's own
+  // credential, and an inserted or retargeted hop simply gets none.
+  proxy.sshHops?.forEach(hop => {
+    const identity = endpointIdentity(hop.host, hop.port, hop.username, 22);
+    const remembered = secrets.hops?.find(h => h.identity === identity);
+    if (!remembered) return;
+    hop.password ??= remembered.password;
+    hop.privateKey ??= remembered.privateKey;
+    hop.passphrase ??= remembered.passphrase;
+  });
 }
 
 interface ProjectData {
@@ -120,6 +153,10 @@ export class ConnectionManager {
   // makes a reload harmless by construction, rather than something the watcher guards
   // above have to be perfect at avoiding.
   private projectSecrets: Map<string, ProjectSecrets> = new Map();
+  // True between dropping project connections from memory and successfully reloading
+  // them. While set, an empty in-memory project set means "not loaded yet", not
+  // "none exist" — so projectSecrets must not be rebuilt from it.
+  private projectLoadPending = false;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadConnections();
@@ -184,8 +221,15 @@ export class ConnectionManager {
             this.folders.set(folder.id, folder);
           }
         }
+        // In-memory project data now reflects the file again.
+        this.projectLoadPending = false;
         this._onDidChange.fire();
-      }).then(undefined, () => { /* file doesn't exist — ok */ });
+      }).then(undefined, () => {
+        // File is missing or mid-edit (invalid JSON), so project connections stay
+        // unloaded — deliberately leaving projectLoadPending set, so a save landing
+        // in that stretch doesn't mistake "none in memory" for "none exist" and drop
+        // the credentials we're holding for them.
+      });
     } catch { /* ignore */ }
   }
 
@@ -226,6 +270,7 @@ export class ConnectionManager {
     // those bytes (git stash pop, undo-and-save, switching back to a branch) looks
     // like our own write and is silently ignored.
     this.lastWrittenProjectContent = undefined;
+    this.projectLoadPending = true;
     // Remove old project-scoped items
     for (const [id, state] of this.connections) {
       if (state.config.scope === 'project') this.connections.delete(id);
@@ -289,11 +334,15 @@ export class ConnectionManager {
     const projectStates = Array.from(this.connections.values())
       .filter(s => s.config.scope === 'project');
     // Rebuilt from scratch each save, so removed connections don't leave their
-    // credentials behind and a same-id connection can't inherit stale ones.
-    this.projectSecrets = new Map();
-    for (const s of projectStates) {
-      const secrets = extractProjectSecrets(s.config);
-      if (secrets) this.projectSecrets.set(s.config.id, secrets);
+    // credentials behind and a same-id connection can't inherit stale ones. Skipped
+    // while a reload is outstanding: the project set is empty then because it hasn't
+    // been read back yet, not because the user deleted everything.
+    if (!this.projectLoadPending) {
+      this.projectSecrets = new Map();
+      for (const s of projectStates) {
+        const secrets = extractProjectSecrets(s.config);
+        if (secrets) this.projectSecrets.set(s.config.id, secrets);
+      }
     }
     const projectConns = projectStates.map(s => stripSecretsForProjectFile(s.config));
     const projectFolders = Array.from(this.folders.values())
