@@ -17,7 +17,9 @@ LAST_TAG_DATE=$(git log -1 --format=%aI "$LAST_TAG" 2>/dev/null || echo "1970-01
 # 3. Find merged PRs since last tag
 echo "Scanning merged PRs since $LAST_TAG..."
 PRS=$(gh pr list --state merged --base trunk --search "merged:>=${LAST_TAG_DATE}" --json number,labels,body --limit 100)
-PR_COUNT=$(echo "$PRS" | jq length)
+# `printf '%s'`, not `echo`: a PR body reaches us as JSON with escaped newlines, and
+# some shells' echo expands those back into real ones, which is invalid JSON.
+PR_COUNT=$(printf '%s' "$PRS" | jq length)
 echo "Found $PR_COUNT merged PRs"
 
 if [ "$PR_COUNT" -eq 0 ]; then
@@ -28,30 +30,32 @@ fi
 # 4. Determine bump type
 BUMP="patch"
 
-# Check PR labels directly
-for PR_ROW in $(echo "$PRS" | jq -c '.[]'); do
-  PR_LABELS=$(echo "$PR_ROW" | jq -r '.labels[].name' 2>/dev/null || true)
-  if echo "$PR_LABELS" | grep -q "^minor$"; then
+# Check PR labels directly.
+# Read line by line: `for row in $(jq -c '.[]')` word-splits each JSON object on the
+# spaces in its body, handing jq a fragment ("Unfinished string at EOF").
+while IFS= read -r PR_ROW; do
+  PR_LABELS=$(printf '%s' "$PR_ROW" | jq -r '.labels[].name' 2>/dev/null || true)
+  if printf '%s' "$PR_LABELS" | grep -q "^minor$"; then
     BUMP="minor"
     echo "Found 'minor' label on PR — will bump minor version"
     break
   fi
-done
+done < <(printf '%s' "$PRS" | jq -c '.[]')
 
 # Also check linked issue labels
 if [ "$BUMP" = "patch" ]; then
-  for PR_ROW in $(echo "$PRS" | jq -c '.[]'); do
-    PR_BODY=$(echo "$PR_ROW" | jq -r '.body // ""')
-    ISSUE_NUMS=$(echo "$PR_BODY" | grep -oP '(?:Closes|Fixes|Resolves)\s+#\K\d+' || true)
+  while IFS= read -r PR_ROW; do
+    PR_BODY=$(printf '%s' "$PR_ROW" | jq -r '.body // ""')
+    ISSUE_NUMS=$(printf '%s' "$PR_BODY" | grep -oP '(?:Closes|Fixes|Resolves)\s+#\K\d+' || true)
     for INUM in $ISSUE_NUMS; do
       ISSUE_LABELS=$(gh issue view "$INUM" --json labels --jq '.labels[].name' 2>/dev/null || true)
-      if echo "$ISSUE_LABELS" | grep -q "^minor$"; then
+      if printf '%s' "$ISSUE_LABELS" | grep -q "^minor$"; then
         BUMP="minor"
         echo "Found 'minor' label on issue #$INUM — will bump minor version"
         break 2
       fi
     done
-  done
+  done < <(printf '%s' "$PRS" | jq -c '.[]')
 fi
 
 echo "Bump type: $BUMP"
