@@ -1497,6 +1497,83 @@ describe('ConnectionManager', () => {
       expect(hop.host).toBe('jump-b.internal');
       expect(hop.password).toBe('pw-for-jump-b'); // its own, never jump-a's
     });
+
+    it('does not reuse an SSH credential for a SOCKS5 proxy on the same host', async () => {
+      // Same host and user reached as a bastion and as a SOCKS5 proxy are different
+      // things to hold a credential for, so the proxy type is part of the identity.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-typeflip',
+        scope: 'project',
+        proxy: { type: 'ssh', sshHost: 'gateway.example.com', sshUsername: 'u1', sshPassword: 'ssh-secret' },
+      }));
+
+      const flipped = JSON.parse(writtenProjectFile.last!);
+      flipped.connections[0].proxy = { type: 'socks5', proxyHost: 'gateway.example.com', proxyPort: 22, proxyUsername: 'u1' };
+      readFileHolder.result = Buffer.from(JSON.stringify(flipped, null, 2), 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-typeflip')!.config.proxy?.type).toBe('socks5');
+      });
+
+      expect(manager.get('proj-typeflip')!.config.proxy?.proxyPassword).toBeUndefined();
+      expect(manager.get('proj-typeflip')!.config.proxy?.sshPassword).toBeUndefined();
+    });
+
+    it('restores the DB password when the file omits the default port', async () => {
+      // A hand-written file may leave "port" out. Omitted and the type's default are
+      // the same endpoint, so the credential must still be recognised as belonging.
+      const manager = createManager();
+      await manager.add(makeConfig({
+        id: 'proj-defaultport',
+        scope: 'project',
+        host: 'db.internal',
+        port: 5432, // the postgresql default
+        password: 'db-secret',
+      }));
+
+      const withoutPort = JSON.parse(writtenProjectFile.last!);
+      delete withoutPort.connections[0].port;
+      withoutPort.connections[0].name = 'edited by hand';
+      readFileHolder.result = Buffer.from(JSON.stringify(withoutPort, null, 2), 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-defaultport')!.config.name).toBe('edited by hand');
+      });
+
+      expect(manager.get('proj-defaultport')!.config.password).toBe('db-secret');
+    });
+
+    it('forgets a credential the user cleared, rather than restoring it later', async () => {
+      const manager = createManager();
+      const config = makeConfig({
+        id: 'proj-cleared',
+        scope: 'project',
+        password: 'db-secret',
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: 'ssh-secret' },
+      });
+      await manager.add(config);
+
+      // The user blanks both credential fields and saves.
+      await manager.update({
+        ...config,
+        password: undefined,
+        proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshUsername: 'u1', sshPassword: undefined },
+      });
+
+      const external = writtenProjectFile.last!.replace('"name": "Test PG"', '"name": "renamed externally"');
+      readFileHolder.result = Buffer.from(external, 'utf8');
+      for (const listener of watcherListeners.onChange) listener();
+
+      await vi.waitFor(() => {
+        expect(manager.get('proj-cleared')!.config.name).toBe('renamed externally');
+      });
+
+      expect(manager.get('proj-cleared')!.config.password).toBeUndefined();
+      expect(manager.get('proj-cleared')!.config.proxy?.sshPassword).toBeUndefined();
+    });
   });
 
   // -----------------------------------------------------------------------

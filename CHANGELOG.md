@@ -9,6 +9,7 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ### Changed
 - SSH-proxied connections in the Connections tree now show the SSH host:port you actually connect through, instead of the tunnel's internal local-forwarded-port address.
+- The connection form gained a Private Key Passphrase field for the first SSH hop, alongside the one for the second — an encrypted key could not be used there before.
 
 ### Fixed
 - **SSH-tunneled connections could fail with "Connection terminated unexpectedly"** — the tunnel could start accepting traffic before the SSH session finished authenticating, occasionally crashing the SSH session outright. This showed up most often on password-authenticated connections, whose slower handshake made the race easier to hit. The tunnel now always waits for the SSH session to be ready first ([#128](https://github.com/Siyet/viewstor/issues/128)).

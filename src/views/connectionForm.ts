@@ -170,6 +170,7 @@ export class ConnectionFormPanel {
         sshUsername: data.sshUsername || undefined,
         sshPassword: data.sshPassword || undefined,
         sshPrivateKey: data.sshPrivateKey || undefined,
+        sshPassphrase: data.sshPassphrase || undefined,
         sshHops: data.sshHop2Enabled === 'true' && data.sshHop2Host ? [{
           host: data.sshHop2Host,
           port: parseInt(data.sshHop2Port, 10) || 22,
@@ -327,6 +328,10 @@ export class ConnectionFormPanel {
       <div class="form-group">
         <label for="sshPrivateKey">Private Key (paste content)</label>
         <vscode-textarea id="sshPrivateKey" rows="3" monospace value="${esc(c?.proxy?.sshPrivateKey)}"></vscode-textarea>
+      </div>
+      <div class="form-group">
+        <label for="sshPassphrase">Private Key Passphrase</label>
+        <vscode-textfield id="sshPassphrase" type="password" value="${esc(c?.proxy?.sshPassphrase)}"></vscode-textfield>
       </div>
       <div class="form-group checkbox-group">
         <vscode-checkbox id="sshHop2Enabled"${(c?.proxy?.sshHops && c.proxy.sshHops.length > 0) ? ' checked' : ''}>Connect through a second SSH hop (jump host)</vscode-checkbox>

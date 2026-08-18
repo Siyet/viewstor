@@ -272,6 +272,7 @@
       sshUsername: valueOf($('sshUsername')).trim(),
       sshPassword: valueOf($('sshPassword')),
       sshPrivateKey: valueOf($('sshPrivateKey')).trim(),
+      sshPassphrase: valueOf($('sshPassphrase')),
       sshHop2Enabled: sshHop2Enabled.checked ? 'true' : 'false',
       sshHop2Host: valueOf($('sshHop2Host')).trim(),
       sshHop2Port: valueOf($('sshHop2Port')),
@@ -372,6 +373,7 @@
             $('sshUsername').value = c.proxy.sshUsername || '';
             $('sshPassword').value = c.proxy.sshPassword || '';
             $('sshPrivateKey').value = c.proxy.sshPrivateKey || '';
+            $('sshPassphrase').value = c.proxy.sshPassphrase || '';
             const hop2 = c.proxy.sshHops && c.proxy.sshHops[0];
             sshHop2Enabled.checked = !!hop2;
             $('sshHop2Host').value = (hop2 && hop2.host) || '';

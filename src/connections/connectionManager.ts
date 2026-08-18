@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { ConnectionConfig, ConnectionState, ConnectionFolder, ProxyConfig, DEFAULT_PORTS } from '../types/connection';
+import { ConnectionConfig, ConnectionState, ConnectionFolder, ProxyConfig, SshHop, DEFAULT_PORTS } from '../types/connection';
 import { DatabaseDriver } from '../types/driver';
 import { SchemaObject } from '../types/schema';
 import { createDriver } from '../drivers';
@@ -20,25 +20,36 @@ const USER_CONFIG_FILE = path.join(USER_CONFIG_DIR, 'connections.json');
  * passphrase, on every hop) must be stripped, not just the top-level DB password.
  */
 function stripSecretsForProjectFile(config: ConnectionConfig): ConnectionConfig {
-  const { password: _password, proxy, ...rest } = config;
-  if (!proxy) return rest as ConnectionConfig;
+  // Allowlists, not denylists: this file gets committed, so a credential field added
+  // to ConnectionConfig/ProxyConfig/SshHop later must fail closed (silently absent
+  // from the file) rather than fail open (silently published). The types below are
+  // what make that a compile error instead of a leak.
+  const CONFIG_KEYS: ReadonlyArray<Exclude<keyof ConnectionConfig, 'password'>> = [
+    'id', 'name', 'type', 'host', 'port', 'username', 'database', 'databases', 'ssl',
+    'options', 'folderId', 'color', 'readonly', 'hiddenSchemas', 'hiddenDatabases',
+    'safeMode', 'scope', 'agentAnonymization', 'agentAnonymizationStrategy', 'proxy',
+  ];
+  const PROXY_KEYS: ReadonlyArray<Exclude<keyof ProxyConfig, 'sshPassword' | 'sshPrivateKey' | 'sshPassphrase' | 'proxyPassword'>> = [
+    'type', 'sshHost', 'sshPort', 'sshUsername', 'sshHops', 'proxyHost', 'proxyPort', 'proxyUsername',
+  ];
+  const HOP_KEYS: ReadonlyArray<Exclude<keyof SshHop, 'password' | 'privateKey' | 'passphrase'>> = [
+    'host', 'port', 'username',
+  ];
 
-  const {
-    sshPassword: _sshPassword,
-    sshPrivateKey: _sshPrivateKey,
-    sshPassphrase: _sshPassphrase,
-    proxyPassword: _proxyPassword,
-    sshHops,
-    ...restProxy
-  } = proxy;
+  const pick = <T extends object, K extends keyof T>(source: T, keys: ReadonlyArray<K>): Pick<T, K> => {
+    const out = {} as Pick<T, K>;
+    for (const key of keys) if (source[key] !== undefined) out[key] = source[key];
+    return out;
+  };
 
-  return {
-    ...rest,
-    proxy: {
-      ...restProxy,
-      sshHops: sshHops?.map(({ password: _hopPassword, privateKey: _hopPrivateKey, passphrase: _hopPassphrase, ...restHop }) => restHop),
-    },
-  } as ConnectionConfig;
+  const stripped = pick(config, CONFIG_KEYS) as ConnectionConfig;
+  if (config.proxy) {
+    stripped.proxy = pick(config.proxy, PROXY_KEYS) as ProxyConfig;
+    if (config.proxy.sshHops) {
+      stripped.proxy.sshHops = config.proxy.sshHops.map(hop => pick(hop, HOP_KEYS) as SshHop);
+    }
+  }
+  return stripped;
 }
 
 /**

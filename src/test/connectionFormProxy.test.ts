@@ -69,6 +69,15 @@ describe('ConnectionFormPanel.parseFormData — SSH proxy', () => {
     expect(config.proxy?.sshHops?.[0].port).toBe(22);
   });
 
+  it('includes the first hop passphrase, for encrypted private keys', () => {
+    const config = parse({
+      ...baseData,
+      sshPrivateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\n...',
+      sshPassphrase: 'hunter1',
+    });
+    expect(config.proxy?.sshPassphrase).toBe('hunter1');
+  });
+
   it('includes the second hop passphrase, for encrypted private keys', () => {
     const config = parse({
       ...baseData,
