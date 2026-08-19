@@ -2,7 +2,7 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.5.3] — 2026-08-18
 
 ### Added
 - **Chained (double-hop) SSH tunnels** — an SSH-proxied connection can now hop through an additional jump host before reaching the database, for bastion + private-subnet topologies where the target isn't reachable directly from the first hop. Configure it under Proxy / Tunnel → "Connect through a second SSH hop (jump host)" in the connection form, including a passphrase field for an encrypted private key on that second hop.
