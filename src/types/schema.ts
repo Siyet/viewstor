@@ -27,7 +27,8 @@ export type SchemaObjectType =
   | 'keyspace'
   | 'trigger'
   | 'sequence'
-  | 'group';
+  | 'group'
+  | 'namespace';
 
 export interface ColumnInfo {
   name: string;

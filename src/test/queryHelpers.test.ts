@@ -68,6 +68,9 @@ describe('isReadOnlyQuery — happy path', () => {
     'DESCRIBE users',
     'DESC users',
     '  SELECT 1  ',
+    'QUERY my-index vector=[0.1,0.2] topK=5',
+    'STATS my-index',
+    'LIST my-index namespace=ns1',
   ])('accepts %s', (sql) => {
     expect(isReadOnlyQuery(sql)).toBe(true);
   });

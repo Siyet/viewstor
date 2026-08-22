@@ -2,7 +2,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
 
-  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0 };
+  const defaultPorts = { postgresql: 5432, redis: 6379, clickhouse: 8123, sqlite: 0, pinecone: 0 };
 
   // VS Code custom elements expose `value` / `checked` properties just like
   // native form controls and emit `change` / `input` events. Wrappers below
@@ -58,16 +58,19 @@
   function updateFieldVisibility() {
     const isRedis = dbType.value === 'redis';
     const isSqlite = dbType.value === 'sqlite';
-    const isNetworkDb = !isRedis && !isSqlite;
+    const isPinecone = dbType.value === 'pinecone';
+    const isNetworkDb = !isRedis && !isSqlite && !isPinecone;
     authFields.style.display = isNetworkDb ? 'block' : 'none';
     dbFields.style.display = isNetworkDb ? 'block' : 'none';
-    if (hostPortRow) hostPortRow.style.display = isSqlite ? 'none' : '';
+    if (hostPortRow) hostPortRow.style.display = (isSqlite || isPinecone) ? 'none' : '';
     redisDbField.classList.toggle('hidden', !isRedis);
     sqliteFileField.classList.toggle('hidden', !isSqlite);
-    if (sslGroup) sslGroup.style.display = isSqlite ? 'none' : '';
-    if (proxyGroup) proxyGroup.style.display = isSqlite ? 'none' : '';
+    var pineconeApiKeyField = $('pineconeApiKeyField');
+    if (pineconeApiKeyField) pineconeApiKeyField.classList.toggle('hidden', !isPinecone);
+    if (sslGroup) sslGroup.style.display = (isSqlite || isPinecone) ? 'none' : '';
+    if (proxyGroup) proxyGroup.style.display = (isSqlite || isPinecone) ? 'none' : '';
     const hiddenSchemasGroup = $('hiddenSchemasGroup');
-    if (hiddenSchemasGroup) hiddenSchemasGroup.style.display = isSqlite ? 'none' : '';
+    if (hiddenSchemasGroup) hiddenSchemasGroup.style.display = (isSqlite || isPinecone) ? 'none' : '';
     updateProxyVisibility();
   }
 
@@ -250,6 +253,7 @@
   function getFormData() {
     const isRedis = dbType.value === 'redis';
     const isSqlite = dbType.value === 'sqlite';
+    const isPinecone = dbType.value === 'pinecone';
     return {
       id: connId.value || '',
       name: valueOf(connName).trim(),
@@ -257,9 +261,9 @@
       host: valueOf(host).trim(),
       port: valueOf(port),
       username: valueOf(username).trim(),
-      password: valueOf(password),
+      password: isPinecone ? valueOf($('pineconeApiKey')) : valueOf(password),
       database: isRedis ? valueOf(redisDb) : isSqlite ? valueOf(sqliteFile).trim() : database.value.trim(),
-      databases: (isRedis || isSqlite) ? '' : databases.value.trim(),
+      databases: (isRedis || isSqlite || isPinecone) ? '' : databases.value.trim(),
       ssl: ssl.checked ? 'true' : 'false',
       color: colorPicker.getValue(),
       readonly: readonlyMode.checked ? 'true' : 'false',
@@ -301,10 +305,14 @@
   function validate() {
     let valid = true;
     const isSqlite = dbType.value === 'sqlite';
+    const isPinecone = dbType.value === 'pinecone';
     document.querySelectorAll('.error-text').forEach(function (el) { el.remove(); });
 
     if (!valueOf(connName).trim()) { showError(connName, 'Connection name is required'); valid = false; }
-    if (isSqlite) {
+    if (isPinecone) {
+      var apiKey = $('pineconeApiKey');
+      if (apiKey && !valueOf(apiKey).trim()) { showError(apiKey, 'API key is required'); valid = false; }
+    } else if (isSqlite) {
       if (!valueOf(sqliteFile).trim()) { showError(sqliteFile, 'Database file path is required'); valid = false; }
     } else {
       if (!valueOf(host).trim()) { showError(host, 'Host is required'); valid = false; }
@@ -356,6 +364,7 @@
           databases.value = (c.databases || []).join(',');
           if (c.type === 'redis') redisDb.value = c.database || '0';
           if (c.type === 'sqlite') sqliteFile.value = c.database || '';
+          if (c.type === 'pinecone' && $('pineconeApiKey')) $('pineconeApiKey').value = c.password || '';
           initChips();
           ssl.checked = !!c.ssl;
           colorPicker.setValue(c.color || '');

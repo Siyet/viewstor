@@ -4,6 +4,7 @@ import { PostgresDriver } from './postgres';
 import { RedisDriver } from './redis';
 import { ClickHouseDriver } from './clickhouse';
 import { SqliteDriver } from './sqlite';
+import { PineconeDriver } from './pinecone';
 
 export function createDriver(type: DatabaseType): DatabaseDriver {
   switch (type) {
@@ -15,6 +16,8 @@ export function createDriver(type: DatabaseType): DatabaseDriver {
       return new ClickHouseDriver();
     case 'sqlite':
       return new SqliteDriver();
+    case 'pinecone':
+      return new PineconeDriver();
     default:
       throw new Error(`Unsupported database type: ${type}`);
   }

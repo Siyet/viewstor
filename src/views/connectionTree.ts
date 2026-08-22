@@ -324,6 +324,7 @@ function schemaIcon(type: SchemaObjectType): string {
     case 'trigger': return 'zap';
     case 'sequence': return 'symbol-number';
     case 'group': return 'list-flat';
+    case 'namespace': return 'symbol-namespace';
     default: return 'symbol-misc';
   }
 }

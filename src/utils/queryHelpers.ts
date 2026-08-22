@@ -1,6 +1,6 @@
 import { DatabaseDriver } from '../types/driver';
 
-const READ_VERB_RE = /^\s*(SELECT|WITH|EXPLAIN|SHOW|VALUES|TABLE|DESCRIBE|DESC)\b/i;
+const READ_VERB_RE = /^\s*(SELECT|WITH|EXPLAIN|SHOW|VALUES|TABLE|DESCRIBE|DESC|QUERY|STATS|LIST)\b/i;
 // Verbs that mutate state — anywhere they appear (CTE body, EXPLAIN target, etc.) the statement is NOT read-only.
 const WRITE_VERB_RE = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|MERGE|COPY|REPLACE|VACUUM|REFRESH|REINDEX|CALL|LOCK|NOTIFY|LISTEN|UNLISTEN|RESET|COMMIT|ROLLBACK|SAVEPOINT)\b/i;
 // PG: EXPLAIN ANALYZE actually executes the inner statement. ANALYZE may sit inside a parenthesized option list.
