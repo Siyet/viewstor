@@ -1008,6 +1008,57 @@ describe('ConnectionManager', () => {
 
       expect(fs.mkdirSync).toHaveBeenCalled();
     });
+
+    it('preserves standalone settings, folders, and unknown keys on ordinary saves', async () => {
+      const existing = {
+        connections: [],
+        settings: { allowAddConnection: 'off', futureSetting: 'keep' },
+        folders: [{ id: 'folder-1', name: 'Keep me', sortOrder: 0 }],
+        futureTopLevel: { enabled: true },
+      };
+      (fs.existsSync as Mock).mockReturnValue(true);
+      (fs.readFileSync as Mock).mockReturnValue(JSON.stringify(existing));
+      const manager = createManager();
+
+      await manager.add(makeConfig({ id: 'ordinary-save' }));
+
+      const calls = (fs.writeFileSync as Mock).mock.calls;
+      const data = JSON.parse(calls[calls.length - 1][1] as string);
+      expect(data.settings).toEqual(existing.settings);
+      expect(data.folders).toEqual(existing.folders);
+      expect(data.futureTopLevel).toEqual(existing.futureTopLevel);
+      expect(data.connections[0].id).toBe('ordinary-save');
+    });
+
+    it('does not overwrite a manual JSON policy when the VS Code value is only a default', () => {
+      const manager = createManager();
+      manager.syncStandaloneMcpSettings(undefined);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('syncs an explicit global VS Code policy without dropping other keys', () => {
+      (fs.existsSync as Mock).mockReturnValue(true);
+      (fs.readFileSync as Mock).mockReturnValue(JSON.stringify({
+        connections: [],
+        settings: { allowAddConnection: 'restricted', futureSetting: 42 },
+        futureTopLevel: 'keep',
+      }));
+      const manager = createManager();
+
+      manager.syncStandaloneMcpSettings('off');
+
+      const calls = (fs.writeFileSync as Mock).mock.calls;
+      const data = JSON.parse(calls[calls.length - 1][1] as string);
+      expect(data.settings).toEqual({ allowAddConnection: 'off', futureSetting: 42 });
+      expect(data.futureTopLevel).toBe('keep');
+    });
+
+    it('persists agentCreated for project-scoped connections', async () => {
+      const manager = createManager();
+      await manager.add(makeConfig({ id: 'agent-project', scope: 'project', agentCreated: true }));
+      const data = JSON.parse(writtenProjectFile.last!);
+      expect(data.connections[0].agentCreated).toBe(true);
+    });
   });
 
   // -----------------------------------------------------------------------

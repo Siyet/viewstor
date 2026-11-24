@@ -3,10 +3,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import {
+  ADD_CONNECTION_TOOL,
   handleAddConnection,
   resolveAddConnectionMode,
+  toolDefinitionsForMode,
+  type ToolDef,
 } from '../mcp-server/addConnection';
-import { handleExecuteQuery } from '../mcp-server/queryExecutor';
+import { handleBuildChart, handleExecuteQuery } from '../mcp-server/queryExecutor';
 
 const TEST_DIR = path.join(os.tmpdir(), `viewstor-add-conn-test-${process.pid}-${Date.now()}`);
 const USER_CONFIG_DIR = path.join(TEST_DIR, '.viewstor');
@@ -143,17 +146,33 @@ describe('add_connection modes', () => {
     expect(JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8')).connections).toHaveLength(1);
   });
 
-  it('off mode returns tool_disabled, creates nothing, and audits the call', async () => {
+  it.each([true, false, undefined])('off mode rejects readonly=%s, creates nothing, and audits the call', async readonly => {
     writeUserConfig({ connections: [], settings: { allowAddConnection: 'off' } });
     const store = await loadStore();
-    const response = await handleAddConnection(store, input(false));
+    const response = await handleAddConnection(store, input(readonly));
 
     expect(response.isError).toBe(true);
-    expect(payload(response)).toMatchObject({ kind: 'tool_disabled' });
+    expect(payload(response)).toEqual({
+      error: 'Tool disabled',
+      kind: 'tool_disabled',
+      message: 'Configure allowAddConnection in ~/.viewstor/connections.json settings.',
+    });
     expect(store.getAll()).toEqual([]);
     expect(auditEntries()).toEqual([
       expect.objectContaining({ tool: 'add_connection', mode: 'off', outcome: 'disabled' }),
     ]);
+  });
+
+  it('lists add_connection only in modes where it is enabled', () => {
+    const baseTool: ToolDef = {
+      name: 'execute_query',
+      description: 'query',
+      inputSchema: { type: 'object', properties: {} },
+    };
+    expect(toolDefinitionsForMode([baseTool], 'off')).toEqual([baseTool]);
+    for (const mode of ['restricted', 'unrestricted'] as const) {
+      expect(toolDefinitionsForMode([baseTool], mode)).toEqual([baseTool, ADD_CONNECTION_TOOL]);
+    }
   });
 
   it('audits the resolved config without persisting the password', async () => {
@@ -228,5 +247,84 @@ describe('add_connection modes', () => {
     expect(response.isError).toBe(true);
     expect(payload(response).error).toContain('Connection is read-only');
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('blocks raw UPDATE through build_chart before it reaches the driver', async () => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
+    const store = await loadStore();
+    const added = payload(await handleAddConnection(store, input(false)));
+    const driver = await store.ensureDriver(added.id);
+    const execute = vi.spyOn(driver, 'execute');
+
+    const response = await handleBuildChart(store, {
+      connectionId: added.id,
+      query: 'UPDATE items SET value = 1',
+    });
+
+    expect(response.isError).toBe(true);
+    expect(payload(response).error).toContain('Connection is read-only');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('audits malformed calls without creating a connection', async () => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
+    const store = await loadStore();
+
+    const response = await handleAddConnection(store, { name: '', type: 'sqlite' });
+
+    expect(response.isError).toBe(true);
+    expect(payload(response)).toMatchObject({ kind: 'invalid_config' });
+    expect(store.getAll()).toEqual([]);
+    expect(auditEntries()).toEqual([
+      expect.objectContaining({ tool: 'add_connection', mode: 'restricted', outcome: 'rejected' }),
+    ]);
+  });
+
+  it.each(['restricted', 'unrestricted'] as const)('%s saves merge with fresh external edits', async mode => {
+    const project = mode === 'restricted';
+    const writeTarget = project ? writeProjectConfig : writeUserConfig;
+    const targetFile = project ? PROJECT_CONFIG_FILE : USER_CONFIG_FILE;
+    const config = (id: string, name: string) => ({
+      id, name, type: 'sqlite', host: '', port: 0, database: ':memory:',
+    });
+    writeUserConfig({ connections: [], settings: { allowAddConnection: mode } });
+    writeTarget({
+      connections: [config('edited', 'Before'), config('deleted', 'Delete me'), config('kept', 'Keep me')],
+      settings: { allowAddConnection: mode },
+      folders: [{ id: 'folder', name: 'Keep folder' }],
+      futureTopLevel: 'preserve',
+    });
+    const store = await loadStore();
+
+    // Simulate VS Code or another process editing the file after this store loaded it.
+    writeTarget({
+      connections: [config('edited', 'External edit'), config('kept', 'Keep me'), config('external-new', 'Added outside')],
+      settings: { allowAddConnection: mode },
+      folders: [{ id: 'folder', name: 'Keep folder' }],
+      futureTopLevel: 'preserve',
+    });
+    const added = payload(await handleAddConnection(store, input()));
+
+    const data = JSON.parse(fs.readFileSync(targetFile, 'utf8'));
+    const byId = new Map(data.connections.map((item: { id: string }) => [item.id, item]));
+    expect(byId.get('edited')).toMatchObject({ name: 'External edit' });
+    expect(byId.has('deleted')).toBe(false);
+    expect(byId.get('external-new')).toMatchObject({ name: 'Added outside' });
+    expect(byId.has(added.id)).toBe(true);
+    expect(data.futureTopLevel).toBe('preserve');
+    expect(data.folders).toEqual([{ id: 'folder', name: 'Keep folder' }]);
+    if (project) expect(byId.get(added.id).password).toBeUndefined();
+  });
+
+  it('does not update in-memory state when persistence fails and audits the failure', async () => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
+    const store = await loadStore();
+    // Make the target's parent path a regular file so the real persistence path fails.
+    fs.writeFileSync(path.join(PROJECT_DIR, '.vscode'), 'not a directory', 'utf8');
+
+    await expect(handleAddConnection(store, input())).rejects.toThrow();
+
+    expect(store.getAll()).toEqual([]);
+    expect(auditEntries().map((entry: { outcome: string }) => entry.outcome)).toEqual(['resolved', 'persist_failed']);
   });
 });

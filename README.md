@@ -80,7 +80,7 @@ Supports PostgreSQL (`Seq Scan`), SQLite (`SCAN TABLE` via `EXPLAIN QUERY PLAN`)
 
 ### Read-only Mode
 
-Mark a connection or an entire folder as read-only. Child connections inherit the setting. Mutations are blocked in the query editor, result grid, and MCP commands.
+Mark a connection or an entire folder as read-only. Child connections inherit the setting. Mutations are blocked in the query editor, result grid, and MCP commands, including raw SQL supplied to standalone `execute_query` and `build_chart`. PostgreSQL connections also set `default_transaction_read_only=on`, and ClickHouse requests use `readonly=1`, providing database-level enforcement in addition to SQL screening.
 
 ### Connections
 
@@ -251,7 +251,9 @@ All MCP interfaces auto-connect and respect read-only mode.
 - `"off"`: tool removed entirely — agents cannot create connections.
 - `"unrestricted"`: no restrictions (opt-in only).
 
-Every call is recorded in `~/.viewstor/audit.jsonl`, including the resolved final configuration. Passwords and other secrets are omitted from the audit log.
+The explicit user-global VS Code setting `viewstor.standaloneMcp.allowAddConnection` syncs to the same JSON key on activation and configuration changes. Default and workspace-only values do not overwrite a manually edited JSON policy. Restart the standalone server or call `reload_connections` after changing the file.
+
+Every call is recorded in `~/.viewstor/audit.jsonl`, including disabled/malformed calls, the resolved final configuration, and persistence failures. Passwords and other secrets are omitted from the audit log.
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter — query another database on the same server without creating a new connection or re-entering the password.
 

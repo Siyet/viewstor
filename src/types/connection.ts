@@ -1,5 +1,9 @@
 export type DatabaseType = 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
 
+export interface StandaloneMcpSettings {
+  allowAddConnection?: 'off' | 'restricted' | 'unrestricted';
+}
+
 export interface ConnectionConfig {
   id: string;
   name: string;

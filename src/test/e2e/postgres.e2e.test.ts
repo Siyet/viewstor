@@ -168,6 +168,25 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
     expect(result.rows).toEqual([]);
   });
 
+  it('native readonly mode blocks sequence writes and SELECT INTO', async () => {
+    const readonlyDriver = new PostgresDriver();
+    await readonlyDriver.connect({ ...config, readonly: true });
+    try {
+      const before = await driver.execute('SELECT last_value, is_called FROM custom_seq');
+      const sequenceWrite = await readonlyDriver.execute('SELECT nextval(\'custom_seq\')');
+      const selectInto = await readonlyDriver.execute('SELECT * INTO readonly_into FROM users');
+
+      expect(sequenceWrite.error).toMatch(/read-only/i);
+      expect(selectInto.error).toMatch(/read-only/i);
+      const after = await driver.execute('SELECT last_value, is_called FROM custom_seq');
+      expect(after.rows).toEqual(before.rows);
+      const tableCheck = await driver.execute('SELECT to_regclass(\'public.readonly_into\') AS table_oid');
+      expect(tableCheck.rows[0].table_oid).toBeNull();
+    } finally {
+      await readonlyDriver.disconnect();
+    }
+  });
+
   it('getSchema returns complete structure: tables, views, columns, indexes, triggers, sequences', async () => {
     const schema = await driver.getSchema();
     const pub = schema.find(s => s.name === 'public')!;

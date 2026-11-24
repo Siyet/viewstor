@@ -125,6 +125,18 @@ describe('isReadOnlyQuery — bypass rejection (review item #1)', () => {
     expect(isReadOnlyQuery('VACUUM t')).toBe(false);
   });
 
+  it.each([
+    'SELECT nextval(\'custom_seq\')',
+    'SELECT setval(\'custom_seq\', 42)',
+    'SELECT 1 INTO writable_table',
+    'WITH row AS (SELECT 1) SELECT * INTO writable_table FROM row',
+    'SELECT pg_terminate_backend(pid) FROM pg_stat_activity',
+    'SELECT pg_cancel_backend(pid) FROM pg_stat_activity',
+    'SELECT set_config(\'work_mem\', \'1GB\', false)',
+  ])('rejects side-effecting SELECT form: %s', (sql) => {
+    expect(isReadOnlyQuery(sql)).toBe(false);
+  });
+
   it('rejects empty input', () => {
     expect(isReadOnlyQuery('')).toBe(false);
     expect(isReadOnlyQuery('   ')).toBe(false);

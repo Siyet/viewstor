@@ -7,10 +7,9 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ConnectionStore } from './connectionStore';
-import { handleAddConnection, resolveAddConnectionMode } from './addConnection';
-import { handleExecuteQuery } from './queryExecutor';
-import { ChartConfig, EChartsChartType, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
-import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
+import { handleAddConnection, resolveAddConnectionMode, toolDefinitionsForMode, type ToolDef } from './addConnection';
+import { handleBuildChart, handleExecuteQuery, type BuildChartInput } from './queryExecutor';
+import { ChartConfig, EChartsChartType, isGrafanaCompatible } from '../types/chart';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
 import { anonymizeRows, scrubErrorMessage } from '../mcp/anonymizer';
 import { wrapError } from '../utils/errors';
@@ -24,36 +23,6 @@ const server = new Server(
 );
 
 // --- Tool definitions ---
-
-interface ToolDef {
-  name: string;
-  description: string;
-  inputSchema: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
-}
-
-const ADD_CONNECTION_TOOL: ToolDef = {
-  name: 'add_connection',
-  description: 'Add a new database connection. For SQLite: set type="sqlite", database="/path/to/file.db" (or ":memory:"), host and port are ignored.',
-  inputSchema: {
-    type: 'object' as const,
-    properties: {
-      name: { type: 'string', description: 'Display name' },
-      type: { type: 'string', enum: ['postgresql', 'redis', 'clickhouse', 'sqlite'], description: 'Database type' },
-      host: { type: 'string', description: 'Host (ignored for SQLite)' },
-      port: { type: 'number', description: 'Port (ignored for SQLite)' },
-      username: { type: 'string', description: 'Username' },
-      password: { type: 'string', description: 'Password' },
-      database: { type: 'string', description: 'Database name, or file path for SQLite (e.g. "/tmp/test.db", ":memory:")' },
-      ssl: { type: 'boolean', description: 'Use SSL' },
-      readonly: { type: 'boolean', description: 'Read-only mode' },
-    },
-    required: ['name', 'type'],
-  },
-};
-
-function getAllowAddConnection() {
-  return resolveAddConnectionMode(store.getSettings().allowAddConnection);
-}
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const tools: ToolDef[] = [
@@ -164,11 +133,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     },
   ];
 
-  if (getAllowAddConnection() !== 'off') {
-    tools.push(ADD_CONNECTION_TOOL);
-  }
-
-  return { tools };
+  return {
+    tools: toolDefinitionsForMode(
+      tools,
+      resolveAddConnectionMode(store.getSettings().allowAddConnection),
+    ),
+  };
 });
 
 // --- Tool handlers ---
@@ -238,72 +208,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return jsonResponse({ message: `Reloaded ${all.length} connection(s)`, connections: all.map(c => c.name) });
       }
 
-      case 'build_chart': {
-        const { connectionId, database: chartDatabase, query, tableName: chartTable, schema: chartSchema, chartType,
-          xColumn, yColumns, groupByColumn, nameColumn, valueColumn,
-          aggregation: aggFunc, timeBucket, title: chartTitle } = args as {
-          connectionId: string; database?: string; query?: string; tableName?: string; schema?: string;
-          chartType?: string; xColumn?: string; yColumns?: string[];
-          groupByColumn?: string; nameColumn?: string; valueColumn?: string;
-          aggregation?: string; timeBucket?: string; title?: string;
-        };
-
-        // Build SQL: either from raw query, or auto-generate from table + aggregation
-        let effectiveQuery: string;
-        if (chartTable && xColumn && aggFunc && aggFunc !== 'none') {
-          const conn = store.get(connectionId);
-          effectiveQuery = buildAggregationQuery(
-            chartTable, chartSchema, xColumn, yColumns || ['*'],
-            aggFunc as ChartConfig['aggregation']['function'],
-            groupByColumn,
-            {
-              function: aggFunc as ChartConfig['aggregation']['function'],
-              timeBucketPreset: timeBucket as ChartConfig['aggregation']['timeBucketPreset'],
-            },
-            conn?.type,
-          );
-        } else if (query) {
-          effectiveQuery = query;
-        } else if (chartTable) {
-          // No aggregation, no query — just SELECT from table
-          effectiveQuery = chartSchema
-            ? `SELECT * FROM "${chartSchema}"."${chartTable}" LIMIT 1000`
-            : `SELECT * FROM "${chartTable}" LIMIT 1000`;
-        } else {
-          return errorResponse('Provide either "query" or "tableName" parameter');
-        }
-
-        const chartDriver = await resolveDriver(connectionId, chartDatabase);
-        const chartPolicy = store.getAnonymizationPolicy(connectionId);
-        const chartResult = await chartDriver.execute(effectiveQuery);
-        if (chartResult.error) return errorResponse(scrubErrorMessage(chartResult.error, chartPolicy));
-        chartResult.rows = anonymizeRows(chartResult.columns, chartResult.rows, chartPolicy);
-
-        const suggested = suggestChartConfig(chartResult);
-        const config: ChartConfig = {
-          chartType: (chartType as EChartsChartType) || suggested.chartType || 'bar',
-          aggregation: {
-            function: (aggFunc as ChartConfig['aggregation']['function']) || suggested.aggregation?.function || 'none',
-            timeBucketPreset: timeBucket as ChartConfig['aggregation']['timeBucketPreset'],
-          },
-          sourceQuery: effectiveQuery,
-          connectionId,
-          title: chartTitle,
-        };
-
-        if (xColumn && yColumns) {
-          config.axis = { xColumn, yColumns, groupByColumn };
-        } else if (nameColumn && valueColumn) {
-          config.category = { nameColumn, valueColumn };
-        } else if (suggested.axis) {
-          config.axis = suggested.axis;
-        } else if (suggested.category) {
-          config.category = suggested.category;
-        }
-
-        const option = buildEChartsOption(chartResult, config);
-        return jsonResponse({ config, option, sql: effectiveQuery, rowCount: chartResult.rowCount });
-      }
+      case 'build_chart':
+        return handleBuildChart(store, args as unknown as BuildChartInput);
 
       case 'export_grafana_dashboard': {
         const { connectionId: grafConnId, query: grafQuery, chartType: grafChartType, title: grafTitle, xColumn: grafX, yColumns: grafY } = args as {

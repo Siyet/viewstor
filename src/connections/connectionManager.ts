@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { ConnectionConfig, ConnectionState, ConnectionFolder, ProxyConfig, SshHop, DEFAULT_PORTS } from '../types/connection';
+import { ConnectionConfig, ConnectionState, ConnectionFolder, ProxyConfig, SshHop, DEFAULT_PORTS, StandaloneMcpSettings } from '../types/connection';
 import { DatabaseDriver } from '../types/driver';
 import { SchemaObject } from '../types/schema';
 import { createDriver } from '../drivers';
@@ -27,7 +27,7 @@ function stripSecretsForProjectFile(config: ConnectionConfig): ConnectionConfig 
   const CONFIG_KEYS: ReadonlyArray<Exclude<keyof ConnectionConfig, 'password'>> = [
     'id', 'name', 'type', 'host', 'port', 'username', 'database', 'databases', 'ssl',
     'options', 'folderId', 'color', 'readonly', 'hiddenSchemas', 'hiddenDatabases',
-    'safeMode', 'scope', 'agentAnonymization', 'agentAnonymizationStrategy', 'proxy',
+    'safeMode', 'scope', 'agentAnonymization', 'agentAnonymizationStrategy', 'agentCreated', 'proxy',
   ];
   const PROXY_KEYS: ReadonlyArray<Exclude<keyof ProxyConfig, 'sshPassword' | 'sshPrivateKey' | 'sshPassphrase' | 'proxyPassword'>> = [
     'type', 'sshHost', 'sshPort', 'sshUsername', 'sshHops', 'proxyHost', 'proxyPort', 'proxyUsername',
@@ -136,6 +136,13 @@ function applyProjectSecrets(config: ConnectionConfig, secrets: ProjectSecrets) 
 interface ProjectData {
   connections: ConnectionConfig[];
   folders: ConnectionFolder[];
+}
+
+interface UserConfigData {
+  connections: ConnectionConfig[];
+  folders?: ConnectionFolder[];
+  settings?: StandaloneMcpSettings;
+  [key: string]: unknown;
 }
 
 export class ConnectionManager {
@@ -306,15 +313,44 @@ export class ConnectionManager {
     await this.saveProjectData();
   }
 
+  private readUserConfigData(): UserConfigData {
+    if (!fs.existsSync(USER_CONFIG_FILE)) return { connections: [], folders: [] };
+    const parsed: unknown = JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { connections: [], folders: [] };
+    }
+    const data = parsed as Partial<UserConfigData>;
+    return { ...data, connections: Array.isArray(data.connections) ? data.connections : [] };
+  }
+
+  private writeUserConfigData(data: UserConfigData) {
+    if (!fs.existsSync(USER_CONFIG_DIR)) {
+      fs.mkdirSync(USER_CONFIG_DIR, { recursive: true });
+    }
+    fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(data, null, 2), 'utf8');
+  }
+
   private saveUserConfigFile(configs: ConnectionConfig[]) {
     try {
-      // fs imported at top level
-      if (!fs.existsSync(USER_CONFIG_DIR)) {
-        fs.mkdirSync(USER_CONFIG_DIR, { recursive: true });
+      // Preserve standalone settings, folders, and forward-compatible top-level keys.
+      const data = this.readUserConfigData();
+      data.connections = configs;
+      if (!Array.isArray(data.folders)) {
+        data.folders = Array.from(this.folders.values()).filter(folder => folder.scope !== 'project');
       }
-      const data: ProjectData = { connections: configs, folders: [] };
-      fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(data, null, 2), 'utf8');
+      this.writeUserConfigData(data);
     } catch { /* ignore write errors */ }
+  }
+
+  /** Sync only an explicit user-global VS Code setting; undefined means no-op. */
+  syncStandaloneMcpSettings(allowAddConnection: StandaloneMcpSettings['allowAddConnection']) {
+    if (allowAddConnection === undefined) return;
+    try {
+      const data = this.readUserConfigData();
+      if (data.settings?.allowAddConnection === allowAddConnection) return;
+      data.settings = { ...data.settings, allowAddConnection };
+      this.writeUserConfigData(data);
+    } catch { /* a running standalone server keeps using its last readable config */ }
   }
 
   private async saveFolders() {

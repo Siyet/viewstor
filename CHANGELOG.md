@@ -2,6 +2,11 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Security
+- **Standalone MCP: restrict `add_connection` tool** — agents can no longer silently create writeable connections that bypass `readonly`, `agentAccess`, and `agentWriteApproval` gates. New user-owned `allowAddConnection` setting in `~/.viewstor/connections.json` (`'off' | 'restricted' | 'unrestricted'`, default `'restricted'`), also synchronized from the explicit user-global `viewstor.standaloneMcp.allowAddConnection` VS Code setting. In restricted mode, agent-created connections are forced `readonly: true`, `scope: 'project'` (passwords stripped), and name-prefixed `[agent] `. In off mode the tool is removed entirely. Every call is audited in `~/.viewstor/audit.jsonl` with secrets omitted. Tree view shows an `agent` badge on agent-created connections. Raw SQL in `build_chart` now uses the same readonly guard as `execute_query`; PostgreSQL and ClickHouse additionally enforce readonly mode through native connection/query settings. ([#119](https://github.com/Siyet/viewstor/issues/119))
+
 ## [0.5.3] — 2026-08-18
 
 ### Added
@@ -67,9 +72,6 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 - Prevented table-card overlap and relationship lines crossing card contents in both the full diagram and isolated neighbour graphs.
 - Restored double-click isolation and blank-canvas/Escape return to the full graph, including correct layout immediately after switching views.
 - Made zoomed cards scale as unified graphics so frames and typography no longer resize at different times or produce the previous “jelly” effect.
-
-### Changed
-- **Standalone MCP: restrict `add_connection` tool** — agents can no longer silently create writeable connections that bypass `readonly`, `agentAccess`, and `agentWriteApproval` gates. New user-owned `allowAddConnection` setting in `~/.viewstor/connections.json` (`'off' | 'restricted' | 'unrestricted'`, default `'restricted'`). In restricted mode, agent-created connections are forced `readonly: true`, `scope: 'project'` (passwords stripped), and name-prefixed `[agent] `. In off mode the tool is removed entirely. Every call is audited in `~/.viewstor/audit.jsonl` with secrets omitted. Tree view shows an `agent` badge on agent-created connections. ([#119](https://github.com/Siyet/viewstor/issues/119))
 
 ## [0.4.0] — 2026-04-29
 

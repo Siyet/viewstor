@@ -46,6 +46,9 @@ export class PostgresDriver implements DatabaseDriver {
       password: config.password,
       database: config.database,
       ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
+      // Enforce read-only connections at the database layer too. The MCP lexical
+      // guard is useful feedback, but cannot make user-defined functions safe.
+      options: config.readonly ? '-c default_transaction_read_only=on' : undefined,
       connectionTimeoutMillis: 10000,
       ...(stream ? { stream: () => stream as never } : {}),
     });

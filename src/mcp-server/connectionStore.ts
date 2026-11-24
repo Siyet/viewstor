@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { ConnectionConfig, ConnectionFolder } from '../types/connection';
+import { ConnectionConfig, ConnectionFolder, StandaloneMcpSettings } from '../types/connection';
 import { DatabaseDriver } from '../types/driver';
 import { createDriver } from '../drivers';
 import { AnonymizationPolicy, resolveAnonymizationPolicy } from '../mcp/anonymizer';
@@ -10,14 +10,11 @@ const USER_CONFIG_DIR = path.join(os.homedir(), '.viewstor');
 const USER_CONFIG_FILE = path.join(USER_CONFIG_DIR, 'connections.json');
 const PROJECT_CONFIG_FILE = '.vscode/viewstor.json';
 
-export interface StandaloneMcpSettings {
-  allowAddConnection?: 'off' | 'restricted' | 'unrestricted';
-}
-
 interface ConfigData {
   connections: ConnectionConfig[];
   folders?: ConnectionFolder[];
   settings?: StandaloneMcpSettings;
+  [key: string]: unknown;
 }
 
 export class ConnectionStore {
@@ -148,63 +145,38 @@ export class ConnectionStore {
   }
 
   async add(config: ConnectionConfig): Promise<void> {
+    const project = config.scope === 'project';
+    const targetFile = project ? path.join(process.cwd(), PROJECT_CONFIG_FILE) : USER_CONFIG_FILE;
+
+    // The process may have been running while VS Code or another MCP client changed
+    // the file. Merge into a fresh snapshot instead of serializing our stale Map.
+    let existing: ConfigData = { connections: [] };
+    if (fs.existsSync(targetFile)) {
+      const parsed: unknown = JSON.parse(fs.readFileSync(targetFile, 'utf8'));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(`Invalid connection config: ${targetFile}`);
+      }
+      const data = parsed as Partial<ConfigData>;
+      if (data.connections !== undefined && !Array.isArray(data.connections)) {
+        throw new Error(`Invalid connections array: ${targetFile}`);
+      }
+      existing = { ...data, connections: data.connections || [] };
+    }
+
+    let persisted = config;
+    if (project) {
+      const { password, ...withoutPassword } = config;
+      persisted = withoutPassword;
+    }
+    existing.connections = [
+      ...existing.connections.filter(item => item.id !== config.id),
+      persisted,
+    ];
+
+    fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+    fs.writeFileSync(targetFile, JSON.stringify(existing, null, 2), 'utf8');
+    // A failed write must not expose a connection that was never persisted.
     this.connections.set(config.id, config);
-    if (config.scope === 'project') {
-      await this.saveProjectConfig();
-    } else {
-      await this.saveUserConfig();
-    }
-  }
-
-  private async saveUserConfig() {
-    const userConfigs = Array.from(this.connections.values())
-      .filter(c => c.scope !== 'project');
-
-    if (!fs.existsSync(USER_CONFIG_DIR)) {
-      fs.mkdirSync(USER_CONFIG_DIR, { recursive: true });
-    }
-
-    let existing: ConfigData = { connections: [] };
-    try {
-      if (fs.existsSync(USER_CONFIG_FILE)) {
-        existing = JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8'));
-      }
-    } catch {
-      // invalid JSON — overwrite
-    }
-
-    existing.connections = userConfigs;
-    fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(existing, null, 2), 'utf8');
-  }
-
-  private async saveProjectConfig() {
-    const projectFile = path.join(process.cwd(), PROJECT_CONFIG_FILE);
-    const projectConfigs = Array.from(this.connections.values())
-      .filter(c => c.scope === 'project')
-      .map(c => {
-        const { password, ...rest } = c;
-        return rest;
-      });
-
-    const dir = path.dirname(projectFile);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    let existing: ConfigData = { connections: [] };
-    try {
-      if (fs.existsSync(projectFile)) {
-        existing = JSON.parse(fs.readFileSync(projectFile, 'utf8'));
-      }
-    } catch {
-      // invalid JSON — overwrite
-    }
-
-    const existingNonProject = (existing.connections || []).filter(
-      c => !projectConfigs.some(pc => pc.id === c.id),
-    );
-    existing.connections = [...existingNonProject, ...projectConfigs];
-    fs.writeFileSync(projectFile, JSON.stringify(existing, null, 2), 'utf8');
   }
 
   async disconnectAll() {

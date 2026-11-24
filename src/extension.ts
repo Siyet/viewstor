@@ -39,6 +39,20 @@ export function activate(context: vscode.ExtensionContext) {
     dbg('activate', 'starting activation');
     connectionManager = new ConnectionManager(context);
 
+    // Only an explicitly user-scoped VS Code value is synchronized. Defaults and
+    // workspace settings must not overwrite the user-owned standalone MCP policy.
+    const syncStandaloneMcpSettings = () => {
+      const value = vscode.workspace.getConfiguration('viewstor')
+        .inspect<'off' | 'restricted' | 'unrestricted'>('standaloneMcp.allowAddConnection')?.globalValue;
+      connectionManager.syncStandaloneMcpSettings(value);
+    };
+    syncStandaloneMcpSettings();
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+      if (event.affectsConfiguration('viewstor.standaloneMcp.allowAddConnection')) {
+        syncStandaloneMcpSettings();
+      }
+    }));
+
     const connectionTreeProvider = new ConnectionTreeProvider(connectionManager);
     const queryHistoryProvider = new QueryHistoryProvider(context);
     queryFileManager = new QueryFileManager();
