@@ -58,9 +58,10 @@ jobs:
       - name: Download VS Code for integration tests
         shell: bash
         run: |
+          # Pin VS Code so better-sqlite3 prebuilds remain reproducible.
           EXECUTABLE=$(node -e '
             const { downloadAndUnzipVSCode, SilentReporter } = require("@vscode/test-electron");
-            downloadAndUnzipVSCode({ version: "stable", reporter: new SilentReporter() })
+            downloadAndUnzipVSCode({ version: "1.106.3", reporter: new SilentReporter() })
               .then(executable => console.log(executable))
               .catch(error => { console.error(error); process.exit(1); });
           ')
