@@ -1,7 +1,15 @@
 import * as vscode from 'vscode';
 import { CommandContext, getRequiredDriver, wrapError } from './shared';
-import { ConnectionTreeItem } from '../views/connectionTree';
-import { DiffSource, DiffOptions } from '../diff/diffTypes';
+import type { ConnectionTreeItem } from '../views/connectionTree';
+import type { DiffColumnMapping, DiffSource, DiffOptions } from '../diff/diffTypes';
+import type { QueryResult } from '../types/query';
+import type { TableInfo } from '../types/schema';
+import { collectComparableTables } from '../diff/diffTablePicker';
+import {
+  completeCompareColumnSelection,
+  createCompareColumnPlan,
+  findCompatiblePrimaryKey,
+} from '../diff/diffColumnSelection';
 import { dbg } from '../utils/debug';
 
 export function registerDiffCommands(context: vscode.ExtensionContext, ctx: CommandContext) {
@@ -44,6 +52,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             leftDriver.getTableData(item.schemaObject!.name, item.schemaObject!.schema, rowLimit, 0),
             rightDriver.getTableData(picked.tableName, picked.schema, rowLimit, 0),
           ]);
+          assertDiffDataLoaded(leftData, rightData);
 
           // Fetch table objects (indexes, constraints, etc.) — non-critical, fallback to undefined
           let leftObjects, rightObjects;
@@ -54,10 +63,14 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             ]);
           } catch { /* schema objects unavailable — diff will show columns only */ }
 
-          // Fetch table statistics — only when both drivers are the same type and both support it
+          // Fetch table statistics from both sides when both drivers support it.
+          // Cross-type comparisons (e.g. PG ↔ ClickHouse) are no longer gated out —
+          // `computeStatsDiff` (called in DiffPanelManager) restricts the view to the
+          // explicit semantic allowlist and reports the hidden per-side counts so the
+          // user can compare row counts without presenting same-named but incompatible
+          // storage metrics as equivalent.
           let leftStats, rightStats;
-          const sameType = leftState.config.type === connectionManager.get(picked.connectionId)?.config.type;
-          if (sameType && leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
+          if (leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
             try {
               [leftStats, rightStats] = await Promise.all([
                 leftDriver.getTableStatistics(item.schemaObject!.name, item.schemaObject!.schema),
@@ -66,19 +79,10 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             } catch { /* statistics unavailable — diff will omit stats tab */ }
           }
 
-          // Auto-detect key columns from left table PKs
-          const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
-          let keyColumns = pkColumns;
-
-          if (keyColumns.length === 0) {
-            // No PK — ask user to pick key columns
-            const colPick = await vscode.window.showQuickPick(
-              leftInfo.columns.map(c => ({ label: c.name, description: c.dataType, picked: false })),
-              { canPickMany: true, placeHolder: vscode.l10n.t('No primary key found. Select key column(s) for matching:') },
-            );
-            if (!colPick || colPick.length === 0) return;
-            keyColumns = colPick.map(c => c.label);
-          }
+          const keyColumns = await chooseKeyColumns(leftInfo, rightInfo);
+          if (!keyColumns) return;
+          const columnMappings = await chooseCompareColumns(leftInfo, rightInfo, keyColumns);
+          if (!columnMappings) return;
 
           const leftSource: DiffSource = {
             label: `${leftState.config.name} → ${item.schemaObject!.name}`,
@@ -101,7 +105,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             databaseName: picked.databaseName,
           };
 
-          const options: DiffOptions = { keyColumns, rowLimit };
+          const options: DiffOptions = { keyColumns, columnMappings, rowLimit };
 
           diffPanelManager.show(leftSource, rightSource, options,
             { columns: leftInfo.columns },
@@ -157,6 +161,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             leftDriver.getTableData(leftPick.tableName, leftPick.schema, rowLimit, 0),
             rightDriver.getTableData(rightPick.tableName, rightPick.schema, rowLimit, 0),
           ]);
+          assertDiffDataLoaded(leftData, rightData);
 
           let leftObjects, rightObjects;
           try {
@@ -166,11 +171,10 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             ]);
           } catch { /* schema objects unavailable — diff will show columns only */ }
 
+          // Fetch stats from both sides regardless of DB type; see note in
+          // `viewstor.compareWith` — the diff panel applies the cross-type metric contract.
           let leftStats, rightStats;
-          const leftStateCfg = connectionManager.get(leftPick.connectionId);
-          const rightStateCfg = connectionManager.get(rightPick.connectionId);
-          const sameType = leftStateCfg?.config.type === rightStateCfg?.config.type;
-          if (sameType && leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
+          if (leftDriver.getTableStatistics && rightDriver.getTableStatistics) {
             try {
               [leftStats, rightStats] = await Promise.all([
                 leftDriver.getTableStatistics(leftPick.tableName, leftPick.schema),
@@ -179,17 +183,10 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             } catch { /* statistics unavailable — diff will omit stats tab */ }
           }
 
-          const pkColumns = leftInfo.columns.filter(c => c.isPrimaryKey).map(c => c.name);
-          let keyColumns = pkColumns;
-
-          if (keyColumns.length === 0) {
-            const colPick = await vscode.window.showQuickPick(
-              leftInfo.columns.map(c => ({ label: c.name, description: c.dataType, picked: false })),
-              { canPickMany: true, placeHolder: vscode.l10n.t('No primary key found. Select key column(s) for matching:') },
-            );
-            if (!colPick || colPick.length === 0) return;
-            keyColumns = colPick.map(c => c.label);
-          }
+          const keyColumns = await chooseKeyColumns(leftInfo, rightInfo);
+          if (!keyColumns) return;
+          const columnMappings = await chooseCompareColumns(leftInfo, rightInfo, keyColumns);
+          if (!columnMappings) return;
 
           const leftState = connectionManager.get(leftPick.connectionId);
           const rightState = connectionManager.get(rightPick.connectionId);
@@ -212,7 +209,7 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
             schema: rightPick.schema,
           };
 
-          diffPanelManager.show(leftSource, rightSource, { keyColumns, rowLimit },
+          diffPanelManager.show(leftSource, rightSource, { keyColumns, columnMappings, rowLimit },
             { columns: leftInfo.columns },
             { columns: rightInfo.columns },
             leftObjects,
@@ -227,6 +224,79 @@ export function registerDiffCommands(context: vscode.ExtensionContext, ctx: Comm
       }
     }),
   );
+}
+
+function assertDiffDataLoaded(left: QueryResult, right: QueryResult): void {
+  if (left.error) throw new Error(left.error);
+  if (right.error) throw new Error(right.error);
+}
+
+/**
+ * Resolve row-matching keys that exist on both sides. Prefer a complete PK from
+ * the left source, then from the right source (important for table ↔ view
+ * comparisons). If neither side exposes a usable PK, ask only about common
+ * columns and suggest a conventional `id` column.
+ */
+async function chooseKeyColumns(left: TableInfo, right: TableInfo): Promise<string[] | undefined> {
+  const rightNames = new Set(right.columns.map(column => column.name));
+  const compatiblePrimaryKey = findCompatiblePrimaryKey(left, right);
+  if (compatiblePrimaryKey) return compatiblePrimaryKey;
+
+  const common = left.columns.filter(column => rightNames.has(column.name));
+  if (common.length === 0) {
+    throw new Error(vscode.l10n.t('The selected tables have no common columns to use for row matching.'));
+  }
+
+  const suggested = common.find(column => column.name.toLocaleLowerCase() === 'id')
+    ?? (common.filter(column => /_id$/i.test(column.name)).length === 1
+      ? common.find(column => /_id$/i.test(column.name))
+      : undefined);
+  const rightTypes = new Map(right.columns.map(column => [column.name, column.dataType]));
+  const colPick = await vscode.window.showQuickPick(
+    common.map(column => ({
+      label: column.name,
+      description: column.dataType === rightTypes.get(column.name)
+        ? column.dataType
+        : `${column.dataType} ↔ ${rightTypes.get(column.name)}`,
+      picked: column.name === suggested?.name,
+    })),
+    {
+      canPickMany: true,
+      placeHolder: vscode.l10n.t('No shared primary key found. Select common column(s) that uniquely identify a row:'),
+    },
+  );
+  if (!colPick || colPick.length === 0) return undefined;
+  return colPick.map(column => column.label);
+}
+
+/**
+ * Keep row comparison and schema comparison separate. When the sources expose
+ * different column sets, show exact pairs, suggested similar-name mappings,
+ * and the remaining one-sided fields. Matching keys are visible but mandatory;
+ * unsafe mappings remain unchecked until the user explicitly selects them.
+ */
+async function chooseCompareColumns(
+  left: TableInfo,
+  right: TableInfo,
+  keyColumns: string[],
+): Promise<DiffColumnMapping[] | undefined> {
+  const plan = createCompareColumnPlan(left, right, keyColumns);
+  if (!plan.requiresSelection) return plan.fixedMappings;
+
+  const picked = await vscode.window.showQuickPick(
+    plan.candidates.map(column => ({
+      id: column.id,
+      label: column.label,
+      description: column.description,
+      picked: column.picked,
+    })),
+    {
+      canPickMany: true,
+      placeHolder: vscode.l10n.t('Select columns to compare. Exact matches are preselected; matching keys are always included.'),
+    },
+  );
+  if (!picked) return undefined;
+  return completeCompareColumnSelection(plan, picked.map(column => column.id));
 }
 
 interface TablePickItem {
@@ -293,20 +363,16 @@ async function loadAllTables(
     if (!driver) continue;
     try {
       const schema = await driver.getSchema();
-      for (const schemaObj of schema) {
-        if (schemaObj.children) {
-          for (const child of schemaObj.children) {
-            if (child.type === 'table' || child.type === 'view') {
-              items.push({
-                label: child.name,
-                description: `${schemaObj.name} — ${conn.config.name}`,
-                connectionId: conn.config.id,
-                tableName: child.name,
-                schema: schemaObj.name,
-              });
-            }
-          }
-        }
+      for (const table of collectComparableTables(schema)) {
+        items.push({
+          label: table.tableName,
+          description: table.schema
+            ? `${table.schema} — ${conn.config.name}`
+            : conn.config.name,
+          connectionId: conn.config.id,
+          tableName: table.tableName,
+          schema: table.schema,
+        });
       }
     } catch { /* skip connections with schema fetch errors */ }
   }

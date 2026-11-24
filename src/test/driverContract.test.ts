@@ -53,6 +53,7 @@ const OPTIONAL_METHODS: (keyof DatabaseDriver)[] = [
   'getEstimatedRowCount',
   'getTableObjects',
   'getTableStatistics',
+  'getForeignKeys',
 ];
 
 interface DriverSpec {
@@ -77,13 +78,16 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getEstimatedRowCount',
       'getTableObjects',
       'getTableStatistics',
+      'getForeignKeys',
     ],
   },
   {
     name: 'RedisDriver',
     type: 'redis',
     DriverClass: RedisDriver,
-    expectedOptional: [],
+    expectedOptional: [
+      'getTableStatistics',
+    ],
   },
   {
     name: 'ClickHouseDriver',
@@ -111,6 +115,7 @@ const DRIVER_SPECS: DriverSpec[] = [
       'getEstimatedRowCount',
       'getTableObjects',
       'getTableStatistics',
+      'getForeignKeys',
     ],
   },
 ];

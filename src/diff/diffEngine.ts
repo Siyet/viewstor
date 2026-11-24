@@ -1,6 +1,6 @@
 import { ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, SequenceInfo } from '../types/schema';
 import { quoteTable } from '../utils/queryHelpers';
-import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult } from './diffTypes';
+import { DiffOptions, DiffSource, MatchedRow, RowDiffResult, SchemaDiffResult, ColumnDiffInfo, ColumnCompare, ObjectDiffItem, ObjectsDiffResult, StatsDiffItem, StatsDiffResult, StatsDiffSummary } from './diffTypes';
 
 /**
  * Generate the default diff query for a given table.
@@ -35,20 +35,127 @@ export function stringifyCell(value: unknown): string {
   return String(value);
 }
 
+/** Numeric types whose values may be returned as strings by one driver and
+ * numbers by another (for example PostgreSQL numeric vs ClickHouse Decimal). */
+function isNumericColumnType(dataType: string | undefined): boolean {
+  if (!dataType) return false;
+  return /^(int|integer|bigint|smallint|tinyint|float|double|real|numeric|decimal|number|serial|bigserial|money|oid|uint|int\d|uint\d|float\d)/i.test(dataType.trim());
+}
+
+function isBooleanColumnType(dataType: string | undefined): boolean {
+  return Boolean(dataType && /^(bool|boolean)$/i.test(dataType.trim()));
+}
+
+function isIntegerColumnType(dataType: string | undefined): boolean {
+  return Boolean(dataType && /^(int|integer|bigint|smallint|tinyint|uint|int\d|uint\d)/i.test(dataType.trim()));
+}
+
+function isTemporalColumnType(dataType: string | undefined): boolean {
+  return Boolean(dataType && /^(date|datetime|timestamp|timestamptz|timestamp with(?:out)? time zone)/i.test(dataType.trim()));
+}
+
+function canonicalTemporalCell(value: unknown): number | undefined {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value.getTime();
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim();
+  let isoText = text;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) isoText = `${text}T00:00:00Z`;
+  else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(text)) {
+    isoText = `${text.replace(' ', 'T')}Z`;
+  }
+  const timestamp = Date.parse(isoText);
+  return Number.isNaN(timestamp) ? undefined : timestamp;
+}
+
+function canonicalBooleanCell(
+  value: unknown,
+  dataType: string | undefined,
+  otherType: string | undefined,
+): boolean | undefined {
+  const booleanTyped = isBooleanColumnType(dataType);
+  const integerCounterpart = isBooleanColumnType(otherType) && isIntegerColumnType(dataType);
+  if (!booleanTyped && !integerCounterpart) return undefined;
+  if (value === true || value === false) return value;
+  if (value === 1 || value === 1n || value === '1') return true;
+  if (value === 0 || value === 0n || value === '0') return false;
+  if (typeof value === 'string' && value.toLocaleLowerCase() === 'true') return true;
+  if (typeof value === 'string' && value.toLocaleLowerCase() === 'false') return false;
+  return undefined;
+}
+
+/**
+ * Canonicalize a decimal without converting it to a JavaScript Number.
+ * This keeps arbitrarily large integer/decimal values exact while treating
+ * representations such as `716.90`, `716.9`, and `7.169e2` as equal.
+ */
+function canonicalNumericCell(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'bigint') return undefined;
+  if (typeof value === 'number' && !Number.isFinite(value)) return undefined;
+
+  const text = String(value).trim();
+  const match = text.match(/^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/);
+  if (!match) return undefined;
+
+  const integerPart = match[2] || '';
+  const fractionPart = match[3] !== undefined ? match[3] : (match[4] || '');
+  let digits = (integerPart || '0') + fractionPart;
+  if (!/[1-9]/.test(digits)) return '0';
+
+  digits = digits.replace(/^0+/, '');
+  const trailingZeroCount = (digits.match(/0+$/)?.[0].length) || 0;
+  if (trailingZeroCount > 0) digits = digits.slice(0, -trailingZeroCount);
+
+  const exponent = Number(match[5] || 0) - fractionPart.length + trailingZeroCount;
+  if (!Number.isSafeInteger(exponent)) return undefined;
+  return `${match[1] === '-' ? '-' : ''}${digits}e${exponent}`;
+}
+
+function cellsEqual(
+  leftValue: unknown,
+  rightValue: unknown,
+  leftType: string | undefined,
+  rightType: string | undefined,
+): boolean {
+  if (isBooleanColumnType(leftType) || isBooleanColumnType(rightType)) {
+    const leftBoolean = canonicalBooleanCell(leftValue, leftType, rightType);
+    const rightBoolean = canonicalBooleanCell(rightValue, rightType, leftType);
+    if (leftBoolean !== undefined && rightBoolean !== undefined) return leftBoolean === rightBoolean;
+  }
+  if (isTemporalColumnType(leftType) || isTemporalColumnType(rightType)) {
+    const leftTimestamp = canonicalTemporalCell(leftValue);
+    const rightTimestamp = canonicalTemporalCell(rightValue);
+    if (leftTimestamp !== undefined && rightTimestamp !== undefined) return leftTimestamp === rightTimestamp;
+  }
+  if (isNumericColumnType(leftType) && isNumericColumnType(rightType)) {
+    const leftNumeric = canonicalNumericCell(leftValue);
+    const rightNumeric = canonicalNumericCell(rightValue);
+    if (leftNumeric !== undefined && rightNumeric !== undefined) return leftNumeric === rightNumeric;
+  }
+  return stringifyCell(leftValue) === stringifyCell(rightValue);
+}
+
 /**
  * Build a composite key string from a row's key columns.
  * Uses null-byte separator to avoid collisions.
  */
-function buildRowKey(row: Record<string, unknown>, keyColumns: string[]): string {
-  return keyColumns.map(col => stringifyCell(row[col])).join('\0');
+function buildRowKey(
+  row: Record<string, unknown>,
+  keyColumns: string[],
+  numericKeyColumns: ReadonlySet<string>,
+): string {
+  return keyColumns.map(col => {
+    if (numericKeyColumns.has(col)) return canonicalNumericCell(row[col]) ?? stringifyCell(row[col]);
+    return stringifyCell(row[col]);
+  }).join('\0');
 }
 
 /**
  * Compute row-level diff between two data sources.
- * Matches rows by key columns, then compares all other columns.
+ * Matches rows by key columns, then compares either the explicitly selected
+ * value columns or, for backwards compatibility, the full column union.
  */
 export function computeRowDiff(left: DiffSource, right: DiffSource, options: DiffOptions): RowDiffResult {
-  const { keyColumns, rowLimit } = options;
+  const { keyColumns, compareColumns, columnMappings, rowLimit } = options;
 
   // Enforce row limit
   const leftRows = left.rows.slice(0, rowLimit);
@@ -58,15 +165,25 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
   // Collect all columns from both sides
   const leftColNames = left.columns.map(c => c.name);
   const rightColNames = right.columns.map(c => c.name);
-  const allColumnsSet = new Set([...leftColNames, ...rightColNames]);
-  const allColumns = [...allColumnsSet];
-  const nonKeyColumns = allColumns.filter(col => !keyColumns.includes(col));
+  const sourceLeftTypes = new Map(left.columns.map(column => [column.name, column.dataType]));
+  const sourceRightTypes = new Map(right.columns.map(column => [column.name, column.dataType]));
+  const mappings = columnMappings ?? legacyColumnMappings(leftColNames, rightColNames, keyColumns, compareColumns);
+  const allColumns = mappings.map(mapping => mapping.label);
+  const keyLabels = new Set(mappings.filter(mapping =>
+    mapping.left && mapping.right && keyColumns.includes(mapping.left) && keyColumns.includes(mapping.right)
+  ).map(mapping => mapping.label));
+  const nonKeyMappings = mappings.filter(mapping => !keyLabels.has(mapping.label));
+  const leftTypes = new Map(mappings.map(mapping => [mapping.label, mapping.left ? sourceLeftTypes.get(mapping.left) : undefined]));
+  const rightTypes = new Map(mappings.map(mapping => [mapping.label, mapping.right ? sourceRightTypes.get(mapping.right) : undefined]));
+  const numericKeyColumns = new Set(keyColumns.filter(column =>
+    isNumericColumnType(sourceLeftTypes.get(column)) && isNumericColumnType(sourceRightTypes.get(column))
+  ));
 
   // Build index for right side (key -> row)
   // If duplicate keys exist, last occurrence wins
   const rightIndex = new Map<string, Record<string, unknown>>();
   for (const row of rightRows) {
-    rightIndex.set(buildRowKey(row, keyColumns), row);
+    rightIndex.set(buildRowKey(row, keyColumns, numericKeyColumns), row);
   }
 
   const matched: MatchedRow[] = [];
@@ -76,33 +193,40 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
   // Pass 1: iterate left rows, match against right index
   const matchedKeys = new Set<string>();
   for (const leftRow of leftRows) {
-    const key = buildRowKey(leftRow, keyColumns);
+    const key = buildRowKey(leftRow, keyColumns, numericKeyColumns);
     const rightRow = rightIndex.get(key);
 
     if (rightRow) {
       matchedKeys.add(key);
-      // Compare non-key columns
+      // Compare the selected non-key columns
       const changedColumns: string[] = [];
-      for (const col of nonKeyColumns) {
-        if (stringifyCell(leftRow[col]) !== stringifyCell(rightRow[col])) {
-          changedColumns.push(col);
+      for (const mapping of nonKeyMappings) {
+        const leftValue = mapping.left ? leftRow[mapping.left] : undefined;
+        const rightValue = mapping.right ? rightRow[mapping.right] : undefined;
+        if (!cellsEqual(leftValue, rightValue, leftTypes.get(mapping.label), rightTypes.get(mapping.label))) {
+          changedColumns.push(mapping.label);
         }
       }
-      matched.push({ key, left: leftRow, right: rightRow, changedColumns });
+      matched.push({
+        key,
+        left: projectRow(leftRow, mappings, 'left'),
+        right: projectRow(rightRow, mappings, 'right'),
+        changedColumns,
+      });
       if (changedColumns.length === 0) {
         unchanged++;
       }
     } else {
-      leftOnly.push(leftRow);
+      leftOnly.push(projectRow(leftRow, mappings, 'left'));
     }
   }
 
   // Pass 2: remaining right rows not matched
   const rightOnly: Record<string, unknown>[] = [];
   for (const row of rightRows) {
-    const key = buildRowKey(row, keyColumns);
+    const key = buildRowKey(row, keyColumns, numericKeyColumns);
     if (!matchedKeys.has(key)) {
-      rightOnly.push(row);
+      rightOnly.push(projectRow(row, mappings, 'right'));
     }
   }
 
@@ -120,6 +244,34 @@ export function computeRowDiff(left: DiffSource, right: DiffSource, options: Dif
       removed: leftOnly.length,
     },
   };
+}
+
+function legacyColumnMappings(
+  leftColumns: string[],
+  rightColumns: string[],
+  keyColumns: string[],
+  compareColumns?: string[],
+): import('./diffTypes').DiffColumnMapping[] {
+  const availableColumns = new Set([...leftColumns, ...rightColumns]);
+  const requestedColumns = compareColumns
+    ? [...keyColumns, ...compareColumns].filter(column => availableColumns.has(column))
+    : [...leftColumns, ...rightColumns];
+  return [...new Set(requestedColumns)].map(label => ({
+    label,
+    left: leftColumns.includes(label) ? label : undefined,
+    right: rightColumns.includes(label) ? label : undefined,
+  }));
+}
+
+function projectRow(
+  row: Record<string, unknown>,
+  mappings: import('./diffTypes').DiffColumnMapping[],
+  side: 'left' | 'right',
+): Record<string, unknown> {
+  return Object.fromEntries(mappings.map(mapping => [
+    mapping.label,
+    mapping[side] ? row[mapping[side]!] : undefined,
+  ]));
 }
 
 /**
@@ -441,30 +593,96 @@ export function toggleFilter(
 /**
  * Compute diff between two lists of table statistics.
  * Matches items by key, preserves order of left (right-only items appended at the end).
+ *
+ * When `options.crossType` is true (the two sides are connections of different DB
+ * types, e.g. PG ↔ ClickHouse), the result is restricted to metrics present on
+ * both sides and explicitly declared semantically comparable — other metrics are dropped from
+ * `items` and reported via `summary.leftHiddenCount` / `summary.rightHiddenCount` so
+ * the UI can report how many metrics from each side were hidden without
+ * misleading the user (e.g. showing a PG `dead_tuples` row with
+ * an empty right cell just because ClickHouse doesn't have that concept).
  */
 export function computeStatsDiff(
   leftStats: TableStatistic[] | undefined,
   rightStats: TableStatistic[] | undefined,
+  options?: {
+    crossType?: boolean;
+    /**
+     * Metrics whose semantics are explicitly comparable across database engines.
+     * A raw key collision is not sufficient: for example PostgreSQL and
+     * ClickHouse both expose `total_size`, but measure different storage.
+     */
+    comparableMetrics?: ReadonlyMap<string, { label: string; unit: TableStatistic['unit'] }>;
+  },
 ): StatsDiffResult {
-  const left = leftStats || [];
-  const right = rightStats || [];
-  const rightMap = new Map(right.map(stat => [stat.key, stat]));
+  const crossType = !!options?.crossType;
+  const comparableMetrics = options?.comparableMetrics ?? DEFAULT_CROSS_TYPE_METRICS;
+  const leftMap = uniqueStats(leftStats);
+  const rightMap = uniqueStats(rightStats);
 
   const items: StatsDiffItem[] = [];
-  const seen = new Set<string>();
+  const seenRight = new Set<string>();
+  let leftHiddenCount = 0;
+  let rightHiddenCount = 0;
 
-  for (const leftStat of left) {
-    seen.add(leftStat.key);
+  for (const leftStat of leftMap.values()) {
     const rightStat = rightMap.get(leftStat.key);
-    items.push(buildStatsDiffItem(leftStat, rightStat));
+    if (!rightStat) {
+      if (crossType) {
+        leftHiddenCount++;
+        continue;
+      }
+      items.push(buildStatsDiffItem(leftStat, undefined));
+      continue;
+    }
+
+    seenRight.add(rightStat.key);
+    const explicitlyComparable = !crossType
+      || comparableMetrics.has(leftStat.key);
+    const comparableMetric = comparableMetrics.get(leftStat.key);
+    const unitsMatch = leftStat.unit === rightStat.unit
+      && (!crossType || leftStat.unit === comparableMetric?.unit);
+    if (!explicitlyComparable || !unitsMatch) {
+      if (crossType) {
+        leftHiddenCount++;
+        rightHiddenCount++;
+        continue;
+      }
+    }
+
+    const item = buildStatsDiffItem(leftStat, rightStat);
+    items.push(crossType && comparableMetric
+      ? { ...item, label: comparableMetric.label, unit: comparableMetric.unit, badWhen: undefined }
+      : item);
   }
 
-  for (const rightStat of right) {
-    if (seen.has(rightStat.key)) continue;
+  for (const rightStat of rightMap.values()) {
+    if (seenRight.has(rightStat.key)) continue;
+    if (crossType) {
+      rightHiddenCount++;
+      continue;
+    }
     items.push(buildStatsDiffItem(undefined, rightStat));
   }
 
-  return { items };
+  const summary: StatsDiffSummary = { crossType, leftHiddenCount, rightHiddenCount };
+  return { items, summary };
+}
+
+const DEFAULT_CROSS_TYPE_METRICS = new Map<string, { label: string; unit: TableStatistic['unit'] }>([
+  // PostgreSQL may estimate this value while ClickHouse/SQLite return exact
+  // counts. The UI discloses that distinction; storage metrics are omitted
+  // because identical keys currently represent different physical concepts.
+  ['row_count', { label: 'Row count', unit: 'count' }],
+]);
+
+/** Keep one deterministic value per metric key while preserving first-key order. */
+function uniqueStats(stats: TableStatistic[] | undefined): Map<string, TableStatistic> {
+  const unique = new Map<string, TableStatistic>();
+  for (const stat of stats || []) {
+    if (!unique.has(stat.key)) unique.set(stat.key, stat);
+  }
+  return unique;
 }
 
 function buildStatsDiffItem(leftStat: TableStatistic | undefined, rightStat: TableStatistic | undefined): StatsDiffItem {
@@ -492,7 +710,9 @@ function buildStatsDiffItem(leftStat: TableStatistic | undefined, rightStat: Tab
     key: ref.key,
     label: ref.label,
     unit: ref.unit,
-    badWhen: ref.badWhen,
+    badWhen: leftStat && rightStat
+      ? (leftStat.badWhen === rightStat.badWhen ? leftStat.badWhen : undefined)
+      : ref.badWhen,
     leftValue,
     rightValue,
     delta,

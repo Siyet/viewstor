@@ -3,7 +3,6 @@ import {
   isNumericType,
   formatOneRow,
   applySortToQuery,
-  tokenizeSql,
 } from '../utils/resultFormatters';
 
 describe('isNumericType', () => {
@@ -198,79 +197,5 @@ describe('applySortToQuery', () => {
       [{ column: 'MyColumn', direction: 'desc' }],
     );
     expect(result).toBe('SELECT * FROM t ORDER BY "MyColumn" DESC');
-  });
-});
-
-describe('tokenizeSql', () => {
-  it('tokenizes SELECT keyword', () => {
-    const tokens = tokenizeSql('SELECT');
-    expect(tokens).toEqual([{ type: 'keyword', value: 'SELECT' }]);
-  });
-
-  it('tokenizes a simple query', () => {
-    const tokens = tokenizeSql('SELECT * FROM users');
-    const types = tokens.filter(t => t.type !== 'text').map(t => [t.type, t.value]);
-    expect(types).toEqual([
-      ['keyword', 'SELECT'],
-      ['operator', '*'],
-      ['keyword', 'FROM'],
-    ]);
-  });
-
-  it('tokenizes string literals', () => {
-    const tokens = tokenizeSql('\'hello world\'');
-    expect(tokens).toEqual([{ type: 'string', value: '\'hello world\'' }]);
-  });
-
-  it('tokenizes numbers', () => {
-    const tokens = tokenizeSql('42');
-    expect(tokens).toEqual([{ type: 'number', value: '42' }]);
-  });
-
-  it('tokenizes negative numbers', () => {
-    const tokens = tokenizeSql('-3.14');
-    expect(tokens).toEqual([{ type: 'number', value: '-3.14' }]);
-  });
-
-  it('tokenizes comments', () => {
-    const tokens = tokenizeSql('-- this is a comment');
-    expect(tokens).toEqual([{ type: 'comment', value: '-- this is a comment' }]);
-  });
-
-  it('tokenizes operators', () => {
-    const tokens = tokenizeSql('>=');
-    expect(tokens).toEqual([{ type: 'operator', value: '>=' }]);
-  });
-
-  it('tokenizes identifiers as text', () => {
-    const tokens = tokenizeSql('my_table');
-    expect(tokens).toEqual([{ type: 'text', value: 'my_table' }]);
-  });
-
-  it('tokenizes complex query with all token types', () => {
-    const tokens = tokenizeSql('SELECT name FROM users WHERE id = 1 -- filter');
-    const keywords = tokens.filter(t => t.type === 'keyword').map(t => t.value);
-    expect(keywords).toEqual(['SELECT', 'FROM', 'WHERE']);
-
-    const numbers = tokens.filter(t => t.type === 'number').map(t => t.value);
-    expect(numbers).toEqual(['1']);
-
-    const comments = tokens.filter(t => t.type === 'comment').map(t => t.value);
-    expect(comments).toEqual(['-- filter']);
-
-    const operators = tokens.filter(t => t.type === 'operator').map(t => t.value);
-    expect(operators).toEqual(['=']);
-  });
-
-  it('handles case-insensitive keywords', () => {
-    const tokens = tokenizeSql('select from where');
-    const keywords = tokens.filter(t => t.type === 'keyword').map(t => t.value);
-    expect(keywords).toEqual(['select', 'from', 'where']);
-  });
-
-  it('tokenizes parentheses and commas as operators', () => {
-    const tokens = tokenizeSql('(a, b)');
-    const operators = tokens.filter(t => t.type === 'operator').map(t => t.value);
-    expect(operators).toEqual(['(', ',', ')']);
   });
 });

@@ -5,6 +5,8 @@ export interface SchemaObject {
   children?: SchemaObject[];
   /** Displayed as gray description text in the tree */
   detail?: string;
+  /** Database comment for a column or relation, when the driver exposes one. */
+  comment?: string;
   /** Mark as inaccessible (no permissions) — renders with error color */
   inaccessible?: boolean;
   /** For column nodes: names of indexes that cover this column. Used for blue
@@ -42,6 +44,19 @@ export interface TableInfo {
   columns: ColumnInfo[];
   rowCount?: number;
   sizeBytes?: number;
+}
+
+/** A foreign-key relationship used by schema visualizations. */
+export interface ForeignKeyInfo {
+  name: string;
+  sourceSchema?: string;
+  sourceTable: string;
+  sourceColumns: string[];
+  targetSchema?: string;
+  targetTable: string;
+  targetColumns: string[];
+  onDelete?: string;
+  onUpdate?: string;
 }
 
 export interface IndexInfo {
@@ -117,3 +132,14 @@ export interface TableStatistic {
    */
   badWhen?: 'higher' | 'lower';
 }
+
+/**
+ * Normalized keys every driver should emit from getTableStatistics. A value
+ * may be null when the engine cannot provide the metric.
+ *
+ * This is a presence contract, not a cross-engine comparability contract.
+ * In particular, total_size can describe compressed disk, relation pages, or
+ * in-memory allocation depending on the engine. Cross-type diffing must use
+ * its separate semantic allowlist.
+ */
+export const COMMON_STAT_KEYS = ['row_count', 'total_size', 'last_modified'] as const;

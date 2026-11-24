@@ -31,6 +31,8 @@ describeIf(isDockerAvailable)('Redis Driver E2E', () => {
     await driver.execute('SADD myset x y z');
     await driver.execute('ZADD myzset 1 alpha 2 beta 3 gamma');
     await driver.execute('HSET myhash field1 val1 field2 val2');
+    await driver.execute('XADD mystream * event login user 1');
+    await driver.execute('XADD mystream * event view path /home');
   });
 
   afterAll(async () => {
@@ -310,6 +312,33 @@ describeIf(isDockerAvailable)('Redis Driver E2E', () => {
   it('getTableData for non-existent key returns unsupported type', async () => {
     const result = await driver.getTableData('nonexistent_key_xyz');
     expect(result.rows[0].info).toContain('Unsupported type');
+  });
+
+  it.each([
+    ['greeting', 1],
+    ['mylist', 3],
+    ['myset', 3],
+    ['myzset', 3],
+    ['myhash', 2],
+    ['mystream', 2],
+  ])('getTableStatistics reports cardinality and normalized keys for %s', async (key, expectedCount) => {
+    const stats = await driver.getTableStatistics!(key);
+    const byKey = new Map(stats.map(stat => [stat.key, stat]));
+
+    expect(byKey.get('row_count')).toMatchObject({ value: expectedCount, unit: 'count' });
+    expect(byKey.get('total_size')?.unit).toBe('bytes');
+    expect(byKey.get('last_modified')).toMatchObject({ value: null, unit: 'date' });
+    expect(byKey.get('ttl')?.value).toBeNull();
+  });
+
+  it('getTableStatistics normalizes a missing key instead of exposing Redis sentinels', async () => {
+    const stats = await driver.getTableStatistics!('missing_stats_key');
+    const byKey = new Map(stats.map(stat => [stat.key, stat]));
+
+    expect(byKey.get('row_count')?.value).toBeNull();
+    expect(byKey.get('total_size')?.value).toBeNull();
+    expect(byKey.get('ttl')?.value).toBeNull();
+    expect(byKey.get('type')?.value).toBeNull();
   });
 
   // --- DB info ---

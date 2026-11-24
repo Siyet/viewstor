@@ -152,3 +152,33 @@ describe('ConnectionTreeProvider — schema cache prevents reconnect', () => {
     expect(mgr.getConnectCallCount()).toBe(0); // Key assertion: no connect!
   });
 });
+
+describe('ConnectionTreeProvider — connection item description', () => {
+  it('shows the SSH endpoint, not the DB host, for SSH-proxied connections', async () => {
+    const connections = new Map([
+      ['conn-ssh', {
+        config: {
+          id: 'conn-ssh', name: 'Via SSH', type: 'postgresql', host: '127.0.0.1', port: 5435,
+          proxy: { type: 'ssh', sshHost: 'bastion.example.com', sshPort: 2222 },
+        },
+        connected: true,
+      }],
+    ]);
+    const mgr = createMockConnectionManager(connections);
+    const provider = new ConnectionTreeProvider(mgr as never);
+
+    const [item] = await provider.getChildren();
+    expect(item.description).toBe('bastion.example.com:2222');
+  });
+
+  it('falls back to the DB host:port when there is no SSH proxy', async () => {
+    const connections = new Map([
+      ['conn-plain', { config: { id: 'conn-plain', name: 'Direct', type: 'postgresql', host: 'db.example.com', port: 5432 }, connected: true }],
+    ]);
+    const mgr = createMockConnectionManager(connections);
+    const provider = new ConnectionTreeProvider(mgr as never);
+
+    const [item] = await provider.getChildren();
+    expect(item.description).toBe('db.example.com:5432');
+  });
+});

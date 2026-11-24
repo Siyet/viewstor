@@ -2,7 +2,71 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.5.3] — 2026-08-18
+
+### Added
+- **Chained (double-hop) SSH tunnels** — an SSH-proxied connection can now hop through an additional jump host before reaching the database, for bastion + private-subnet topologies where the target isn't reachable directly from the first hop. Configure it under Proxy / Tunnel → "Connect through a second SSH hop (jump host)" in the connection form, including a passphrase field for an encrypted private key on that second hop.
+
+### Changed
+- SSH-proxied connections in the Connections tree now show the SSH host:port you actually connect through, instead of the tunnel's internal local-forwarded-port address.
+- The connection form gained a Private Key Passphrase field for the first SSH hop, alongside the one for the second — an encrypted key could not be used there before.
+
+### Fixed
+- **SSH-tunneled connections could fail with "Connection terminated unexpectedly"** — the tunnel could start accepting traffic before the SSH session finished authenticating, occasionally crashing the SSH session outright. This showed up most often on password-authenticated connections, whose slower handshake made the race easier to hit. The tunnel now always waits for the SSH session to be ready first ([#128](https://github.com/Siyet/viewstor/issues/128)).
+- Project-scope connections (`.vscode/viewstor.json`) no longer write SSH/proxy passwords or private keys to disk — only the database password was being stripped before.
+- Saving a project-scope connection's SSH password or private key no longer wipes it back out of the current session — reloading `.vscode/viewstor.json` (which by design holds no credentials) now restores the ones entered this session instead of dropping them, whether the reload was triggered by the extension's own save or by a genuine outside change. Credentials are only restored to the host and user they were entered for, so a connection repointed at a different server in the shared file asks for its own credentials rather than reusing the previous host's.
+- **An SSH-tunneled connection dropping mid-session (query cancellation, DB restart, an idle timeout) could crash the whole extension host**, not just that connection — an ordinary TCP reset reaching the tunnel had no error handling and threw uncaught. The tunnel now closes just the affected connection (both its local side and its actual SSH-forwarded connection to the database) and keeps running.
+- **Chained SSH tunnels could hang indefinitely while connecting** if an already-connected hop dropped while the next hop was still connecting through it — that failure mode never raised an error to react to. Connecting now aborts cleanly with an error instead of hanging.
+- **An SSH tunnel could go zombie** — still listening locally, but talking to nothing — if a hop's connection closed cleanly (an sshd restart or graceful shutdown, not a reset) once the tunnel was already established; that case never emitted an error either. The tunnel is now torn down correctly either way.
+- A connecting SSH hop that lost out to a chain failure elsewhere (see above) could keep running in the background indefinitely instead of being closed along with the rest of the failed connection attempt.
+- **Connecting to an SSH-tunneled database could hang forever with no error** if the SSH connection dropped mid-handshake (an sshd hitting its connection/login limits, a network blip during key exchange, a bastion actively rejecting the attempt) — past the very first moment of the handshake, that failure mode only ever closes the connection, it doesn't raise an error. This predates chained tunnels entirely; connecting now always fails with a clear error instead of hanging.
+
+## [0.5.2] — 2026-08-14
+
+### Changed
+- **One shared SQL highlighter for Result and Diff panels** — both editable-query surfaces now execute the same shipped `sql-highlight.js` asset instead of maintaining separate tokenizers. The shared scanner preserves arbitrary Unicode text, escapes HTML-like input, handles common PostgreSQL/MySQL/SQL Server quoting and comments, and is covered by multilingual runtime, consumer-order, large-input, and XSS regression tests. Query editors no longer soft-wrap long lines: they use horizontal scrolling and keep line breaks under explicit user control; in the Result table query bar `Shift+Enter` inserts a line while plain `Enter` runs the query ([#94](https://github.com/Siyet/viewstor/issues/94)).
+
+## [0.5.1] — 2026-08-14
+
+### Added
+- **Data diff: safe cross-DB-type Statistics tab** — comparisons such as PostgreSQL ↔ ClickHouse and SQLite ↔ PostgreSQL now show statistics when both drivers provide them. Cross-type mode uses an explicit semantic contract instead of trusting matching key names: row count is currently the only common metric (with a visible note that some engines estimate it), while incompatible storage and engine-specific metrics are counted and hidden. The tab includes a clear empty state when no metrics are comparable, branded database names, accessible theme-aware messaging, and in-place Swap Sides behavior ([#74](https://github.com/Siyet/viewstor/issues/74)).
+- **Search in Row Diff** — search both sides of a comparison at once with highlighted matches, a live result count, `Enter` / `Shift+Enter` navigation, `Escape` to clear, and `Ctrl/Cmd+F` focus. Search results stay synchronized after status filtering and query reruns.
+- **Normalized statistics keys across all drivers** — every driver's `getTableStatistics` emits `row_count`, `total_size`, and `last_modified` when meaningful, with unavailable values represented as `null`. Redis gains key statistics, SQLite reports table-plus-index pages through `dbstat`, and ClickHouse reports the latest active part write. Sharing a key does not imply that differently defined storage metrics are comparable across engines; cross-type Statistics continues to compare only the explicit semantic allowlist ([#74](https://github.com/Siyet/viewstor/issues/74)).
+
+### Changed
+- **Result Grid readability and toolbar layout** — added subtle theme-aware zebra striping and grouped status, search, export/visualization, row editing, and pagination controls. The toolbar now wraps cleanly in narrow editor panes, exposes accessible control groups, and keeps dividers visible in high-contrast themes ([#84](https://github.com/Siyet/viewstor/issues/84)).
+
+### Fixed
+- Preserved hover, selection, search, validation, and new-row highlights on both odd and even rows so zebra striping never hides a more important state.
+- Restored opening table data immediately after editing a connection, including switching Read-only off: cached tree items now reconnect the driver automatically instead of silently closing the loading panel.
+- Cross-database row comparisons now treat equivalent numeric representations such as PostgreSQL `716.90` and ClickHouse `716.9` as equal without losing precision for large numeric values; text identifiers with leading zeroes remain distinct.
+- Cross-database row comparisons now treat PostgreSQL booleans as equivalent to SQLite/ClickHouse `0`/`1` flags when the column types establish boolean semantics, and normalize equivalent UTC timestamp representations without weakening ordinary text or numeric comparisons.
+- PostgreSQL views no longer report the internal `-1` row-estimate sentinel. View statistics fall back to an exact `COUNT(*)`, or show the metric as unavailable when the relation cannot be read.
+- ClickHouse views now show their actual row count in Statistics: when `system.tables.total_rows` is unavailable, Viewstor falls back to an exact `COUNT(*)` and preserves an unavailable value instead of reporting a misleading zero if the view cannot be read.
+- Development builds now detect the Electron runtime used by current macOS VS Code releases and fall back to an architecture-correct source build when a matching `better-sqlite3` prebuild is unavailable.
+- Release packages no longer include local environment setup, agent instructions, test fixtures, or VS Code test-runner configuration.
+- SQLite tables and views now appear in the **Compare With...** picker alongside PostgreSQL and ClickHouse objects; the picker supports both flat and namespace-nested driver schemas.
+- Compare Tables no longer opens an empty diff when a driver returns a data-loading error as part of its query result; both entry points now surface the original error and leave the current workspace unchanged.
+- Stabilized edited-SQL reruns in Diff panels: disconnected sources reconnect once, the latest request wins over stale concurrent responses, closing or swapping a panel invalidates pending work, and readonly, one-sided, or missing-column errors preserve the previous successful diff.
+- Table/view comparisons now resolve compatible primary keys from either side and, when schemas differ, show exact matches, suggested similar-name pairs, and one-sided fields in a separate column picker. Exact pairs are selected safely by default; explicit mappings such as `lifetime_value ↔ total_value` are supported, while unchecked side-only fields remain in Schema Diff instead of marking every matched row as changed. ClickHouse primary keys are resolved from `system.columns`.
+
+## [0.5.0] — 2026-08-13
+
+### Added
+- **Interactive ER diagrams** — open a diagram from a connected connection, database, or schema and explore tables, views, columns, indexes, and foreign-key relationships on one continuous canvas. PostgreSQL and SQLite provide native relationship metadata; ClickHouse renders its available structure and database regions without inventing unsupported foreign keys ([#6](https://github.com/Siyet/viewstor/issues/6)).
+- Namespace regions group PostgreSQL schemas and ClickHouse databases. Complete table cards distinguish views with purple dashed borders and mark `PK`, `FK`, `IDX`, required columns, comments, and index names.
+- Search covers tables, views, and columns. Multiple results highlight matching cards; a unique or selected result opens its direct-neighbour graph. Results reuse the legend's blue table and purple view colors.
+- Table and view cards expose the same context actions as the Connections tree through a shared action registry.
+
+### Changed
+- Zoom and pan use one synchronized camera transform for card frames, text, spacing, edges, regions, and hit-testing. Blank-canvas left-drag, middle-drag, and wheel zoom work across the full canvas.
+- Relationship lines stay below cards, are muted below `3×`, and reveal arrowheads, hover emphasis, and tooltips from `3×`. Hover fades unrelated objects with a short transition.
+- The compact toolbar provides search plus icon-only Refresh and relationship controls with explanatory tooltips. The relationship icon is crossed out while edges are hidden; internal rendering diagnostics are no longer shown.
+
+### Fixed
+- Prevented table-card overlap and relationship lines crossing card contents in both the full diagram and isolated neighbour graphs.
+- Restored double-click isolation and blank-canvas/Escape return to the full graph, including correct layout immediately after switching views.
+- Made zoomed cards scale as unified graphics so frames and typography no longer resize at different times or produce the previous “jelly” effect.
 
 ### Changed
 - **Standalone MCP: restrict `add_connection` tool** — agents can no longer silently create writeable connections that bypass `readonly`, `agentAccess`, and `agentWriteApproval` gates. New `allowAddConnection` setting in `~/.viewstor/connections.json` (`'off' | 'restricted' | 'unrestricted'`, default `'restricted'`). In restricted mode, agent-created connections are forced `readonly: true`, `scope: 'project'` (passwords stripped), and name-prefixed `[agent] `. In off mode the tool is removed entirely. Tree view shows an `agent` badge on agent-created connections. ([#119](https://github.com/Siyet/viewstor/issues/119))

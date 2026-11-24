@@ -2,7 +2,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { DatabaseDriver, CompletionItem } from '../types/driver';
 import { ConnectionConfig } from '../types/connection';
 import { QueryResult, QueryColumn, SortColumn, MAX_RESULT_ROWS } from '../types/query';
-import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo } from '../types/schema';
+import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, IndexInfo, ConstraintInfo, TriggerInfo, ForeignKeyInfo } from '../types/schema';
 import { quoteIdentifier } from '../utils/queryHelpers';
 import { wrapError } from '../utils/errors';
 
@@ -285,6 +285,43 @@ export class SqliteDriver implements DatabaseDriver {
     return items;
   }
 
+  async getForeignKeys(): Promise<ForeignKeyInfo[]> {
+    const tables = this.db!.prepare(
+      'SELECT name FROM sqlite_master WHERE type = \'table\' AND name NOT LIKE \'sqlite_%\' ORDER BY name'
+    ).all() as Array<{ name: string }>;
+
+    const result: ForeignKeyInfo[] = [];
+    for (const { name } of tables) {
+      const rows = this.db!.prepare(`PRAGMA foreign_key_list(${quoteIdentifier(name)})`).all() as Array<{
+        id: number;
+        seq: number;
+        table: string;
+        from: string;
+        to: string | null;
+        on_delete: string;
+        on_update: string;
+      }>;
+      const groups = new Map<number, typeof rows>();
+      for (const row of rows) {
+        if (!groups.has(row.id)) groups.set(row.id, []);
+        groups.get(row.id)!.push(row);
+      }
+      for (const [id, group] of groups) {
+        group.sort((left, right) => left.seq - right.seq);
+        result.push({
+          name: `fk_${name}_${id}`,
+          sourceTable: name,
+          sourceColumns: group.map(row => row.from),
+          targetTable: group[0].table,
+          targetColumns: group.map(row => row.to ?? 'PRIMARY KEY'),
+          onDelete: group[0].on_delete !== 'NO ACTION' ? group[0].on_delete : undefined,
+          onUpdate: group[0].on_update !== 'NO ACTION' ? group[0].on_update : undefined,
+        });
+      }
+    }
+    return result;
+  }
+
   async getTableObjects(name: string): Promise<TableObjects> {
     // Indexes
     const rawIndexes = this.db!.prepare(`PRAGMA index_list(${quoteIdentifier(name)})`).all() as Array<{
@@ -381,18 +418,30 @@ export class SqliteDriver implements DatabaseDriver {
 
     // dbstat is an optional virtual table — present when SQLite is built with SQLITE_ENABLE_DBSTAT_VTAB.
     let tableSize: number | null = null;
+    let totalSize: number | null = null;
     try {
       const row = this.db!.prepare(
         'SELECT SUM(pgsize) AS sz FROM dbstat WHERE name = ?'
       ).get(name) as { sz: number | null };
       tableSize = row?.sz ?? null;
+
+      // total_size = table pages + all its index pages
+      const idxSizeRow = this.db!.prepare(
+        'SELECT SUM(pgsize) AS sz FROM dbstat WHERE name IN (SELECT name FROM sqlite_master WHERE type = ? AND tbl_name = ?)'
+      ).get('index', name) as { sz: number | null };
+      const indexesSize = idxSizeRow?.sz ?? null;
+      totalSize = tableSize === null && indexesSize === null
+        ? null
+        : (tableSize ?? 0) + (indexesSize ?? 0);
     } catch { /* dbstat unavailable */ }
 
     return [
       { key: 'row_count', label: 'Row count', value: rowCount, unit: 'count' },
+      { key: 'total_size', label: 'Total size', value: totalSize, unit: 'bytes' },
       { key: 'table_size', label: 'Table size', value: tableSize, unit: 'bytes' },
       { key: 'index_count', label: 'Index count', value: idxCount.cnt, unit: 'count' },
       { key: 'trigger_count', label: 'Trigger count', value: triggerCount.cnt, unit: 'count' },
+      { key: 'last_modified', label: 'Last modified', value: null, unit: 'date' },
     ];
   }
 

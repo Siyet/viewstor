@@ -38,6 +38,8 @@
   const proxyType = $('proxyType');
   const sshFields = $('sshFields');
   const proxyFields = $('proxyFields');
+  const sshHop2Enabled = $('sshHop2Enabled');
+  const sshHop2Fields = $('sshHop2Fields');
 
   const sqliteFileField = $('sqliteFileField');
   const sqliteFile = $('sqliteFile');
@@ -73,8 +75,10 @@
     const pt = proxyType.value;
     sshFields.classList.toggle('hidden', pt !== 'ssh');
     proxyFields.classList.toggle('hidden', pt !== 'socks5' && pt !== 'http');
+    sshHop2Fields.classList.toggle('hidden', pt !== 'ssh' || !sshHop2Enabled.checked);
   }
   proxyType.addEventListener('change', updateProxyVisibility);
+  sshHop2Enabled.addEventListener('change', updateProxyVisibility);
 
   let portManuallyChanged = false;
   dbType.addEventListener('change', function () {
@@ -268,6 +272,14 @@
       sshUsername: valueOf($('sshUsername')).trim(),
       sshPassword: valueOf($('sshPassword')),
       sshPrivateKey: valueOf($('sshPrivateKey')).trim(),
+      sshPassphrase: valueOf($('sshPassphrase')),
+      sshHop2Enabled: sshHop2Enabled.checked ? 'true' : 'false',
+      sshHop2Host: valueOf($('sshHop2Host')).trim(),
+      sshHop2Port: valueOf($('sshHop2Port')),
+      sshHop2Username: valueOf($('sshHop2Username')).trim(),
+      sshHop2Password: valueOf($('sshHop2Password')),
+      sshHop2PrivateKey: valueOf($('sshHop2PrivateKey')).trim(),
+      sshHop2Passphrase: valueOf($('sshHop2Passphrase')),
       proxyHost: valueOf($('proxyHost')).trim(),
       proxyPort: valueOf($('proxyPort')),
       proxyUsername: valueOf($('proxyUsername')).trim(),
@@ -361,6 +373,15 @@
             $('sshUsername').value = c.proxy.sshUsername || '';
             $('sshPassword').value = c.proxy.sshPassword || '';
             $('sshPrivateKey').value = c.proxy.sshPrivateKey || '';
+            $('sshPassphrase').value = c.proxy.sshPassphrase || '';
+            const hop2 = c.proxy.sshHops && c.proxy.sshHops[0];
+            sshHop2Enabled.checked = !!hop2;
+            $('sshHop2Host').value = (hop2 && hop2.host) || '';
+            $('sshHop2Port').value = String((hop2 && hop2.port) || 22);
+            $('sshHop2Username').value = (hop2 && hop2.username) || '';
+            $('sshHop2Password').value = (hop2 && hop2.password) || '';
+            $('sshHop2PrivateKey').value = (hop2 && hop2.privateKey) || '';
+            $('sshHop2Passphrase').value = (hop2 && hop2.passphrase) || '';
             $('proxyHost').value = c.proxy.proxyHost || '';
             $('proxyPort').value = String(c.proxy.proxyPort || 1080);
             $('proxyUsername').value = c.proxy.proxyUsername || '';

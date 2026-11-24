@@ -16,7 +16,7 @@
  *   node scripts/sqlite-rebuild.js electron   — install prebuild for Electron (VS Code)
  *   node scripts/sqlite-rebuild.js node        — rebuild for Node.js (tests)
  */
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -55,6 +55,25 @@ function detectVSCodeElectronVersion() {
       }
     } catch { /* skip */ }
   }
+
+  // Current macOS VS Code builds no longer ship the framework `version` file.
+  // Ask the app executable for process.versions while forcing Electron's Node
+  // mode, which does not open a window and returns the exact runtime target.
+  const macExecutable = '/Applications/Visual Studio Code.app/Contents/MacOS/Code';
+  try {
+    if (fs.existsSync(macExecutable)) {
+      const output = execFileSync(
+        macExecutable,
+        ['-e', 'process.stdout.write(process.versions.electron || "")'],
+        {
+          encoding: 'utf8',
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+          stdio: ['ignore', 'pipe', 'ignore'],
+        },
+      ).trim();
+      if (/^\d+\.\d+\.\d+$/.test(output)) return output;
+    }
+  } catch { /* skip */ }
   return null;
 }
 
@@ -178,16 +197,23 @@ if (target === 'electron') {
     console.log(`Installing better-sqlite3 prebuild for Electron ${electronVersion}...`);
 
     // Use prebuild-install directly — electron-rebuild v3.x is broken and
-    // reports success without actually changing the binary.
-    execSync(
-      `npx prebuild-install --runtime electron --target ${electronVersion} --verbose`,
-      { cwd: SQLITE_DIR, stdio: 'inherit' },
-    );
-
-    if (!fs.existsSync(BINARY)) {
-      console.error('prebuild-install did not produce a binary. Falling back to node-gyp...');
+    // reports success without actually changing the binary. Not every Electron
+    // patch release has a published prebuild, so a failed download must fall
+    // through to a source build instead of aborting the whole extension build.
+    let prebuildInstalled = false;
+    try {
       execSync(
-        `npx node-gyp rebuild --release --runtime=electron --target=${electronVersion} --arch=x64 --dist-url=https://electronjs.org/headers`,
+        `npx prebuild-install --runtime electron --target ${electronVersion} --verbose`,
+        { cwd: SQLITE_DIR, stdio: 'inherit' },
+      );
+      prebuildInstalled = fs.existsSync(BINARY);
+    } catch {
+      console.log('No compatible prebuild found. Falling back to node-gyp...');
+    }
+
+    if (!prebuildInstalled) {
+      execSync(
+        `npx node-gyp rebuild --release --runtime=electron --target=${electronVersion} --arch=${process.arch} --dist-url=https://electronjs.org/headers`,
         { cwd: SQLITE_DIR, stdio: 'inherit' },
       );
     }

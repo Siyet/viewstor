@@ -11,6 +11,7 @@ import type { TempFileManager } from '../services/tempFileManager';
 // test tree where `dist/test/views/` has no sibling `scripts/` or `webview/`.
 let cachedCtxMenuScript: string | null = null;
 let cachedCtxMenuCss: string | null = null;
+let cachedSqlHighlightScript: string | null = null;
 
 function loadWebviewAsset(relative: string): string {
   const candidates = [
@@ -40,6 +41,10 @@ function getCtxMenuScript(): string {
 function getCtxMenuCss(): string {
   if (cachedCtxMenuCss === null) cachedCtxMenuCss = loadWebviewAsset('styles/context-menu.css');
   return cachedCtxMenuCss;
+}
+function getSqlHighlightScript(): string {
+  if (cachedSqlHighlightScript === null) cachedSqlHighlightScript = loadWebviewAsset('scripts/sql-highlight.js');
+  return cachedSqlHighlightScript;
 }
 
 export interface ShowOptions {
@@ -105,6 +110,11 @@ export class ResultPanelManager {
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   setTempFileManager(t: TempFileManager) { this._tempFileManager = t; }
+
+  /** Exposes live panels to the Extension Host regression suite. */
+  getPanelsForTesting(): readonly vscode.WebviewPanel[] {
+    return [...this.panels.values()];
+  }
 
   /** Set callback to notify chart panel of data changes */
   setChartNotifier(fn: (panelKey: string, columns: QueryColumn[], rows: Record<string, unknown>[], query?: string) => void) {
@@ -379,7 +389,11 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
 <style>
   * { box-sizing: border-box; }
   body { font-family: var(--vscode-font-family); padding:0; margin:0; font-size:13px; display:flex; flex-direction:column; height:100vh; }
-  .toolbar { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorder} }
+  .toolbar { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorder} }
+  .toolbar-group { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; min-width:0; }
+  .toolbar-group-search { flex:0 1 220px; }
+  .toolbar-spacer { flex:1 1 16px; min-width:0; }
+  .toolbar-sep { width:1px; height:16px; background:var(--viewstor-border-subtle, var(--vscode-panel-border, currentColor)); flex-shrink:0; }
   .footer { padding:6px 12px; font-size:12px; color:var(--vscode-descriptionForeground); display:flex; align-items:center; gap:12px; border-top:1px solid var(--vscode-panel-border); flex-shrink:0; ${colorBorderBottom} }
   .toolbar select, .footer select { background:var(--vscode-dropdown-background); color:var(--vscode-dropdown-foreground); border:1px solid var(--vscode-dropdown-border); padding:2px 6px; font-size:12px; border-radius:2px; }
   .toolbar button, .footer button { background:var(--vscode-button-secondaryBackground); color:var(--vscode-button-secondaryForeground); border:none; padding:2px 8px; font-size:12px; cursor:pointer; border-radius:2px; }
@@ -393,12 +407,15 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   th { position:sticky; top:0; background:var(--vscode-editor-background); font-weight:600; z-index:1; cursor:pointer; position:relative; }
   th .col-resize-handle { position:absolute; top:0; right:-2px; width:5px; height:100%; cursor:col-resize; z-index:4; }
   th .col-resize-handle:hover { background:var(--vscode-focusBorder); }
-  .row-num, .row-num-header { position:sticky; left:0; z-index:2; background:var(--vscode-editor-background); color:var(--vscode-descriptionForeground); text-align:right; padding:4px 8px; border-right:2px solid var(--vscode-panel-border); min-width:40px; max-width:none; font-size:11px; cursor:default; user-select:none; }
+  .row-num, .row-num-header { position:sticky; left:0; z-index:2; background:var(--vscode-editor-background) !important; color:var(--vscode-descriptionForeground); text-align:right; padding:4px 8px; border-right:2px solid var(--vscode-panel-border); min-width:40px; max-width:none; font-size:11px; cursor:default; user-select:none; }
   .row-num-header { z-index:3; top:0; font-weight:600; cursor:default; }
   th:hover { background:var(--vscode-list-hoverBackground); }
   th small { color:var(--vscode-descriptionForeground); font-weight:normal; }
   th .sort-icon { margin-left:4px; font-size:10px; opacity:0.7; }
-  tr:hover { background:var(--vscode-list-hoverBackground); }
+  tbody tr:nth-child(even) td { background:var(--viewstor-row-zebra, color-mix(in srgb, var(--vscode-foreground) 4%, transparent)); }
+  tbody tr.new-row td { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
+  tr.new-row:nth-child(even) td { background:color-mix(in srgb, var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)), var(--vscode-foreground) 6%); }
+  tbody tr:hover td, tbody tr.new-row:hover td { background:var(--vscode-list-hoverBackground); }
   /* Selection borders via inset box-shadow so the cell's layout size
      doesn't change when classes toggle (borders would add ~2px each side
      and shift the row). Same pattern as diff-panel.css. */
@@ -427,7 +444,7 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   td.editable { cursor:text; }
   td.search-hit { background:color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c0055) 60%, transparent) !important; }
   td.search-focus { outline:2px solid var(--vscode-editor-findMatchBorder, var(--vscode-focusBorder)) !important; background:color-mix(in srgb, var(--vscode-editor-findMatchBackground, #515c6a) 70%, transparent) !important; }
-  .search-input { padding:2px 6px; font-size:12px; border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); background:var(--vscode-input-background); color:var(--vscode-input-foreground); border-radius:2px; width:160px; outline:none; }
+  .search-input { padding:2px 6px; font-size:12px; border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); background:var(--vscode-input-background); color:var(--vscode-input-foreground); border-radius:2px; width:160px; max-width:100%; min-width:0; outline:none; }
   .search-input:focus { border-color:var(--vscode-focusBorder); }
   .search-count { font-size:11px; min-width:30px; }
   td.editing { padding:0; }
@@ -436,9 +453,8 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   ${LOADING_CSS}
   td.editing input, td.editing select { width:100%; padding:4px 8px; border:2px solid var(--vscode-focusBorder); background:var(--vscode-input-background); color:var(--vscode-input-foreground); font-family:inherit; font-size:inherit; outline:none; }
   td.modified { border-left:3px solid var(--vscode-inputValidation-warningBorder); }
-  tr.new-row { background:var(--vscode-diffEditor-insertedLineBackground, rgba(0,180,0,0.08)); }
   tr.out-of-query-row { opacity:0.4; }
-  td.invalid-cell { border-left:3px solid var(--vscode-inputValidation-errorBorder, #f44); background:var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); }
+  td.invalid-cell { border-left:3px solid var(--vscode-inputValidation-errorBorder, #f44); background:var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)) !important; }
   .default-val { color:var(--vscode-descriptionForeground); font-style:italic; }
   .popup { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:60vw; max-height:70vh; background:var(--vscode-editor-background); border:1px solid var(--vscode-panel-border); border-radius:4px; box-shadow:0 4px 20px rgba(0,0,0,0.4); z-index:100; display:flex; flex-direction:column; }
   .popup-header { padding:8px 12px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--vscode-panel-border); }
@@ -450,9 +466,9 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   .export-form p { font-size:12px; color:var(--vscode-descriptionForeground); margin:0 0 12px; }
   .query-bar { padding:4px 12px; border-bottom:1px solid var(--vscode-panel-border); flex-shrink:0; display:flex; gap:6px; align-items:center; }
   .query-bar button { font-size:11px; }
-  .query-editor-wrap { flex:1; position:relative; font-family:var(--vscode-editor-font-family); font-size:12px; line-height:1.4; }
-  .query-editor-highlight { position:absolute; top:0; left:0; right:0; bottom:0; padding:4px 8px; white-space:pre; overflow:hidden; pointer-events:none; color:transparent; border:1px solid transparent; border-radius:2px; }
-  .query-editor-textarea { display:block; width:100%; padding:4px 8px; font:inherit; line-height:inherit; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:2px; outline:none; resize:none; overflow:hidden; caret-color:var(--vscode-input-foreground); }
+  .query-editor-wrap { flex:1; min-width:0; position:relative; font-family:var(--vscode-editor-font-family); font-size:12px; line-height:1.4; }
+  .query-editor-highlight { position:absolute; top:0; left:0; right:0; bottom:0; padding:4px 8px; white-space:pre; overflow:hidden; pointer-events:none; color:var(--vscode-input-foreground); border:1px solid transparent; border-radius:2px; }
+  .query-editor-textarea { display:block; width:100%; padding:4px 8px; font:inherit; line-height:inherit; white-space:pre; background:var(--vscode-input-background); color:var(--vscode-input-foreground); border:1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius:2px; outline:none; resize:none; overflow-x:auto; overflow-y:hidden; caret-color:var(--vscode-input-foreground); }
   .query-editor-textarea:focus { border-color:var(--vscode-focusBorder); }
   .query-editor-textarea.has-highlight { color:transparent; background:var(--vscode-input-background); }
   .tk-op { color:var(--vscode-descriptionForeground); }
@@ -467,38 +483,62 @@ export function buildResultHtml(result: QueryResult, opts?: ShowOptions): string
   .tk-key { color:var(--vscode-debugTokenExpression-name, #9cdcfe); }
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:99; }
   .hidden { display:none; }
+  @media (max-width:640px) {
+    .toolbar { align-items:flex-start; }
+    .toolbar-spacer, .toolbar-sep { display:none; }
+    .toolbar-group-search { flex:1 1 180px; }
+  }
+  @media (forced-colors:active) {
+    .toolbar-sep { background:CanvasText; }
+  }
 </style>
 <script>
 ${getCtxMenuScript()}
 </script>
+<script>
+${getSqlHighlightScript()}
+</script>
 </head>
 <body>
-  <div class="toolbar">
-    <span id="statsInfo">${result.executionTimeMs}ms${result.truncated ? ' · truncated' : ''}${result.affectedRows !== undefined ? ' · ' + result.affectedRows + ' affected' : ''}</span>
-    <input type="text" id="searchInput" class="search-input" placeholder="Search..." />
-    <span id="searchCount" class="search-count"></span>
-    <span style="flex:1"></span>
-    <button id="exportBtn">Export</button>
-    <button id="visualizeBtn" title="Visualize as chart">📊</button>
-    <button id="mapBtn" title="Show on map">🗺</button>
-    <button id="addRowBtn" class="hidden">+ Row</button>
-    <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
-    <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
-    <button id="refreshBtn" title="Refresh">↻</button>
-    <button id="discardBtn" class="hidden">Discard</button>
-    <button id="prevPage" disabled>&lt;</button>
-    <span id="pageInfo"></span>
-    <button id="nextPage">&gt;</button>
-    <label>Rows per page: <select id="pageSize">
-      ${PAGE_SIZE_OPTIONS.map(n => `<option value="${n}"${n === activePageSize ? ' selected' : ''}>${n}</option>`).join('')}
-    </select></label>
+  <div class="toolbar" role="toolbar" aria-label="Result controls">
+    <div class="toolbar-group toolbar-group-status" role="group" aria-label="Query status">
+      <span id="statsInfo">${result.executionTimeMs}ms${result.truncated ? ' · truncated' : ''}${result.affectedRows !== undefined ? ' · ' + result.affectedRows + ' affected' : ''}</span>
+    </div>
+    <div class="toolbar-sep" aria-hidden="true"></div>
+    <div class="toolbar-group toolbar-group-search" role="group" aria-label="Search results">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search..." />
+      <span id="searchCount" class="search-count"></span>
+    </div>
+    <span class="toolbar-spacer" aria-hidden="true"></span>
+    <div class="toolbar-group toolbar-group-export" role="group" aria-label="Export and visualize">
+      <button id="exportBtn">Export</button>
+      <button id="visualizeBtn" title="Visualize as chart">📊</button>
+      <button id="mapBtn" title="Show on map">🗺</button>
+    </div>
+    <div class="toolbar-sep" aria-hidden="true"></div>
+    <div class="toolbar-group toolbar-group-edit" role="group" aria-label="Edit rows">
+      <button id="addRowBtn" class="hidden">+ Row</button>
+      <button id="deleteRowBtn" class="hidden" disabled>− Row</button>
+      <button id="saveBtn" class="btn-primary hidden">Save Changes</button>
+      <button id="refreshBtn" title="Refresh">↻</button>
+      <button id="discardBtn" class="hidden">Discard</button>
+    </div>
+    <div class="toolbar-sep" aria-hidden="true"></div>
+    <div class="toolbar-group toolbar-group-pagination" role="group" aria-label="Pagination">
+      <button id="prevPage" disabled>&lt;</button>
+      <span id="pageInfo"></span>
+      <button id="nextPage">&gt;</button>
+      <label>Rows per page: <select id="pageSize">
+        ${PAGE_SIZE_OPTIONS.map(n => `<option value="${n}"${n === activePageSize ? ' selected' : ''}>${n}</option>`).join('')}
+      </select></label>
+    </div>
   </div>
   ${isTableMode ? `<div class="query-bar">
     <div class="query-editor-wrap">
       <div class="query-editor-highlight" id="queryHighlight" aria-hidden="true"></div>
-      <textarea class="query-editor-textarea has-highlight" id="queryInput" rows="1" spellcheck="false">${esc(defaultQuery)}</textarea>
+      <textarea class="query-editor-textarea has-highlight" id="queryInput" rows="1" wrap="off" spellcheck="false">${esc(defaultQuery)}</textarea>
     </div>
-    <button id="queryRun" class="btn-primary" title="Run query (Enter)">▶</button>
+    <button id="queryRun" class="btn-primary" title="Run query (Enter); new line (Shift+Enter)">▶</button>
   </div>` : ''}
   <div class="container">
     <div id="loadingOverlay" class="loading-overlay hidden">
@@ -581,65 +621,15 @@ ${getCtxMenuScript()}
     return h;
   }
 
-  // --- Lightweight SQL syntax highlighting ---
-  var SQL_KEYWORDS = /\\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|IS|NULL|AS|ON|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|INDEX|VIEW|DISTINCT|BETWEEN|LIKE|ILIKE|EXISTS|CASE|WHEN|THEN|ELSE|END|UNION|ALL|ASC|DESC|WITH|DEFAULT|CASCADE|PRIMARY|KEY|REFERENCES|FOREIGN|CONSTRAINT|RETURNING|EXPLAIN|ANALYZE|COUNT|SUM|AVG|MIN|MAX|COALESCE|NULLIF|CAST|TRUE|FALSE|BOOLEAN|INTEGER|TEXT|VARCHAR|NUMERIC|SERIAL|BIGSERIAL|TIMESTAMP|TIMESTAMPTZ|DATE|TIME|INTERVAL|JSONB?|UUID|ARRAY|BIGINT|SMALLINT|REAL|DOUBLE|PRECISION|CHAR|DECIMAL|FLOAT)\\b/i;
-  function highlightSql(text) {
-    var tokens = [];
-    var remaining = text;
-    var pos = 0;
-    while (remaining.length > 0) {
-      // String literal
-      var strMatch = remaining.match(/^'(?:[^'\\\\]|\\\\.)*'|^'(?:[^']|'')*'/);
-      if (strMatch) {
-        tokens.push('<span class="tk-str">' + escHtml(strMatch[0]) + '</span>');
-        remaining = remaining.substring(strMatch[0].length);
-        continue;
-      }
-      // Quoted identifier ("table_name")
-      var qidMatch = remaining.match(/^"[^"]*"/);
-      if (qidMatch) {
-        tokens.push('<span class="tk-id">' + escHtml(qidMatch[0]) + '</span>');
-        remaining = remaining.substring(qidMatch[0].length);
-        continue;
-      }
-      // Comment
-      var cmtMatch = remaining.match(/^--[^\\n]*/);
-      if (cmtMatch) {
-        tokens.push('<span class="tk-cmt">' + escHtml(cmtMatch[0]) + '</span>');
-        remaining = remaining.substring(cmtMatch[0].length);
-        continue;
-      }
-      // Number
-      var numMatch = remaining.match(/^-?\\d+(?:\\.\\d+)?(?![a-zA-Z_])/);
-      if (numMatch) {
-        tokens.push('<span class="tk-num">' + escHtml(numMatch[0]) + '</span>');
-        remaining = remaining.substring(numMatch[0].length);
-        continue;
-      }
-      // Word (keyword or identifier)
-      var wordMatch = remaining.match(/^[a-zA-Z_][a-zA-Z0-9_]*/);
-      if (wordMatch) {
-        var w = wordMatch[0];
-        if (SQL_KEYWORDS.test(w)) {
-          tokens.push('<span class="tk-kw">' + escHtml(w) + '</span>');
-        } else {
-          tokens.push('<span class="tk-id">' + escHtml(w) + '</span>');
-        }
-        remaining = remaining.substring(w.length);
-        continue;
-      }
-      // Operators
-      var opMatch = remaining.match(/^[<>=!]+|^[;,()*.]/);
-      if (opMatch) {
-        tokens.push('<span class="tk-op">' + escHtml(opMatch[0]) + '</span>');
-        remaining = remaining.substring(opMatch[0].length);
-        continue;
-      }
-      // Other (whitespace, etc.)
-      tokens.push(escHtml(remaining[0]));
-      remaining = remaining.substring(1);
-    }
-    return tokens.join('');
+  // Shared with Diff Panel; the same shipped asset is inlined above.
+  var highlightSql = window.ViewstorSql.highlightSql;
+
+  function autoSizeQueryInput(textarea) {
+    var maxHeight = 160;
+    textarea.style.height = 'auto';
+    var height = Math.min(textarea.scrollHeight, maxHeight);
+    if (height > 0) textarea.style.height = height + 'px';
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }
 
   function updateQueryHighlight() {
@@ -647,6 +637,9 @@ ${getCtxMenuScript()}
     var highlight = document.getElementById('queryHighlight');
     if (!textarea || !highlight) return;
     highlight.innerHTML = highlightSql(textarea.value) + '\\n';
+    autoSizeQueryInput(textarea);
+    highlight.scrollLeft = textarea.scrollLeft;
+    highlight.scrollTop = textarea.scrollTop;
   }
 
   let pendingEdits = new Map();
@@ -1681,12 +1674,15 @@ ${getCtxMenuScript()}
   var queryRunBtn = document.getElementById('queryRun');
   if (queryInput) {
     queryInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); runCustomQuery(); }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runCustomQuery(); }
     });
     queryInput.addEventListener('input', updateQueryHighlight);
     queryInput.addEventListener('scroll', function() {
       var highlight = document.getElementById('queryHighlight');
-      if (highlight) { highlight.scrollLeft = queryInput.scrollLeft; }
+      if (highlight) {
+        highlight.scrollLeft = queryInput.scrollLeft;
+        highlight.scrollTop = queryInput.scrollTop;
+      }
     });
     queryRunBtn.addEventListener('click', runCustomQuery);
     updateQueryHighlight();

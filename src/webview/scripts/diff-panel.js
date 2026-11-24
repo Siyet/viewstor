@@ -90,6 +90,74 @@
     });
   });
 
+  // ---- Row search (shared UX with Result Grid) ----
+  const searchInput = document.getElementById('diffSearchInput');
+  const searchCount = document.getElementById('diffSearchCount');
+  let searchTerm = '';
+  let searchHits = [];
+  let searchIndex = -1;
+
+  function refreshRowSearch() {
+    document.querySelectorAll('.diff-table td.search-hit, .diff-table td.search-focus').forEach(function (cell) {
+      cell.classList.remove('search-hit', 'search-focus');
+    });
+    searchHits = [];
+    searchIndex = -1;
+    if (!searchTerm) {
+      if (searchCount) searchCount.textContent = '';
+      return;
+    }
+    document.querySelectorAll('#leftTableBody td, #rightTableBody td').forEach(function (cell) {
+      if (String(cell.textContent || '').toLocaleLowerCase().includes(searchTerm)) {
+        cell.classList.add('search-hit');
+        searchHits.push(cell);
+      }
+    });
+    if (searchCount) searchCount.textContent = searchHits.length > 0 ? searchHits.length + ' found' : 'no match';
+  }
+
+  function focusSearchHit(direction) {
+    if (searchHits.length === 0) return;
+    document.querySelectorAll('.diff-table td.search-focus').forEach(function (cell) {
+      cell.classList.remove('search-focus');
+    });
+    searchIndex = (searchIndex + direction + searchHits.length) % searchHits.length;
+    const cell = searchHits[searchIndex];
+    cell.classList.add('search-focus');
+    cell.scrollIntoView({ block: 'center', inline: 'center' });
+    if (searchCount) searchCount.textContent = (searchIndex + 1) + ' / ' + searchHits.length;
+  }
+
+  function clearRowSearch() {
+    if (!searchInput) return;
+    searchInput.value = '';
+    searchTerm = '';
+    refreshRowSearch();
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', function () {
+      searchTerm = String(searchInput.value || '').trim().toLocaleLowerCase();
+      refreshRowSearch();
+    });
+    searchInput.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' && searchHits.length > 0) {
+        event.preventDefault();
+        focusSearchHit(event.shiftKey ? -1 : 1);
+      } else if (event.key === 'Escape' && searchTerm) {
+        event.preventDefault();
+        clearRowSearch();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', function (event) {
+    if (activeTab !== 'rows' || !(event.ctrlKey || event.metaKey) || event.code !== 'KeyF' || !searchInput) return;
+    event.preventDefault();
+    searchInput.focus();
+    searchInput.select();
+  });
+
   // ---- Export + swap buttons ----
   const exportCsvBtn = document.getElementById('exportCsv');
   const exportJsonBtn = document.getElementById('exportJson');
@@ -112,30 +180,8 @@
   const queryRightErrEl = document.getElementById('diffQueryRightError');
   const queryEditorEl = document.getElementById('diffQueryEditor');
 
-  // SQL token keywords — kept in sync with src/views/resultPanel.ts highlightSql.
-  const SQL_KW = /\b(SELECT|FROM|WHERE|AND|OR|NOT|IN|IS|NULL|AS|ON|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|INDEX|VIEW|DISTINCT|BETWEEN|LIKE|ILIKE|EXISTS|CASE|WHEN|THEN|ELSE|END|UNION|ALL|ASC|DESC|WITH|DEFAULT|CASCADE|PRIMARY|KEY|REFERENCES|FOREIGN|CONSTRAINT|RETURNING|EXPLAIN|ANALYZE|COUNT|SUM|AVG|MIN|MAX|COALESCE|NULLIF|CAST|TRUE|FALSE|BOOLEAN|INTEGER|TEXT|VARCHAR|NUMERIC|SERIAL|BIGSERIAL|TIMESTAMP|TIMESTAMPTZ|DATE|TIME|INTERVAL|JSONB?|UUID|ARRAY|BIGINT|SMALLINT|REAL|DOUBLE|PRECISION|CHAR|DECIMAL|FLOAT)\b/i;
-  function escSql(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-  function highlightSql(text) {
-    const out = [];
-    let rest = text;
-    while (rest.length > 0) {
-      let m;
-      if ((m = rest.match(/^'(?:[^'\\]|\\.)*'|^'(?:[^']|'')*'/))) { out.push('<span class="tk-str">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
-      if ((m = rest.match(/^"[^"]*"/))) { out.push('<span class="tk-id">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
-      if ((m = rest.match(/^--[^\n]*/))) { out.push('<span class="tk-cmt">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
-      if ((m = rest.match(/^-?\d+(?:\.\d+)?(?![a-zA-Z_])/))) { out.push('<span class="tk-num">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
-      if ((m = rest.match(/^[a-zA-Z_][a-zA-Z0-9_]*/))) {
-        const w = m[0];
-        out.push(SQL_KW.test(w) ? '<span class="tk-kw">' + escSql(w) + '</span>' : '<span class="tk-id">' + escSql(w) + '</span>');
-        rest = rest.substring(w.length);
-        continue;
-      }
-      if ((m = rest.match(/^[<>=!]+|^[;,()*.]/))) { out.push('<span class="tk-op">' + escSql(m[0]) + '</span>'); rest = rest.substring(m[0].length); continue; }
-      out.push(escSql(rest[0]));
-      rest = rest.substring(1);
-    }
-    return out.join('');
-  }
+  // Shared with Result Panel; loaded before this consumer by diffPanel.ts.
+  const highlightSql = window.ViewstorSql.highlightSql;
 
   function autoSize(textarea) {
     if (!textarea) return;
@@ -149,6 +195,8 @@
     if (!textarea || !highlight) return;
     highlight.innerHTML = highlightSql(textarea.value) + '\n';
     autoSize(textarea);
+    highlight.scrollLeft = textarea.scrollLeft;
+    highlight.scrollTop = textarea.scrollTop;
   }
 
   function refreshAllHighlights() {
@@ -239,10 +287,16 @@
       sendQueryState();
     });
     queryLeftEl.addEventListener('scroll', function () {
-      if (queryLeftHlEl) queryLeftHlEl.scrollLeft = queryLeftEl.scrollLeft;
+      if (queryLeftHlEl) {
+        queryLeftHlEl.scrollLeft = queryLeftEl.scrollLeft;
+        queryLeftHlEl.scrollTop = queryLeftEl.scrollTop;
+      }
     });
     queryRightEl.addEventListener('scroll', function () {
-      if (queryRightHlEl) queryRightHlEl.scrollLeft = queryRightEl.scrollLeft;
+      if (queryRightHlEl) {
+        queryRightHlEl.scrollLeft = queryRightEl.scrollLeft;
+        queryRightHlEl.scrollTop = queryRightEl.scrollTop;
+      }
     });
     if (querySyncEl) {
       querySyncEl.addEventListener('change', function () {
@@ -373,6 +427,7 @@
 
     leftBody.innerHTML = leftHtml;
     rightBody.innerHTML = rightHtml;
+    refreshRowSearch();
 
     if (!window.__diffScrollSyncWired) {
       window.__diffScrollSyncWired = true;

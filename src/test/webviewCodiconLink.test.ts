@@ -19,6 +19,7 @@ const PANEL_FILES = [
   'diff/diffPanel.ts',
   'views/connectionForm.ts',
   'views/folderForm.ts',
+  'er/erDiagramPanel.ts',
 ];
 
 const CODICON_LINK_RE = /<link\b[^>]*codiconUri[^>]*>/i;
