@@ -193,7 +193,7 @@ All auto-connect. Returns structured JSON or `{ error }`.
 
 9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`.
 
-`add_connection` is gated by `allowAddConnection` setting: `'off'` removes the tool from `ListToolsRequestSchema` and returns an error; `'restricted'` (default) forces `readonly: true`, `scope: 'project'`, name prefix `[agent] `, and sets `agentCreated: true`; `'unrestricted'` preserves today's behavior with a warning. `ConnectionConfig.agentCreated` marks agent-created connections; the tree view shows an `agent` badge on them.
+`add_connection` is gated by the user-owned `allowAddConnection` setting (project files cannot override it): `'off'` removes the tool from `ListToolsRequestSchema` and returns an error; `'restricted'` (default, also used for invalid values) forces `readonly: true`, `scope: 'project'`, name prefix `[agent] `, and sets `agentCreated: true`; `'unrestricted'` preserves today's behavior with a warning. `src/mcp-server/addConnection.ts` resolves and audits every call in `~/.viewstor/audit.jsonl` with secrets omitted; `queryExecutor.ts` owns `execute_query` and its readonly guard. `ConnectionConfig.agentCreated` marks agent-created connections; the tree view shows an `agent` badge on them.
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter. `ConnectionStore.ensureDriverForDatabase()` mirrors `ConnectionManager.getDriverForDatabase()` — caches per `connectionId:database`, reuses host/user/password/ssl. VS Code MCP commands accept `database` as a trailing optional arg.
 

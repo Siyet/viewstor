@@ -61,8 +61,10 @@ export class ConnectionStore {
         folder.scope = scope;
         this.folders.set(folder.id, folder);
       }
-      if (data.settings) {
-        Object.assign(this.settings, data.settings);
+      // Security settings are user-owned: a project file must never be able to
+      // override an `off` / `restricted` policy chosen in the user config.
+      if (scope === 'user' && data.settings) {
+        this.settings = { ...data.settings };
       }
     } catch {
       // File doesn't exist or invalid JSON — skip silently

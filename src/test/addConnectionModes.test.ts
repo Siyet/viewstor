@@ -2,10 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import {
+  handleAddConnection,
+  resolveAddConnectionMode,
+} from '../mcp-server/addConnection';
+import { handleExecuteQuery } from '../mcp-server/queryExecutor';
 
-const TEST_DIR = path.join(os.tmpdir(), `viewstor-add-conn-test-${Date.now()}`);
+const TEST_DIR = path.join(os.tmpdir(), `viewstor-add-conn-test-${process.pid}-${Date.now()}`);
 const USER_CONFIG_DIR = path.join(TEST_DIR, '.viewstor');
 const USER_CONFIG_FILE = path.join(USER_CONFIG_DIR, 'connections.json');
+const AUDIT_FILE = path.join(USER_CONFIG_DIR, 'audit.jsonl');
 const PROJECT_DIR = path.join(TEST_DIR, 'project');
 const PROJECT_CONFIG_FILE = path.join(PROJECT_DIR, '.vscode', 'viewstor.json');
 
@@ -37,10 +43,16 @@ describe('add_connection modes', () => {
     process.chdir(origCwd);
     fs.rmSync(TEST_DIR, { recursive: true, force: true });
     vi.resetModules();
+    vi.restoreAllMocks();
   });
 
   function writeUserConfig(data: Record<string, unknown>) {
     fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(data, null, 2), 'utf8');
+  }
+
+  function writeProjectConfig(data: Record<string, unknown>) {
+    fs.mkdirSync(path.dirname(PROJECT_CONFIG_FILE), { recursive: true });
+    fs.writeFileSync(PROJECT_CONFIG_FILE, JSON.stringify(data, null, 2), 'utf8');
   }
 
   async function loadStore() {
@@ -48,146 +60,173 @@ describe('add_connection modes', () => {
     return new mod.ConnectionStore();
   }
 
-  // --- Settings loading ---
+  function input(readonly?: boolean) {
+    return {
+      name: 'Sandbox',
+      type: 'sqlite' as const,
+      host: '',
+      port: 0,
+      database: ':memory:',
+      username: 'agent-user',
+      password: 'super-secret',
+      ...(readonly === undefined ? {} : { readonly }),
+    };
+  }
 
-  it('defaults allowAddConnection to undefined (caller defaults to restricted)', async () => {
+  function payload(response: { content: { text: string }[] }) {
+    return JSON.parse(response.content[0].text);
+  }
+
+  function auditEntries() {
+    return fs.readFileSync(AUDIT_FILE, 'utf8')
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line));
+  }
+
+  it('defaults a missing or invalid mode to restricted', async () => {
     writeUserConfig({ connections: [] });
     const store = await loadStore();
-    expect(store.getSettings().allowAddConnection).toBeUndefined();
+    expect(resolveAddConnectionMode(store.getSettings().allowAddConnection)).toBe('restricted');
+    expect(resolveAddConnectionMode('unexpected')).toBe('restricted');
   });
 
-  it('reads allowAddConnection from config settings', async () => {
+  it('does not let project settings override the user-owned mode', async () => {
     writeUserConfig({ connections: [], settings: { allowAddConnection: 'off' } });
+    writeProjectConfig({ connections: [], settings: { allowAddConnection: 'unrestricted' } });
     const store = await loadStore();
     expect(store.getSettings().allowAddConnection).toBe('off');
   });
 
-  it('reads allowAddConnection=unrestricted', async () => {
-    writeUserConfig({ connections: [], settings: { allowAddConnection: 'unrestricted' } });
+  it('reloads changed user settings', async () => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
     const store = await loadStore();
-    expect(store.getSettings().allowAddConnection).toBe('unrestricted');
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'off' } });
+    store.reload();
+    expect(store.getSettings().allowAddConnection).toBe('off');
   });
 
-  // --- Store: project-scoped persistence ---
-
-  it('project-scoped save persists readonly flag', async () => {
-    writeUserConfig({ connections: [] });
+  it.each([true, false, undefined])('restricted mode enforces the final config for readonly=%s', async readonly => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
     const store = await loadStore();
-    await store.add({
-      id: 'test-1', name: 'Test', type: 'postgresql', host: 'localhost', port: 5432,
-      readonly: true, scope: 'project', agentCreated: true,
-    });
-    const saved = store.get('test-1');
-    expect(saved?.readonly).toBe(true);
-  });
+    const response = await handleAddConnection(store, input(readonly));
+    const body = payload(response);
+    const saved = store.get(body.id);
 
-  it('project-scoped save persists scope', async () => {
-    writeUserConfig({ connections: [] });
-    const store = await loadStore();
-    await store.add({
-      id: 'test-2', name: '[agent] PG', type: 'postgresql', host: 'localhost', port: 5432,
-      scope: 'project', agentCreated: true, readonly: true,
+    expect(saved).toMatchObject({
+      name: '[agent] Sandbox',
+      readonly: true,
+      scope: 'project',
+      agentCreated: true,
     });
-    const saved = store.get('test-2');
-    expect(saved?.scope).toBe('project');
-  });
-
-  it('project-scoped save strips password', async () => {
-    writeUserConfig({ connections: [] });
-    const store = await loadStore();
-    await store.add({
-      id: 'test-pw', name: '[agent] PW', type: 'postgresql', host: 'localhost', port: 5432,
-      username: 'user', password: 'secret',
-      scope: 'project', agentCreated: true, readonly: true,
-    });
+    expect((body.warnings ?? []).some((warning: { kind: string }) => warning.kind === 'readonly_forced')).toBe(readonly === false);
 
     const projectData = JSON.parse(fs.readFileSync(PROJECT_CONFIG_FILE, 'utf8'));
-    const conn = projectData.connections.find((c: { id: string }) => c.id === 'test-pw');
-    expect(conn).toBeDefined();
-    expect(conn.password).toBeUndefined();
+    expect(projectData.connections).toHaveLength(1);
+    expect(projectData.connections[0].password).toBeUndefined();
+    expect(JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8')).connections).toEqual([]);
   });
 
-  it('project-scoped save preserves name', async () => {
-    writeUserConfig({ connections: [] });
+  it.each([true, false, undefined])('unrestricted mode preserves readonly=%s and returns a warning', async readonly => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'unrestricted' } });
     const store = await loadStore();
-    await store.add({
-      id: 'test-prefix', name: '[agent] My DB', type: 'postgresql', host: 'localhost', port: 5432,
-      scope: 'project', agentCreated: true, readonly: true,
-    });
-    const saved = store.get('test-prefix');
-    expect(saved?.name).toBe('[agent] My DB');
+    const response = await handleAddConnection(store, input(readonly));
+    const body = payload(response);
+    const saved = store.get(body.id);
+
+    expect(saved?.readonly).toBe(readonly);
+    expect(saved?.scope).toBeUndefined();
+    expect(saved?.agentCreated).toBe(true);
+    expect(body.warnings).toEqual([
+      expect.objectContaining({ kind: 'agent_created_writeable_connection' }),
+    ]);
+    expect(JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8')).connections).toHaveLength(1);
   });
 
-  it('user-scoped save preserves settings and folders', async () => {
+  it('off mode returns tool_disabled, creates nothing, and audits the call', async () => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'off' } });
+    const store = await loadStore();
+    const response = await handleAddConnection(store, input(false));
+
+    expect(response.isError).toBe(true);
+    expect(payload(response)).toMatchObject({ kind: 'tool_disabled' });
+    expect(store.getAll()).toEqual([]);
+    expect(auditEntries()).toEqual([
+      expect.objectContaining({ tool: 'add_connection', mode: 'off', outcome: 'disabled' }),
+    ]);
+  });
+
+  it('audits the resolved config without persisting the password', async () => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
+    const store = await loadStore();
+    const response = await handleAddConnection(store, input(false));
+    const body = payload(response);
+    const [entry] = auditEntries();
+
+    expect(entry).toMatchObject({
+      tool: 'add_connection',
+      mode: 'restricted',
+      outcome: 'resolved',
+      config: {
+        id: body.id,
+        name: '[agent] Sandbox',
+        readonly: true,
+        scope: 'project',
+        agentCreated: true,
+      },
+    });
+    expect(JSON.stringify(entry)).not.toContain('super-secret');
+    expect(entry.config).not.toHaveProperty('password');
+  });
+
+  it('ignores undeclared config fields supplied at runtime', async () => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
+    const store = await loadStore();
+    const response = await handleAddConnection(store, {
+      ...input(false),
+      scope: 'user',
+      agentCreated: false,
+      proxy: { type: 'ssh', sshPassword: 'proxy-secret' },
+      options: { token: 'option-secret' },
+    });
+    const body = payload(response);
+    const saved = store.get(body.id);
+
+    expect(saved).toMatchObject({ readonly: true, scope: 'project', agentCreated: true });
+    expect(saved).not.toHaveProperty('proxy');
+    expect(saved).not.toHaveProperty('options');
+    expect(fs.readFileSync(PROJECT_CONFIG_FILE, 'utf8')).not.toContain('proxy-secret');
+    expect(fs.readFileSync(AUDIT_FILE, 'utf8')).not.toContain('option-secret');
+  });
+
+  it('preserves existing user settings and folders on unrestricted saves', async () => {
     writeUserConfig({
       connections: [],
       settings: { allowAddConnection: 'unrestricted' },
       folders: [{ id: 'f1', name: 'Folder' }],
     });
     const store = await loadStore();
-    await store.add({
-      id: 'test-preserve', name: 'Preserve', type: 'postgresql', host: 'localhost', port: 5432,
-      agentCreated: true,
-    });
+    await handleAddConnection(store, input());
+
     const userData = JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8'));
     expect(userData.settings).toEqual({ allowAddConnection: 'unrestricted' });
     expect(userData.folders).toEqual([{ id: 'f1', name: 'Folder' }]);
   });
 
-  // --- Unrestricted mode ---
-
-  it('unrestricted mode: allows readonly=false', async () => {
-    writeUserConfig({ connections: [], settings: { allowAddConnection: 'unrestricted' } });
-    const store = await loadStore();
-    await store.add({
-      id: 'test-unr', name: 'Unr', type: 'postgresql', host: 'localhost', port: 5432,
-      readonly: false, agentCreated: true,
-    });
-    const saved = store.get('test-unr');
-    expect(saved?.readonly).toBe(false);
-  });
-
-  it('unrestricted mode: saves to user config by default', async () => {
-    writeUserConfig({ connections: [], settings: { allowAddConnection: 'unrestricted' } });
-    const store = await loadStore();
-    await store.add({
-      id: 'test-user', name: 'User', type: 'postgresql', host: 'localhost', port: 5432,
-      agentCreated: true,
-    });
-    const userData = JSON.parse(fs.readFileSync(USER_CONFIG_FILE, 'utf8'));
-    const conn = userData.connections.find((c: { id: string }) => c.id === 'test-user');
-    expect(conn).toBeDefined();
-  });
-
-  // --- agentCreated flag ---
-
-  it('sets agentCreated=true on added connections', async () => {
-    writeUserConfig({ connections: [] });
-    const store = await loadStore();
-    await store.add({
-      id: 'test-ac', name: '[agent] AC', type: 'sqlite', host: '', port: 0,
-      database: ':memory:', agentCreated: true, readonly: true, scope: 'project',
-    });
-    expect(store.get('test-ac')?.agentCreated).toBe(true);
-  });
-
-  // --- Off mode ---
-
-  it('off mode: tool is not listed (verified by settings value)', async () => {
-    writeUserConfig({ connections: [], settings: { allowAddConnection: 'off' } });
-    const store = await loadStore();
-    expect(store.getSettings().allowAddConnection).toBe('off');
-  });
-
-  // --- Settings reload ---
-
-  it('reload picks up changed settings', async () => {
+  it('blocks UPDATE through execute_query after restricted connection creation', async () => {
     writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
     const store = await loadStore();
-    expect(store.getSettings().allowAddConnection).toBe('restricted');
+    const added = payload(await handleAddConnection(store, input(false)));
+    const driver = await store.ensureDriver(added.id);
+    const execute = vi.spyOn(driver, 'execute');
 
-    writeUserConfig({ connections: [], settings: { allowAddConnection: 'off' } });
-    store.reload();
-    expect(store.getSettings().allowAddConnection).toBe('off');
+    const response = await handleExecuteQuery(store, {
+      connectionId: added.id,
+      query: 'UPDATE items SET value = 1',
+    });
+
+    expect(response.isError).toBe(true);
+    expect(payload(response).error).toContain('Connection is read-only');
+    expect(execute).not.toHaveBeenCalled();
   });
 });

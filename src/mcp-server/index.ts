@@ -6,14 +6,15 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ConnectionStore, StandaloneMcpSettings } from './connectionStore';
+import { ConnectionStore } from './connectionStore';
+import { handleAddConnection, resolveAddConnectionMode } from './addConnection';
+import { handleExecuteQuery } from './queryExecutor';
 import { ChartConfig, EChartsChartType, isGrafanaCompatible, buildAggregationQuery } from '../types/chart';
 import { buildEChartsOption, suggestChartConfig } from '../chart/chartDataTransform';
 import { buildGrafanaDashboard } from '../chart/grafanaExport';
 import { anonymizeRows, scrubErrorMessage } from '../mcp/anonymizer';
 import { wrapError } from '../utils/errors';
-import { isReadOnlyQuery } from '../utils/queryHelpers';
-import { formatExecuteQuery, formatTableData, formatTableInfo, flattenSchema } from '../mcp/mcpFormatters';
+import { formatTableData, formatTableInfo, flattenSchema } from '../mcp/mcpFormatters';
 
 const store = new ConnectionStore();
 
@@ -50,8 +51,8 @@ const ADD_CONNECTION_TOOL: ToolDef = {
   },
 };
 
-function getAllowAddConnection(): StandaloneMcpSettings['allowAddConnection'] {
-  return store.getSettings().allowAddConnection ?? 'restricted';
+function getAllowAddConnection() {
+  return resolveAddConnectionMode(store.getSettings().allowAddConnection);
 }
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -199,20 +200,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return jsonResponse(flattenSchema(await driver.getSchema()));
       }
 
-      case 'execute_query': {
-        const { connectionId, query, database } = args as { connectionId: string; query: string; database?: string };
-        const config = store.get(connectionId);
-        if (config?.readonly && !isReadOnlyQuery(query)) {
-          return errorResponse('Connection is read-only. Only SELECT, EXPLAIN, SHOW, and WITH queries are allowed.');
-        }
-        const policy = store.getAnonymizationPolicy(connectionId);
-        const driver = await resolveDriver(connectionId, database);
-        const result = await driver.execute(query);
-        const payload = formatExecuteQuery(result);
-        payload.rows = anonymizeRows(result.columns, result.rows, policy);
-        if (payload.error) payload.error = scrubErrorMessage(payload.error, policy);
-        return jsonResponse(payload);
-      }
+      case 'execute_query':
+        return handleExecuteQuery(store, args as { connectionId: string; query: string; database?: string });
 
       case 'get_table_data': {
         const { connectionId, tableName, schema, limit, database } = args as {
@@ -239,56 +228,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return jsonResponse(payload);
       }
 
-      case 'add_connection': {
-        const mode = getAllowAddConnection();
-        if (mode === 'off') {
-          return {
-            content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Tool disabled. Configure allowAddConnection in ~/.viewstor/connections.json settings.', kind: 'tool_disabled' }) }],
-            isError: true,
-          };
-        }
-
-        const { name: connName, type, host, port, username, password, database, ssl, readonly } = args as {
-          name: string; type: 'postgresql' | 'redis' | 'clickhouse' | 'sqlite';
-          host: string; port: number;
-          username?: string; password?: string; database?: string;
-          ssl?: boolean; readonly?: boolean;
-        };
-        const id = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
-        const warnings: { kind: string; message: string }[] = [];
-
-        if (mode === 'restricted') {
-          if (readonly === false) {
-            warnings.push({ kind: 'readonly_forced', message: 'readonly: false was ignored; agent-created connections are always read-only in restricted mode.' });
-          }
-          const restrictedName = connName.startsWith('[agent] ') ? connName : `[agent] ${connName}`;
-          const config = {
-            id, name: restrictedName, type, host, port, username, password, database, ssl,
-            readonly: true,
-            scope: 'project' as const,
-            agentCreated: true,
-          };
-          await store.add(config);
-          return jsonResponse({
-            id, name: restrictedName, type, host, port, database,
-            message: 'Connection added (restricted mode: read-only, project-scoped)',
-            ...(warnings.length > 0 ? { warnings } : {}),
-          });
-        }
-
-        // unrestricted mode
-        const config = {
-          id, name: connName, type, host, port, username, password, database, ssl, readonly,
-          agentCreated: true,
-        };
-        await store.add(config);
-        warnings.push({ kind: 'agent_created_writeable_connection', message: 'Connection created with unrestricted agent access.' });
-        return jsonResponse({
-          id, name: connName, type, host, port, database,
-          message: 'Connection added',
-          warnings,
-        });
-      }
+      case 'add_connection':
+        return handleAddConnection(store, args);
 
       case 'reload_connections': {
         await store.disconnectAll();

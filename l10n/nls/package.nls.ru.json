@@ -52,5 +52,9 @@
   "command.compareWith": "Сравнить с...",
   "command.compareData": "Сравнить данные",
   "config.diffRowLimit.description": "Максимальное количество строк для сравнения на таблицу.",
-  "command.showErDiagram": "Показать ER-диаграмму"
+  "command.showErDiagram": "Показать ER-диаграмму",
+  "config.standaloneMcp.allowAddConnection.description": "Определяет, могут ли CLI-агенты создавать подключения через инструмент add_connection автономного MCP-сервера. Режим 'restricted' принудительно делает их read-only и проектными; 'off' полностью отключает инструмент.",
+  "config.standaloneMcp.allowAddConnection.off": "Инструмент удалён — агенты не могут создавать подключения",
+  "config.standaloneMcp.allowAddConnection.restricted": "Подключения агентов принудительно read-only, проектные и с префиксом [agent] (по умолчанию)",
+  "config.standaloneMcp.allowAddConnection.unrestricted": "Без ограничений — агенты могут создавать подключения с правами записи (используйте с осторожностью)"
 }

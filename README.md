@@ -246,10 +246,12 @@ Or add manually:
 
 All MCP interfaces auto-connect and respect read-only mode.
 
-**`add_connection` safety modes** — controlled by `settings.allowAddConnection` in `~/.viewstor/connections.json`:
+**`add_connection` safety modes** — controlled by `settings.allowAddConnection` in the user-owned `~/.viewstor/connections.json` (project files cannot override it):
 - `"restricted"` (default): agent-created connections are forced read-only, project-scoped (password stripped), and prefixed `[agent] `.
 - `"off"`: tool removed entirely — agents cannot create connections.
 - `"unrestricted"`: no restrictions (opt-in only).
+
+Every call is recorded in `~/.viewstor/audit.jsonl`, including the resolved final configuration. Passwords and other secrets are omitted from the audit log.
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter — query another database on the same server without creating a new connection or re-entering the password.
 
