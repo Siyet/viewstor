@@ -342,15 +342,20 @@ export class ConnectionManager {
     } catch { /* ignore write errors */ }
   }
 
-  /** Sync only an explicit user-global VS Code setting; undefined means no-op. */
-  syncStandaloneMcpSettings(allowAddConnection: StandaloneMcpSettings['allowAddConnection']) {
-    if (allowAddConnection === undefined) return;
+  /** Sync an explicit VS Code value and report whether persistence succeeded. */
+  syncStandaloneMcpSettings(allowAddConnection: StandaloneMcpSettings['allowAddConnection']): boolean {
+    if (allowAddConnection === undefined) return true;
     try {
       const data = this.readUserConfigData();
-      if (data.settings?.allowAddConnection === allowAddConnection) return;
+      if (data.settings?.allowAddConnection === allowAddConnection) return true;
       data.settings = { ...data.settings, allowAddConnection };
       this.writeUserConfigData(data);
-    } catch { /* a running standalone server keeps using its last readable config */ }
+      return true;
+    } catch {
+      // A running standalone server keeps using its last readable config; the caller
+      // retains its persistent marker so the next activation can retry a reset.
+      return false;
+    }
   }
 
   private async saveFolders() {

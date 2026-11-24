@@ -31,7 +31,7 @@ let outputChannel: vscode.LogOutputChannel;
 let tempFileManager: TempFileManager;
 let queryFileManager: QueryFileManager;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('Viewstor', { log: true });
   context.subscriptions.push(outputChannel);
   setDebugChannel(outputChannel);
@@ -44,16 +44,21 @@ export function activate(context: vscode.ExtensionContext) {
     // workspace settings must not overwrite the user-owned standalone MCP policy.
     const syncStandaloneMcpSetting = createStandaloneMcpSettingsSync(
       value => connectionManager.syncStandaloneMcpSettings(value),
+      context.globalState,
     );
-    const syncStandaloneMcpSettings = () => {
+    const syncStandaloneMcpSettings = async () => {
       const value = vscode.workspace.getConfiguration('viewstor')
         .inspect<'off' | 'restricted' | 'unrestricted'>('standaloneMcp.allowAddConnection')?.globalValue;
-      syncStandaloneMcpSetting(value);
+      try {
+        await syncStandaloneMcpSetting(value);
+      } catch (err) {
+        outputChannel.error(`Failed to sync standalone MCP settings: ${wrapError(err)}`);
+      }
     };
-    syncStandaloneMcpSettings();
-    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    await syncStandaloneMcpSettings();
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async event => {
       if (event.affectsConfiguration('viewstor.standaloneMcp.allowAddConnection')) {
-        syncStandaloneMcpSettings();
+        await syncStandaloneMcpSettings();
       }
     }));
 

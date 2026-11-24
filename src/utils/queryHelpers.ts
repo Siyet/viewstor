@@ -4,9 +4,10 @@ const READ_VERB_RE = /^\s*(SELECT|WITH|EXPLAIN|SHOW|VALUES|TABLE|DESCRIBE|DESC)\
 // Verbs that mutate state — anywhere they appear (CTE body, EXPLAIN target, etc.) the statement is NOT read-only.
 const WRITE_VERB_RE = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE|MERGE|COPY|REPLACE|VACUUM|REFRESH|REINDEX|CALL|LOCK|NOTIFY|LISTEN|UNLISTEN|RESET|COMMIT|ROLLBACK|SAVEPOINT|INTO)\b/i;
 // Known PostgreSQL functions that mutate sequences, sessions, files, or server state
-// despite appearing inside an otherwise ordinary SELECT. Native readonly mode remains
-// the second line of defense; this list is deliberately not presented as a SQL sandbox.
-const SIDE_EFFECT_FUNCTION_RE = /\b(?:nextval|setval|set_config|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_create_restore_point|pg_switch_wal|pg_switch_xlog|pg_start_backup|pg_stop_backup|pg_promote|pg_wal_replay_pause|pg_wal_replay_resume|pg_drop_replication_slot|pg_create_physical_replication_slot|pg_create_logical_replication_slot|pg_replication_slot_advance|pg_advisory_lock|pg_advisory_lock_shared|lo_import|lo_export|dblink_exec)\s*\(/i;
+// despite appearing inside an otherwise ordinary SELECT. Also conservatively reject
+// Unicode-escaped quoted function identifiers (`U&"..."`, optionally with UESCAPE).
+// Native readonly remains the second line of defense; this is not a SQL sandbox.
+const SIDE_EFFECT_FUNCTION_RE = /(?:\b(?:nextval|setval|set_config|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_create_restore_point|pg_switch_wal|pg_switch_xlog|pg_start_backup|pg_stop_backup|pg_promote|pg_wal_replay_pause|pg_wal_replay_resume|pg_drop_replication_slot|pg_create_physical_replication_slot|pg_create_logical_replication_slot|pg_replication_slot_advance|pg_advisory_lock|pg_advisory_lock_shared|lo_import|lo_export|dblink_exec)\s*\(|\bU&(?:\s+UESCAPE\s+)?\s*\()/i;
 // PG: EXPLAIN ANALYZE actually executes the inner statement. ANALYZE may sit inside a parenthesized option list.
 const EXPLAIN_ANALYZE_RE = /^\s*EXPLAIN\s+(?:\([^)]*\bANALYZE\b[^)]*\)|ANALYZE\b)/i;
 

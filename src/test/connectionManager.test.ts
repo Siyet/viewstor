@@ -1032,7 +1032,7 @@ describe('ConnectionManager', () => {
 
     it('does not overwrite a manual JSON policy when the VS Code value is only a default', () => {
       const manager = createManager();
-      manager.syncStandaloneMcpSettings(undefined);
+      expect(manager.syncStandaloneMcpSettings(undefined)).toBe(true);
       expect(fs.writeFileSync).not.toHaveBeenCalled();
     });
 
@@ -1045,12 +1045,21 @@ describe('ConnectionManager', () => {
       }));
       const manager = createManager();
 
-      manager.syncStandaloneMcpSettings('off');
+      expect(manager.syncStandaloneMcpSettings('off')).toBe(true);
 
       const calls = (fs.writeFileSync as Mock).mock.calls;
       const data = JSON.parse(calls[calls.length - 1][1] as string);
       expect(data.settings).toEqual({ allowAddConnection: 'off', futureSetting: 42 });
       expect(data.futureTopLevel).toBe('keep');
+    });
+
+    it('reports a failed standalone policy write so the reset marker can be retained', () => {
+      (fs.existsSync as Mock).mockReturnValue(true);
+      (fs.readFileSync as Mock).mockReturnValue(JSON.stringify({ connections: [] }));
+      (fs.writeFileSync as Mock).mockImplementationOnce(() => { throw new Error('disk full'); });
+      const manager = createManager();
+
+      expect(manager.syncStandaloneMcpSettings('unrestricted')).toBe(false);
     });
 
     it('persists agentCreated for project-scoped connections', async () => {

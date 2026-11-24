@@ -141,6 +141,10 @@ describe('isReadOnlyQuery — bypass rejection (review item #1)', () => {
     'SELECT "nextval" -- comment\n (\'custom_seq\')',
     'SELECT "set_config"(\'default_transaction_read_only\', \'off\', false)',
     'SELECT pg_catalog."pg_terminate_backend"(123)',
+    'SELECT U&"\\0073et_config"(\'default_transaction_read_only\', \'off\', false)',
+    'SELECT pg_catalog.u&"\\006Eextval" /* comment */ (\'custom_seq\')',
+    'SELECT U&"\\+006Eextval"(\'custom_seq\')',
+    'SELECT U&"nextval" UESCAPE \'!\' (\'custom_seq\')',
   ])('rejects side-effecting SELECT form: %s', (sql) => {
     expect(isReadOnlyQuery(sql)).toBe(false);
   });
@@ -197,5 +201,12 @@ describe('isReadOnlyQuery — false-positive avoidance (literals/identifiers)', 
     expect(isReadOnlyQuery('SELECT "nextval" FROM sequences')).toBe(true);
     expect(isReadOnlyQuery('SELECT "nextval(" FROM sequences')).toBe(true);
     expect(isReadOnlyQuery('SELECT "delete_log" FROM audit')).toBe(true);
+    expect(isReadOnlyQuery('SELECT U&"\\006Eextval" FROM sequences')).toBe(true);
+  });
+
+  it('does not reject Unicode function syntax inside literals or comments', () => {
+    expect(isReadOnlyQuery('SELECT \'U&"\\0073et_config"(\' AS label')).toBe(true);
+    expect(isReadOnlyQuery('SELECT 1 /* U&"nextval"( */')).toBe(true);
+    expect(isReadOnlyQuery('SELECT $body$U&"nextval"($body$')).toBe(true);
   });
 });

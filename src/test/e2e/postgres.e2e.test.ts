@@ -184,6 +184,8 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
       for (const query of [
         'SELECT "set_config"(\'default_transaction_read_only\', \'off\', false)',
         'SELECT pg_catalog."nextval" /* comment */ (\'custom_seq\')',
+        'SELECT U&"\\0073et_config"(\'default_transaction_read_only\', \'off\', false)',
+        'SELECT pg_catalog.U&"\\006Eextval" /* comment */ (\'custom_seq\')',
       ]) {
         const response = await handleExecuteQuery(store, { connectionId: config.id, query });
         expect(response.isError).toBe(true);
