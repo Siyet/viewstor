@@ -24,6 +24,7 @@ import { ErDiagramPanelManager } from './er/erDiagramPanel';
 import { TempFileManager } from './services/tempFileManager';
 import { QueryFileManager } from './services/queryFileManager';
 import { setDebugChannel, dbg } from './utils/debug';
+import { createStandaloneMcpSettingsSync } from './utils/standaloneMcpSettingsSync';
 
 let connectionManager: ConnectionManager;
 let outputChannel: vscode.LogOutputChannel;
@@ -41,10 +42,13 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Only an explicitly user-scoped VS Code value is synchronized. Defaults and
     // workspace settings must not overwrite the user-owned standalone MCP policy.
+    const syncStandaloneMcpSetting = createStandaloneMcpSettingsSync(
+      value => connectionManager.syncStandaloneMcpSettings(value),
+    );
     const syncStandaloneMcpSettings = () => {
       const value = vscode.workspace.getConfiguration('viewstor')
         .inspect<'off' | 'restricted' | 'unrestricted'>('standaloneMcp.allowAddConnection')?.globalValue;
-      connectionManager.syncStandaloneMcpSettings(value);
+      syncStandaloneMcpSetting(value);
     };
     syncStandaloneMcpSettings();
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {

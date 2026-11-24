@@ -133,8 +133,22 @@ describe('isReadOnlyQuery — bypass rejection (review item #1)', () => {
     'SELECT pg_terminate_backend(pid) FROM pg_stat_activity',
     'SELECT pg_cancel_backend(pid) FROM pg_stat_activity',
     'SELECT set_config(\'work_mem\', \'1GB\', false)',
+    'SELECT "nextval"(\'custom_seq\')',
+    'SELECT "NeXtVaL"(\'custom_seq\')',
+    'SELECT pg_catalog."nextval"(\'custom_seq\')',
+    'SELECT "pg_catalog"."nextval"(\'custom_seq\')',
+    'SELECT "nextval" /* comment */ (\'custom_seq\')',
+    'SELECT "nextval" -- comment\n (\'custom_seq\')',
+    'SELECT "set_config"(\'default_transaction_read_only\', \'off\', false)',
+    'SELECT pg_catalog."pg_terminate_backend"(123)',
   ])('rejects side-effecting SELECT form: %s', (sql) => {
     expect(isReadOnlyQuery(sql)).toBe(false);
+  });
+
+  it('rejects a quoted set_config → nextval statement chain', () => {
+    expect(isReadOnlyQuery(
+      'SELECT "set_config"(\'default_transaction_read_only\', \'off\', false); SELECT "nextval"(\'custom_seq\')',
+    )).toBe(false);
   });
 
   it('rejects empty input', () => {
@@ -170,5 +184,18 @@ describe('isReadOnlyQuery — false-positive avoidance (literals/identifiers)', 
 
   it('handles dollar-quoted PG strings', () => {
     expect(isReadOnlyQuery('SELECT $body$DROP TABLE evil$body$')).toBe(true);
+    expect(isReadOnlyQuery('SELECT $body$"nextval"(\'custom_seq\')$body$')).toBe(true);
+  });
+
+  it('does not expose side-effect function text inside literals or comments', () => {
+    expect(isReadOnlyQuery('SELECT \'nextval(\' AS label')).toBe(true);
+    expect(isReadOnlyQuery('SELECT 1 /* "set_config"( */')).toBe(true);
+    expect(isReadOnlyQuery('SELECT 1 -- "nextval"(\n')).toBe(true);
+  });
+
+  it('keeps quoted function names masked outside function-call position', () => {
+    expect(isReadOnlyQuery('SELECT "nextval" FROM sequences')).toBe(true);
+    expect(isReadOnlyQuery('SELECT "nextval(" FROM sequences')).toBe(true);
+    expect(isReadOnlyQuery('SELECT "delete_log" FROM audit')).toBe(true);
   });
 });

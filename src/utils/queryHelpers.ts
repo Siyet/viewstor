@@ -10,11 +10,37 @@ const SIDE_EFFECT_FUNCTION_RE = /\b(?:nextval|setval|set_config|pg_terminate_bac
 // PG: EXPLAIN ANALYZE actually executes the inner statement. ANALYZE may sit inside a parenthesized option list.
 const EXPLAIN_ANALYZE_RE = /^\s*EXPLAIN\s+(?:\([^)]*\bANALYZE\b[^)]*\)|ANALYZE\b)/i;
 
+/** Return the next code character after whitespace and comments. */
+function nextSqlCodeIndex(sql: string, start: number): number {
+  let i = start;
+  while (i < sql.length) {
+    if (/\s/.test(sql[i])) { i++; continue; }
+    if (sql[i] === '-' && sql[i + 1] === '-') {
+      const end = sql.indexOf('\n', i);
+      if (end === -1) return sql.length;
+      i = end + 1;
+      continue;
+    }
+    if (sql[i] === '/' && sql[i + 1] === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      if (end === -1) return sql.length;
+      i = end + 2;
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
 /**
  * Replace string literals, identifier quotes, dollar-quoted strings, and comments with spaces
  * (preserving offsets) so verb-keyword scans don't misfire on `SELECT 'INSERT'` or `"delete"`.
+ *
+ * The optional second form reveals a quoted identifier only in function-call position. This
+ * closes quoted side-effect calls, including forms with comments before the parenthesis,
+ * without exposing write verbs in ordinary identifiers such as `"delete_log"`.
  */
-function maskLiteralsAndComments(sql: string): string {
+function maskLiteralsAndComments(sql: string, revealQuotedFunctionIdentifiers = false): string {
   let out = '';
   let i = 0;
   while (i < sql.length) {
@@ -47,15 +73,19 @@ function maskLiteralsAndComments(sql: string): string {
       i = j;
       continue;
     }
-    // Double-quoted identifier — column/table name, never a SQL verb
+    // Double-quoted identifier — reveal only a closed name immediately followed by `(`.
     if (ch === '"') {
       let j = i + 1;
+      let closed = false;
       while (j < sql.length) {
         if (sql[j] === '"' && sql[j + 1] === '"') { j += 2; continue; }
-        if (sql[j] === '"') { j++; break; }
+        if (sql[j] === '"') { j++; closed = true; break; }
         j++;
       }
-      out += ' '.repeat(j - i);
+      const functionCall = closed && sql[nextSqlCodeIndex(sql, j)] === '(';
+      out += revealQuotedFunctionIdentifiers && functionCall
+        ? ` ${sql.slice(i + 1, j - 1)} `
+        : ' '.repeat(j - i);
       i = j;
       continue;
     }
@@ -98,19 +128,20 @@ function maskLiteralsAndComments(sql: string): string {
  *
  * String literals, double-quoted identifiers, dollar-quoted blocks, and comments
  * are masked first so identifiers like `"delete_log"` or `'INSERT'` don't trip the
- * write-verb regex.
+ * write-verb regex. Only the side-effect function scan uses the second masked form.
  */
 export function isReadOnlyQuery(sql: string): boolean {
   const masked = maskLiteralsAndComments(sql);
+  const functionScan = maskLiteralsAndComments(sql, true);
   // Split on ; outside of (already masked) strings/comments
   const parts = masked.split(';').map(p => p.trim()).filter(p => p.length > 0);
   if (parts.length === 0) return false;
   for (const part of parts) {
     if (!READ_VERB_RE.test(part)) return false;
     if (EXPLAIN_ANALYZE_RE.test(part)) return false;
-    if (WRITE_VERB_RE.test(part) || SIDE_EFFECT_FUNCTION_RE.test(part)) return false;
+    if (WRITE_VERB_RE.test(part)) return false;
   }
-  return true;
+  return !SIDE_EFFECT_FUNCTION_RE.test(masked) && !SIDE_EFFECT_FUNCTION_RE.test(functionScan);
 }
 
 export function levenshtein(a: string, b: string): number {

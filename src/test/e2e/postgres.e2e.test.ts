@@ -173,11 +173,30 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
     await readonlyDriver.connect({ ...config, readonly: true });
     try {
       const before = await driver.execute('SELECT last_value, is_called FROM custom_seq');
+      const ensureDriver = vi.fn(async () => readonlyDriver);
+      const store = {
+        get: () => ({ ...config, readonly: true }),
+        getAnonymizationPolicy: () => ({ mode: 'off', strategy: 'hash' }),
+        ensureDriver,
+      } as unknown as import('../../mcp-server/connectionStore').ConnectionStore;
+      const { handleExecuteQuery } = await import('../../mcp-server/queryExecutor');
+
+      for (const query of [
+        'SELECT "set_config"(\'default_transaction_read_only\', \'off\', false)',
+        'SELECT pg_catalog."nextval" /* comment */ (\'custom_seq\')',
+      ]) {
+        const response = await handleExecuteQuery(store, { connectionId: config.id, query });
+        expect(response.isError).toBe(true);
+        expect(JSON.parse(response.content[0].text).error).toContain('Connection is read-only');
+      }
+      expect(ensureDriver).not.toHaveBeenCalled();
+
+      // Native readonly remains a second line of defense for driver-level execution.
       const sequenceWrite = await readonlyDriver.execute('SELECT nextval(\'custom_seq\')');
       const selectInto = await readonlyDriver.execute('SELECT * INTO readonly_into FROM users');
-
       expect(sequenceWrite.error).toMatch(/read-only/i);
       expect(selectInto.error).toMatch(/read-only/i);
+
       const after = await driver.execute('SELECT last_value, is_called FROM custom_seq');
       expect(after.rows).toEqual(before.rows);
       const tableCheck = await driver.execute('SELECT to_regclass(\'public.readonly_into\') AS table_oid');

@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type { ConnectionConfig, DatabaseType, StandaloneMcpSettings } from '../types/connection';
+import { DEFAULT_PORTS, type ConnectionConfig, type DatabaseType, type StandaloneMcpSettings } from '../types/connection';
 import type { ConnectionStore } from './connectionStore';
 
 export type AddConnectionMode = NonNullable<StandaloneMcpSettings['allowAddConnection']>;
@@ -207,11 +207,12 @@ function parseAddConnectionInput(args: unknown): AddConnectionInput {
     }
   }
 
+  const type = value.type as DatabaseType;
   return {
     name: value.name,
-    type: value.type as DatabaseType,
-    host: (value.host as string | undefined) ?? '',
-    port: (value.port as number | undefined) ?? 0,
+    type,
+    host: (value.host as string | undefined) ?? (type === 'sqlite' ? '' : 'localhost'),
+    port: (value.port as number | undefined) ?? DEFAULT_PORTS[type],
     username: value.username as string | undefined,
     password: value.password as string | undefined,
     database: value.database as string | undefined,

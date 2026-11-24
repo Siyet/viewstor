@@ -175,6 +175,33 @@ describe('add_connection modes', () => {
     }
   });
 
+  it.each([
+    ['postgresql', 'localhost', 5432],
+    ['redis', 'localhost', 6379],
+    ['clickhouse', 'localhost', 8123],
+    ['sqlite', '', 0],
+  ] as const)('applies driver defaults for a minimal %s call', async (type, host, port) => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
+    const store = await loadStore();
+
+    const response = await handleAddConnection(store, { name: `Minimal ${type}`, type });
+    const saved = store.get(payload(response).id);
+
+    expect(saved).toMatchObject({ type, host, port });
+  });
+
+  it('preserves explicitly supplied host and port', async () => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
+    const store = await loadStore();
+
+    const response = await handleAddConnection(store, {
+      name: 'Explicit Redis', type: 'redis', host: 'cache.internal', port: 6380,
+    });
+    const saved = store.get(payload(response).id);
+
+    expect(saved).toMatchObject({ host: 'cache.internal', port: 6380 });
+  });
+
   it('audits the resolved config without persisting the password', async () => {
     writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
     const store = await loadStore();
