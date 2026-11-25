@@ -31,7 +31,8 @@ jobs:
           node-version: 24.22.1
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
+      - run: npm run copy-nls
       - run: npm test
       - run: npm run package -- --out viewstor-0.5.3.vsix
 
@@ -51,7 +52,7 @@ jobs:
         run: node .github/scripts/windows-vsix-smoke.cjs
 
       - name: Upload native evidence
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: windows-vsix-native-evidence
