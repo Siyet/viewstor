@@ -11,17 +11,23 @@ const {
 } = require('node:fs');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
-const { runTests } = require('@vscode/test-electron');
+const { downloadAndUnzipVSCode, runTests } = require('@vscode/test-electron');
 
 const repositoryRoot = path.resolve(__dirname, '..', '..');
-const vscodeRoot = process.env.VSCODE_ROOT || path.join(repositoryRoot, '.vscode-win');
-const electron = path.join(vscodeRoot, 'Code.exe');
-const code = path.join(vscodeRoot, 'bin', 'code.cmd');
 const vsix = process.env.VIEWSTOR_PRODUCTION_VSIX || path.join(repositoryRoot, 'viewstor-0.5.3.vsix');
 const report = process.env.VIEWSTOR_PRODUCTION_NATIVE_REPORT || path.join(repositoryRoot, 'windows-native-report.json');
 const expectedVersion = process.env.VSCODE_EXPECT_VERSION || '1.147.0';
 
 (async () => {
+  const electron = process.env.VSCODE_ROOT
+    ? path.join(process.env.VSCODE_ROOT, 'Code.exe')
+    : await downloadAndUnzipVSCode({
+      version: expectedVersion,
+      platform: 'win32-x64-archive',
+      cachePath: path.join(repositoryRoot, '.vscode-test'),
+      timeout: 60000,
+    });
+  const code = path.join(path.dirname(electron), 'bin', 'code.cmd');
   const work = mkdtempSync(path.join(tmpdir(), 'viewstor-windows-smoke-'));
   try {
     const userData = path.join(work, 'user-data');

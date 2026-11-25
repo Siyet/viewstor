@@ -36,17 +36,9 @@ jobs:
       - run: npm test
       - run: npm run package -- --out viewstor-0.5.3.vsix
 
-      - name: Download VS Code
-        shell: pwsh
-        run: |
-          $url = "https://update.code.visualstudio.com/$env:VSCODE_EXPECT_VERSION/win32-x64/stable"
-          Invoke-WebRequest -Uri $url -OutFile vscode-win.zip
-          Expand-Archive -Path vscode-win.zip -DestinationPath .vscode-win
-
       - name: Install VSIX and run SQLite in Extension Host
         shell: pwsh
         env:
-          VSCODE_ROOT: ${{ github.workspace }}\.vscode-win
           VIEWSTOR_PRODUCTION_VSIX: ${{ github.workspace }}\viewstor-0.5.3.vsix
           VIEWSTOR_PRODUCTION_NATIVE_REPORT: ${{ github.workspace }}\windows-native-report.json
         run: node .github/scripts/windows-vsix-smoke.cjs
