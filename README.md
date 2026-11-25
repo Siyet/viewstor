@@ -247,7 +247,7 @@ Or add manually:
 All MCP interfaces auto-connect and respect read-only mode.
 
 **`add_connection` safety modes** — controlled by `settings.allowAddConnection` in the user-owned `~/.viewstor/connections.json` (project files cannot override it):
-- `"restricted"` (default): agent-created connections are forced read-only, project-scoped (password stripped), and prefixed `[agent] `.
+- `"restricted"` (default): agent-created connections are forced read-only, project-scoped (password stripped), and prefixed `[agent] `. PostgreSQL, ClickHouse, and file-backed SQLite are supported; Redis and in-memory/temporary SQLite are rejected with `invalid_config` because safe read-only enforcement is unavailable.
 - `"off"`: tool removed entirely — agents cannot create connections.
 - `"unrestricted"`: no restrictions (opt-in only).
 

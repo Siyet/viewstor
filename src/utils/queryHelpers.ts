@@ -7,7 +7,7 @@ const WRITE_VERB_RE = /\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|
 // despite appearing inside an otherwise ordinary SELECT. Also conservatively reject
 // Unicode-escaped quoted function identifiers (`U&"..."`, optionally with UESCAPE).
 // Native readonly remains the second line of defense; this is not a SQL sandbox.
-const SIDE_EFFECT_FUNCTION_RE = /(?:\b(?:nextval|setval|set_config|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_create_restore_point|pg_switch_wal|pg_switch_xlog|pg_start_backup|pg_stop_backup|pg_promote|pg_wal_replay_pause|pg_wal_replay_resume|pg_drop_replication_slot|pg_create_physical_replication_slot|pg_create_logical_replication_slot|pg_replication_slot_advance|pg_advisory_lock|pg_advisory_lock_shared|lo_import|lo_export|dblink_exec)\s*\(|\bU&(?:\s+UESCAPE\s+)?\s*\()/i;
+const SIDE_EFFECT_FUNCTION_RE = /(?:\b(?:nextval|setval|set_config|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_create_restore_point|pg_switch_wal|pg_switch_xlog|pg_start_backup|pg_stop_backup|pg_promote|pg_wal_replay_pause|pg_wal_replay_resume|pg_drop_replication_slot|pg_create_physical_replication_slot|pg_create_logical_replication_slot|pg_replication_slot_advance|pg_advisory_lock|pg_advisory_lock_shared|pg_notify|lo_import|lo_export|dblink(?:_[a-z0-9_]+)?)\s*\(|\bU&(?:\s+UESCAPE\s+)?\s*\()/i;
 // PG: EXPLAIN ANALYZE actually executes the inner statement. ANALYZE may sit inside a parenthesized option list.
 const EXPLAIN_ANALYZE_RE = /^\s*EXPLAIN\s+(?:\([^)]*\bANALYZE\b[^)]*\)|ANALYZE\b)/i;
 
@@ -34,15 +34,18 @@ function nextSqlCodeIndex(sql: string, start: number): number {
 }
 
 /**
- * Replace string literals, identifier quotes, dollar-quoted strings, and comments with spaces
- * (preserving offsets) so verb-keyword scans don't misfire on `SELECT 'INSERT'` or `"delete"`.
- *
- * The optional second form reveals a quoted identifier only in function-call position. This
- * closes quoted side-effect calls, including forms with comments before the parenthesis,
- * without exposing write verbs in ordinary identifiers such as `"delete_log"`.
+ * Build both masked forms in one input pass, preserving offsets. The function-scan form
+ * reveals a quoted identifier only in function-call position, closing quoted side-effect
+ * calls without exposing write verbs in ordinary identifiers such as `"delete_log"`.
  */
-function maskLiteralsAndComments(sql: string, revealQuotedFunctionIdentifiers = false): string {
-  let out = '';
+function maskLiteralsAndComments(sql: string): { masked: string; functionScan: string } {
+  let masked = '';
+  let functionScan = '';
+  const appendSpaces = (count: number) => {
+    const spaces = ' '.repeat(count);
+    masked += spaces;
+    functionScan += spaces;
+  };
   let i = 0;
   while (i < sql.length) {
     const ch = sql[i];
@@ -50,7 +53,7 @@ function maskLiteralsAndComments(sql: string, revealQuotedFunctionIdentifiers = 
     if (ch === '-' && sql[i + 1] === '-') {
       const end = sql.indexOf('\n', i);
       const stop = end === -1 ? sql.length : end;
-      out += ' '.repeat(stop - i);
+      appendSpaces(stop - i);
       i = stop;
       continue;
     }
@@ -58,8 +61,22 @@ function maskLiteralsAndComments(sql: string, revealQuotedFunctionIdentifiers = 
     if (ch === '/' && sql[i + 1] === '*') {
       const end = sql.indexOf('*/', i + 2);
       const stop = end === -1 ? sql.length : end + 2;
-      out += ' '.repeat(stop - i);
+      appendSpaces(stop - i);
       i = stop;
+      continue;
+    }
+    // PostgreSQL escape string: backslash escapes the next character, including a quote.
+    // Detect the prefix only outside an identifier so ordinary aliases are unaffected.
+    if ((ch === 'E' || ch === 'e') && sql[i + 1] === '\'' && (i === 0 || !/[A-Za-z0-9_$]/.test(sql[i - 1]))) {
+      let j = i + 2;
+      while (j < sql.length) {
+        if (sql[j] === '\\') { j = Math.min(j + 2, sql.length); continue; }
+        if (sql[j] === '\'' && sql[j + 1] === '\'') { j += 2; continue; }
+        if (sql[j] === '\'') { j++; break; }
+        j++;
+      }
+      appendSpaces(j - i);
+      i = j;
       continue;
     }
     // Single-quoted string literal (with '' escaping)
@@ -70,7 +87,7 @@ function maskLiteralsAndComments(sql: string, revealQuotedFunctionIdentifiers = 
         if (sql[j] === '\'') { j++; break; }
         j++;
       }
-      out += ' '.repeat(j - i);
+      appendSpaces(j - i);
       i = j;
       continue;
     }
@@ -84,9 +101,8 @@ function maskLiteralsAndComments(sql: string, revealQuotedFunctionIdentifiers = 
         j++;
       }
       const functionCall = closed && sql[nextSqlCodeIndex(sql, j)] === '(';
-      out += revealQuotedFunctionIdentifiers && functionCall
-        ? ` ${sql.slice(i + 1, j - 1)} `
-        : ' '.repeat(j - i);
+      masked += ' '.repeat(j - i);
+      functionScan += functionCall ? ` ${sql.slice(i + 1, j - 1)} ` : ' '.repeat(j - i);
       i = j;
       continue;
     }
@@ -95,28 +111,31 @@ function maskLiteralsAndComments(sql: string, revealQuotedFunctionIdentifiers = 
       let j = i + 1;
       while (j < sql.length && sql[j] !== '`') j++;
       if (j < sql.length) j++;
-      out += ' '.repeat(j - i);
+      appendSpaces(j - i);
       i = j;
       continue;
     }
-    // Dollar-quoted string (PostgreSQL): $tag$ ... $tag$
+    // Dollar-quoted string (PostgreSQL): $tag$ ... $tag$. Parse the short tag
+    // directly instead of allocating a full remaining-SQL substring at every `$`.
     if (ch === '$') {
-      const tagMatch = sql.substring(i).match(/^\$([a-zA-Z_]*)\$/);
-      if (tagMatch) {
-        const tag = tagMatch[0];
-        const endIdx = sql.indexOf(tag, i + tag.length);
+      let tagEnd = i + 1;
+      while (tagEnd < sql.length && /[a-zA-Z_]/.test(sql[tagEnd])) tagEnd++;
+      if (sql[tagEnd] === '$') {
+        const tag = sql.slice(i, tagEnd + 1);
+        const endIdx = sql.indexOf(tag, tagEnd + 1);
         if (endIdx !== -1) {
           const stop = endIdx + tag.length;
-          out += ' '.repeat(stop - i);
+          appendSpaces(stop - i);
           i = stop;
           continue;
         }
       }
     }
-    out += ch;
+    masked += ch;
+    functionScan += ch;
     i++;
   }
-  return out;
+  return { masked, functionScan };
 }
 
 /**
@@ -132,8 +151,7 @@ function maskLiteralsAndComments(sql: string, revealQuotedFunctionIdentifiers = 
  * write-verb regex. Only the side-effect function scan uses the second masked form.
  */
 export function isReadOnlyQuery(sql: string): boolean {
-  const masked = maskLiteralsAndComments(sql);
-  const functionScan = maskLiteralsAndComments(sql, true);
+  const { masked, functionScan } = maskLiteralsAndComments(sql);
   // Split on ; outside of (already masked) strings/comments
   const parts = masked.split(';').map(p => p.trim()).filter(p => p.length > 0);
   if (parts.length === 0) return false;

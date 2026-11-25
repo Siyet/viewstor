@@ -14,7 +14,7 @@ export interface ToolDef {
 
 export const ADD_CONNECTION_TOOL: ToolDef = {
   name: 'add_connection',
-  description: 'Add a new database connection. For SQLite: set type="sqlite", database="/path/to/file.db" (or ":memory:"), host and port are ignored.',
+  description: 'Add a new database connection. Restricted mode supports PostgreSQL, ClickHouse, and file-backed SQLite; Redis and in-memory/temporary SQLite require unrestricted mode. For SQLite set database="/path/to/file.db" (or ":memory:" in unrestricted mode); host and port are ignored.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -137,6 +137,12 @@ export async function handleAddConnection(store: ConnectionStore, args: unknown)
   let input: AddConnectionInput;
   try {
     input = parseAddConnectionInput(args);
+    if (mode === 'restricted' && input.type === 'redis') {
+      throw new Error('Redis is not supported in restricted mode because read-only command enforcement is unavailable.');
+    }
+    if (mode === 'restricted' && input.type === 'sqlite' && (!input.database || input.database === ':memory:')) {
+      throw new Error('Restricted mode requires a file-backed SQLite database; in-memory and temporary databases cannot be opened read-only.');
+    }
   } catch (err) {
     await appendAddConnectionAudit({ ...auditBase, outcome: 'rejected' });
     return errorResponse(

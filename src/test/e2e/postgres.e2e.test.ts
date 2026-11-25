@@ -168,7 +168,10 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
     expect(result.rows).toEqual([]);
   });
 
-  it('native readonly mode blocks sequence writes and SELECT INTO', async () => {
+  it('native readonly mode blocks sequence, local-session, and remote-session write bypasses', async () => {
+    await driver.execute('CREATE EXTENSION IF NOT EXISTS dblink');
+    await driver.execute('CREATE TABLE readonly_escape_bypass (id INTEGER PRIMARY KEY, value INTEGER NOT NULL)');
+    await driver.execute('INSERT INTO readonly_escape_bypass VALUES (1, 10), (2, 20)');
     const readonlyDriver = new PostgresDriver();
     await readonlyDriver.connect({ ...config, readonly: true });
     try {
@@ -180,12 +183,18 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
         ensureDriver,
       } as unknown as import('../../mcp-server/connectionStore').ConnectionStore;
       const { handleExecuteQuery } = await import('../../mcp-server/queryExecutor');
+      const remoteDelete = `SELECT * FROM dblink('dbname=${config.database} user=${config.username} password=${config.password}', 'DELETE FROM readonly_escape_bypass WHERE id = 2 RETURNING id') AS deleted(id int)`;
 
       for (const query of [
         'SELECT "set_config"(\'default_transaction_read_only\', \'off\', false)',
         'SELECT pg_catalog."nextval" /* comment */ (\'custom_seq\')',
         'SELECT U&"\\0073et_config"(\'default_transaction_read_only\', \'off\', false)',
         'SELECT pg_catalog.U&"\\006Eextval" /* comment */ (\'custom_seq\')',
+        'SELECT E\'\\\'\'; SELECT set_config(\'default_transaction_read_only\', \'off\', false); -- \'',
+        'SELECT E\'\\\'\'; UPDATE readonly_escape_bypass SET value = 99 WHERE id = 1; -- \'',
+        remoteDelete,
+        'SELECT dblink_send_query(\'remote\', \'DELETE FROM readonly_escape_bypass\')',
+        'SELECT pg_notify(\'readonly_test\', \'must not execute\')',
       ]) {
         const response = await handleExecuteQuery(store, { connectionId: config.id, query });
         expect(response.isError).toBe(true);
@@ -194,17 +203,22 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
       expect(ensureDriver).not.toHaveBeenCalled();
 
       // Native readonly remains a second line of defense for driver-level execution.
+      const nativeMode = await readonlyDriver.execute('SHOW default_transaction_read_only');
       const sequenceWrite = await readonlyDriver.execute('SELECT nextval(\'custom_seq\')');
       const selectInto = await readonlyDriver.execute('SELECT * INTO readonly_into FROM users');
+      expect(nativeMode.rows).toEqual([{ default_transaction_read_only: 'on' }]);
       expect(sequenceWrite.error).toMatch(/read-only/i);
       expect(selectInto.error).toMatch(/read-only/i);
 
       const after = await driver.execute('SELECT last_value, is_called FROM custom_seq');
       expect(after.rows).toEqual(before.rows);
+      const persisted = await driver.execute('SELECT id, value FROM readonly_escape_bypass ORDER BY id');
+      expect(persisted.rows).toEqual([{ id: 1, value: 10 }, { id: 2, value: 20 }]);
       const tableCheck = await driver.execute('SELECT to_regclass(\'public.readonly_into\') AS table_oid');
       expect(tableCheck.rows[0].table_oid).toBeNull();
     } finally {
       await readonlyDriver.disconnect();
+      await driver.execute('DROP TABLE IF EXISTS readonly_escape_bypass');
     }
   });
 

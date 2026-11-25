@@ -587,6 +587,7 @@
         },
         "viewstor.standaloneMcp.allowAddConnection": {
           "type": "string",
+          "scope": "application",
           "default": "restricted",
           "enum": [
             "off",

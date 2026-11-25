@@ -69,7 +69,7 @@ describe('add_connection modes', () => {
       type: 'sqlite' as const,
       host: '',
       port: 0,
-      database: ':memory:',
+      database: path.join(PROJECT_DIR, 'sandbox.db'),
       username: 'agent-user',
       password: 'super-secret',
       ...(readonly === undefined ? {} : { readonly }),
@@ -181,7 +181,8 @@ describe('add_connection modes', () => {
     ['clickhouse', 'localhost', 8123],
     ['sqlite', '', 0],
   ] as const)('applies driver defaults for a minimal %s call', async (type, host, port) => {
-    writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
+    const allowAddConnection = type === 'redis' || type === 'sqlite' ? 'unrestricted' : 'restricted';
+    writeUserConfig({ connections: [], settings: { allowAddConnection } });
     const store = await loadStore();
 
     const response = await handleAddConnection(store, { name: `Minimal ${type}`, type });
@@ -190,8 +191,27 @@ describe('add_connection modes', () => {
     expect(saved).toMatchObject({ type, host, port });
   });
 
-  it('preserves explicitly supplied host and port', async () => {
+  it.each([
+    [{ name: 'Redis', type: 'redis' }, 'Redis is not supported'],
+    [{ name: 'Memory SQLite', type: 'sqlite', database: ':memory:' }, 'file-backed SQLite'],
+    [{ name: 'Default SQLite', type: 'sqlite' }, 'file-backed SQLite'],
+    [{ name: 'Temporary SQLite', type: 'sqlite', database: '' }, 'file-backed SQLite'],
+  ])('restricted mode rejects unusable connections with invalid_config', async (args, message) => {
     writeUserConfig({ connections: [], settings: { allowAddConnection: 'restricted' } });
+    const store = await loadStore();
+
+    const response = await handleAddConnection(store, args);
+
+    expect(response.isError).toBe(true);
+    expect(payload(response)).toMatchObject({ kind: 'invalid_config', message: expect.stringContaining(message) });
+    expect(store.getAll()).toEqual([]);
+    expect(auditEntries()).toEqual([
+      expect.objectContaining({ tool: 'add_connection', mode: 'restricted', outcome: 'rejected' }),
+    ]);
+  });
+
+  it('preserves explicitly supplied host and port', async () => {
+    writeUserConfig({ connections: [], settings: { allowAddConnection: 'unrestricted' } });
     const store = await loadStore();
 
     const response = await handleAddConnection(store, {
