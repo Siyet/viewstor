@@ -119,12 +119,17 @@ function maskLiteralsAndComments(sql: string): { masked: string; functionScan: s
       i = j;
       continue;
     }
-    // Dollar-quoted string (PostgreSQL): $tag$ ... $tag$. Parse the short tag
-    // directly instead of allocating a full remaining-SQL substring at every `$`.
-    if (ch === '$') {
+    // Dollar-quoted string (PostgreSQL): $tag$ ... $tag$. A delimiter directly
+    // following an identifier character is part of that identifier, not a string.
+    // Tags follow unquoted identifier rules and may contain digits after the first char.
+    if (ch === '$' && (i === 0 || !/[A-Za-z0-9_$\u0080-\uFFFF]/.test(sql[i - 1]))) {
       let tagEnd = i + 1;
-      while (tagEnd < sql.length && /[a-zA-Z_]/.test(sql[tagEnd])) tagEnd++;
-      if (sql[tagEnd] === '$') {
+      const firstTagChar = sql[tagEnd];
+      if (firstTagChar !== '$' && /[A-Za-z_]/.test(firstTagChar ?? '')) {
+        tagEnd++;
+        while (tagEnd < sql.length && /[A-Za-z0-9_]/.test(sql[tagEnd])) tagEnd++;
+      }
+      if (sql[tagEnd] === '$' && (tagEnd === i + 1 || /[A-Za-z_]/.test(firstTagChar ?? ''))) {
         const tag = sql.slice(i, tagEnd + 1);
         const endIdx = sql.indexOf(tag, tagEnd + 1);
         if (endIdx !== -1) {

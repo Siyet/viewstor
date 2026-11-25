@@ -197,6 +197,11 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
         'SELECT E\'\\\'\'; UPDATE readonly_escape_bypass SET value = 99 WHERE id = 1; -- \'',
         ordinaryStringSetConfig,
         ordinaryStringUpdate,
+        'SELECT 1 AS x$$; SET default_transaction_read_only = off; -- $$',
+        'SELECT 1 AS x$$; DELETE FROM readonly_escape_bypass WHERE id = 1; -- $$',
+        'SELECT 1 AS é$$; UPDATE readonly_escape_bypass SET value = 88 WHERE id = 2; -- $$',
+        'SELECT 1 AS я$$; DELETE FROM readonly_escape_bypass WHERE id = 1; -- $$',
+        'SELECT 1 AS é$tag1$; DELETE FROM readonly_escape_bypass WHERE id = 2; -- $tag1$',
         remoteDelete,
         'SELECT dblink_send_query(\'remote\', \'DELETE FROM readonly_escape_bypass\')',
         'SELECT pg_notify(\'readonly_test\', \'must not execute\')',
@@ -206,6 +211,13 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
         expect(JSON.parse(response.content[0].text).error).toContain('Connection is read-only');
       }
       expect(ensureDriver).not.toHaveBeenCalled();
+
+      for (const query of [
+        'SELECT $tag1$DROP TABLE readonly_escape_bypass$tag1$ AS value',
+      ]) {
+        const response = await handleExecuteQuery(store, { connectionId: config.id, query });
+        expect(response.isError).not.toBe(true);
+      }
 
       // Native readonly and standard string parsing remain defense in depth even
       // when the database default is deliberately changed to legacy behavior.

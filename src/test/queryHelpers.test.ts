@@ -177,6 +177,17 @@ describe('isReadOnlyQuery — bypass rejection (review item #1)', () => {
     expect(isReadOnlyQuery(sql)).toBe(false);
   });
 
+  it.each([
+    'SELECT 1 AS x$$; SET default_transaction_read_only = off; -- $$',
+    'SELECT 1 AS x$$; DELETE FROM items WHERE id = 1; -- $$',
+    'SELECT 1 AS é$$; UPDATE items SET value = 88 WHERE id = 2; -- $$',
+    'SELECT 1 AS я$$; DELETE FROM items WHERE id = 1; -- $$',
+    'SELECT 1 AS é$tag1$; DELETE FROM items WHERE id = 1; -- $tag1$',
+    'SELECT 1 AS x$tag$; DELETE FROM items WHERE id = 1; -- $tag$',
+  ])('rejects statement chains hidden after dollar-containing identifiers: %s', (sql) => {
+    expect(isReadOnlyQuery(sql)).toBe(false);
+  });
+
   it('rejects empty input', () => {
     expect(isReadOnlyQuery('')).toBe(false);
     expect(isReadOnlyQuery('   ')).toBe(false);
@@ -224,6 +235,8 @@ describe('isReadOnlyQuery — false-positive avoidance (literals/identifiers)', 
   it('handles dollar-quoted PG strings', () => {
     expect(isReadOnlyQuery('SELECT $body$DROP TABLE evil$body$')).toBe(true);
     expect(isReadOnlyQuery('SELECT $body$"nextval"(\'custom_seq\')$body$')).toBe(true);
+    expect(isReadOnlyQuery('SELECT $tag1$DROP TABLE items$tag1$ AS value')).toBe(true);
+    expect(isReadOnlyQuery('SELECT 1 AS x$$')).toBe(true);
   });
 
   it('does not expose side-effect function text inside literals or comments', () => {
