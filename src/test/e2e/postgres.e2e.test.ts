@@ -168,6 +168,83 @@ describeIf(isDockerAvailable)('PostgreSQL Driver E2E', () => {
     expect(result.rows).toEqual([]);
   });
 
+  it('native readonly mode blocks sequence, local-session, and remote-session write bypasses', async () => {
+    await driver.execute('CREATE EXTENSION IF NOT EXISTS dblink');
+    await driver.execute('CREATE TABLE readonly_escape_bypass (id INTEGER PRIMARY KEY, value INTEGER NOT NULL)');
+    await driver.execute('INSERT INTO readonly_escape_bypass VALUES (1, 10), (2, 20)');
+    await driver.execute('ALTER DATABASE pilot_pg SET standard_conforming_strings = off');
+    const readonlyDriver = new PostgresDriver();
+    await readonlyDriver.connect({ ...config, readonly: true });
+    try {
+      const before = await driver.execute('SELECT last_value, is_called FROM custom_seq');
+      const ensureDriver = vi.fn(async () => readonlyDriver);
+      const store = {
+        get: () => ({ ...config, readonly: true }),
+        getAnonymizationPolicy: () => ({ mode: 'off', strategy: 'hash' }),
+        ensureDriver,
+      } as unknown as import('../../mcp-server/connectionStore').ConnectionStore;
+      const { handleExecuteQuery } = await import('../../mcp-server/queryExecutor');
+      const remoteDelete = `SELECT * FROM dblink('dbname=${config.database} user=${config.username} password=${config.password}', 'DELETE FROM readonly_escape_bypass WHERE id = 2 RETURNING id') AS deleted(id int)`;
+      const ordinaryStringSetConfig = 'SELECT \'\\\'\'; SELECT set_config(\'default_transaction_read_only\', \'off\', false); -- \'';
+      const ordinaryStringUpdate = 'SELECT \'\\\'\'; UPDATE readonly_escape_bypass SET value = 77 WHERE id = 1; -- \'';
+
+      for (const query of [
+        'SELECT "set_config"(\'default_transaction_read_only\', \'off\', false)',
+        'SELECT pg_catalog."nextval" /* comment */ (\'custom_seq\')',
+        'SELECT U&"\\0073et_config"(\'default_transaction_read_only\', \'off\', false)',
+        'SELECT pg_catalog.U&"\\006Eextval" /* comment */ (\'custom_seq\')',
+        'SELECT E\'\\\'\'; SELECT set_config(\'default_transaction_read_only\', \'off\', false); -- \'',
+        'SELECT E\'\\\'\'; UPDATE readonly_escape_bypass SET value = 99 WHERE id = 1; -- \'',
+        ordinaryStringSetConfig,
+        ordinaryStringUpdate,
+        'SELECT 1 AS x$$; SET default_transaction_read_only = off; -- $$',
+        'SELECT 1 AS x$$; DELETE FROM readonly_escape_bypass WHERE id = 1; -- $$',
+        'SELECT 1 AS é$$; UPDATE readonly_escape_bypass SET value = 88 WHERE id = 2; -- $$',
+        'SELECT 1 AS я$$; DELETE FROM readonly_escape_bypass WHERE id = 1; -- $$',
+        'SELECT 1 AS é$tag1$; DELETE FROM readonly_escape_bypass WHERE id = 2; -- $tag1$',
+        remoteDelete,
+        'SELECT dblink_send_query(\'remote\', \'DELETE FROM readonly_escape_bypass\')',
+        'SELECT pg_notify(\'readonly_test\', \'must not execute\')',
+      ]) {
+        const response = await handleExecuteQuery(store, { connectionId: config.id, query });
+        expect(response.isError).toBe(true);
+        expect(JSON.parse(response.content[0].text).error).toContain('Connection is read-only');
+      }
+      expect(ensureDriver).not.toHaveBeenCalled();
+
+      for (const query of [
+        'SELECT $tag1$DROP TABLE readonly_escape_bypass$tag1$ AS value',
+      ]) {
+        const response = await handleExecuteQuery(store, { connectionId: config.id, query });
+        expect(response.isError).not.toBe(true);
+      }
+
+      // Native readonly and standard string parsing remain defense in depth even
+      // when the database default is deliberately changed to legacy behavior.
+      await readonlyDriver.execute(ordinaryStringSetConfig);
+      await readonlyDriver.execute(ordinaryStringUpdate);
+      const nativeMode = await readonlyDriver.execute('SHOW default_transaction_read_only');
+      const nativeStringMode = await readonlyDriver.execute('SHOW standard_conforming_strings');
+      const sequenceWrite = await readonlyDriver.execute('SELECT nextval(\'custom_seq\')');
+      const selectInto = await readonlyDriver.execute('SELECT * INTO readonly_into FROM users');
+      expect(nativeMode.rows).toEqual([{ default_transaction_read_only: 'on' }]);
+      expect(nativeStringMode.rows).toEqual([{ standard_conforming_strings: 'on' }]);
+      expect(sequenceWrite.error).toMatch(/read-only/i);
+      expect(selectInto.error).toMatch(/read-only/i);
+
+      const after = await driver.execute('SELECT last_value, is_called FROM custom_seq');
+      expect(after.rows).toEqual(before.rows);
+      const persisted = await driver.execute('SELECT id, value FROM readonly_escape_bypass ORDER BY id');
+      expect(persisted.rows).toEqual([{ id: 1, value: 10 }, { id: 2, value: 20 }]);
+      const tableCheck = await driver.execute('SELECT to_regclass(\'public.readonly_into\') AS table_oid');
+      expect(tableCheck.rows[0].table_oid).toBeNull();
+    } finally {
+      await readonlyDriver.disconnect();
+      await driver.execute('ALTER DATABASE pilot_pg SET standard_conforming_strings = on');
+      await driver.execute('DROP TABLE IF EXISTS readonly_escape_bypass');
+    }
+  });
+
   it('getSchema returns complete structure: tables, views, columns, indexes, triggers, sequences', async () => {
     const schema = await driver.getSchema();
     const pub = schema.find(s => s.name === 'public')!;

@@ -125,6 +125,69 @@ describe('isReadOnlyQuery — bypass rejection (review item #1)', () => {
     expect(isReadOnlyQuery('VACUUM t')).toBe(false);
   });
 
+  it.each([
+    'SELECT nextval(\'custom_seq\')',
+    'SELECT setval(\'custom_seq\', 42)',
+    'SELECT 1 INTO writable_table',
+    'WITH row AS (SELECT 1) SELECT * INTO writable_table FROM row',
+    'SELECT pg_terminate_backend(pid) FROM pg_stat_activity',
+    'SELECT pg_cancel_backend(pid) FROM pg_stat_activity',
+    'SELECT set_config(\'work_mem\', \'1GB\', false)',
+    'SELECT "nextval"(\'custom_seq\')',
+    'SELECT "NeXtVaL"(\'custom_seq\')',
+    'SELECT pg_catalog."nextval"(\'custom_seq\')',
+    'SELECT "pg_catalog"."nextval"(\'custom_seq\')',
+    'SELECT "nextval" /* comment */ (\'custom_seq\')',
+    'SELECT "nextval" -- comment\n (\'custom_seq\')',
+    'SELECT "set_config"(\'default_transaction_read_only\', \'off\', false)',
+    'SELECT pg_catalog."pg_terminate_backend"(123)',
+    'SELECT U&"\\0073et_config"(\'default_transaction_read_only\', \'off\', false)',
+    'SELECT pg_catalog.u&"\\006Eextval" /* comment */ (\'custom_seq\')',
+    'SELECT U&"\\+006Eextval"(\'custom_seq\')',
+    'SELECT U&"nextval" UESCAPE \'!\' (\'custom_seq\')',
+    'SELECT * FROM dblink(\'dbname=test\', \'DELETE FROM items WHERE id = 2 RETURNING id\') AS deleted(id int)',
+    'SELECT dblink_send_query(\'remote\', \'DELETE FROM items\')',
+    'SELECT "dblink"(\'dbname=test\', \'SELECT 1\')',
+    'SELECT pg_catalog.dblink_disconnect(\'remote\')',
+    'SELECT pg_notify(\'channel\', \'payload\')',
+    'SELECT "pg_notify" /* comment */ (\'channel\', \'payload\')',
+  ])('rejects side-effecting SELECT form: %s', (sql) => {
+    expect(isReadOnlyQuery(sql)).toBe(false);
+  });
+
+  it('rejects a quoted set_config → nextval statement chain', () => {
+    expect(isReadOnlyQuery(
+      'SELECT "set_config"(\'default_transaction_read_only\', \'off\', false); SELECT "nextval"(\'custom_seq\')',
+    )).toBe(false);
+  });
+
+  it.each([
+    'SELECT E\'\\\'\'; SELECT set_config(\'default_transaction_read_only\', \'off\', false); -- \'',
+    'SELECT E\'\\\'\'; UPDATE items SET value = 99 WHERE id = 1; -- \'',
+    'SELECT e\'\\\\\'; SELECT nextval(\'custom_seq\'); -- \'',
+    String.raw`SELECT E'one\'two\'three'; SELECT set_config('default_transaction_read_only', 'off', false); -- '`,
+  ])('rejects statement chains hidden after PostgreSQL escape strings: %s', (sql) => {
+    expect(isReadOnlyQuery(sql)).toBe(false);
+  });
+
+  it.each([
+    'SELECT \'\\\'\'; SELECT set_config(\'default_transaction_read_only\', \'off\', false); -- \'',
+    'SELECT \'\\\'\'; UPDATE items SET value = 77 WHERE id = 1; -- \'',
+  ])('rejects ambiguous ordinary strings under legacy PostgreSQL parsing: %s', (sql) => {
+    expect(isReadOnlyQuery(sql)).toBe(false);
+  });
+
+  it.each([
+    'SELECT 1 AS x$$; SET default_transaction_read_only = off; -- $$',
+    'SELECT 1 AS x$$; DELETE FROM items WHERE id = 1; -- $$',
+    'SELECT 1 AS é$$; UPDATE items SET value = 88 WHERE id = 2; -- $$',
+    'SELECT 1 AS я$$; DELETE FROM items WHERE id = 1; -- $$',
+    'SELECT 1 AS é$tag1$; DELETE FROM items WHERE id = 1; -- $tag1$',
+    'SELECT 1 AS x$tag$; DELETE FROM items WHERE id = 1; -- $tag$',
+  ])('rejects statement chains hidden after dollar-containing identifiers: %s', (sql) => {
+    expect(isReadOnlyQuery(sql)).toBe(false);
+  });
+
   it('rejects empty input', () => {
     expect(isReadOnlyQuery('')).toBe(false);
     expect(isReadOnlyQuery('   ')).toBe(false);
@@ -136,6 +199,19 @@ describe('isReadOnlyQuery — false-positive avoidance (literals/identifiers)', 
   it('does not flag write verbs hidden inside string literals', () => {
     expect(isReadOnlyQuery('SELECT * FROM logs WHERE message = \'INSERT INTO failed\'')).toBe(true);
     expect(isReadOnlyQuery('SELECT \'DROP TABLE x\' AS sample')).toBe(true);
+  });
+
+  it.each([
+    String.raw`SELECT E'\''`,
+    String.raw`SELECT e'\''`,
+    String.raw`SELECT E'one\'two\'three'`,
+    String.raw`SELECT E'\'' /* nextval( */`,
+  ])('keeps benign PostgreSQL escape strings read-only: %s', (sql) => {
+    expect(isReadOnlyQuery(sql)).toBe(true);
+  });
+
+  it('keeps ordinary backslashes without quote ambiguity read-only', () => {
+    expect(isReadOnlyQuery(String.raw`SELECT 'C:\temp\file' AS path`)).toBe(true);
   });
 
   it('does not flag write verbs in double-quoted identifiers', () => {
@@ -158,5 +234,30 @@ describe('isReadOnlyQuery — false-positive avoidance (literals/identifiers)', 
 
   it('handles dollar-quoted PG strings', () => {
     expect(isReadOnlyQuery('SELECT $body$DROP TABLE evil$body$')).toBe(true);
+    expect(isReadOnlyQuery('SELECT $body$"nextval"(\'custom_seq\')$body$')).toBe(true);
+    expect(isReadOnlyQuery('SELECT $tag1$DROP TABLE items$tag1$ AS value')).toBe(true);
+    expect(isReadOnlyQuery('SELECT 1 AS x$$')).toBe(true);
+  });
+
+  it('does not expose side-effect function text inside literals or comments', () => {
+    expect(isReadOnlyQuery('SELECT \'nextval(\' AS label')).toBe(true);
+    expect(isReadOnlyQuery('SELECT 1 /* "set_config"( */')).toBe(true);
+    expect(isReadOnlyQuery('SELECT 1 -- "nextval"(\n')).toBe(true);
+    expect(isReadOnlyQuery('SELECT \'dblink(\'\'remote\'\', \'\'DELETE FROM items\'\')\' AS example')).toBe(true);
+    expect(isReadOnlyQuery('SELECT 1 /* dblink(\'remote\', \'DELETE FROM items\') */')).toBe(true);
+  });
+
+  it('keeps quoted function names masked outside function-call position', () => {
+    expect(isReadOnlyQuery('SELECT "nextval" FROM sequences')).toBe(true);
+    expect(isReadOnlyQuery('SELECT "nextval(" FROM sequences')).toBe(true);
+    expect(isReadOnlyQuery('SELECT "delete_log" FROM audit')).toBe(true);
+    expect(isReadOnlyQuery('SELECT "dblink" FROM connections')).toBe(true);
+    expect(isReadOnlyQuery('SELECT U&"\\006Eextval" FROM sequences')).toBe(true);
+  });
+
+  it('does not reject Unicode function syntax inside literals or comments', () => {
+    expect(isReadOnlyQuery('SELECT \'U&"\\0073et_config"(\' AS label')).toBe(true);
+    expect(isReadOnlyQuery('SELECT 1 /* U&"nextval"( */')).toBe(true);
+    expect(isReadOnlyQuery('SELECT $body$U&"nextval"($body$')).toBe(true);
   });
 });

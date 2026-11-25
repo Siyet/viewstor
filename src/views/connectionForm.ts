@@ -90,6 +90,7 @@ export class ConnectionFormPanel {
     const existing = this.connectionManager.get(config.id);
 
     if (existing) {
+      config.agentCreated = existing.config.agentCreated;
       await this.connectionManager.update(config);
       vscode.window.showInformationMessage(vscode.l10n.t('Connection "{0}" updated.', config.name));
     } else {
