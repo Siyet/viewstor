@@ -21,14 +21,14 @@ describe('PostgresDriver native readonly mode', () => {
     vi.clearAllMocks();
   });
 
-  it('sets default_transaction_read_only on readonly connections', async () => {
+  it('sets readonly mode and standard string parsing on readonly connections', async () => {
     const driver = new PostgresDriver();
     await driver.connect({
       id: 'ro', name: 'Read only', type: 'postgresql', host: 'localhost', port: 5432, readonly: true,
     });
 
     expect(clientConstructor).toHaveBeenCalledWith(expect.objectContaining({
-      options: '-c default_transaction_read_only=on',
+      options: '-c default_transaction_read_only=on -c standard_conforming_strings=on',
     }));
     await driver.disconnect();
   });

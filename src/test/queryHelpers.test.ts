@@ -170,6 +170,13 @@ describe('isReadOnlyQuery — bypass rejection (review item #1)', () => {
     expect(isReadOnlyQuery(sql)).toBe(false);
   });
 
+  it.each([
+    'SELECT \'\\\'\'; SELECT set_config(\'default_transaction_read_only\', \'off\', false); -- \'',
+    'SELECT \'\\\'\'; UPDATE items SET value = 77 WHERE id = 1; -- \'',
+  ])('rejects ambiguous ordinary strings under legacy PostgreSQL parsing: %s', (sql) => {
+    expect(isReadOnlyQuery(sql)).toBe(false);
+  });
+
   it('rejects empty input', () => {
     expect(isReadOnlyQuery('')).toBe(false);
     expect(isReadOnlyQuery('   ')).toBe(false);
@@ -190,6 +197,10 @@ describe('isReadOnlyQuery — false-positive avoidance (literals/identifiers)', 
     String.raw`SELECT E'\'' /* nextval( */`,
   ])('keeps benign PostgreSQL escape strings read-only: %s', (sql) => {
     expect(isReadOnlyQuery(sql)).toBe(true);
+  });
+
+  it('keeps ordinary backslashes without quote ambiguity read-only', () => {
+    expect(isReadOnlyQuery(String.raw`SELECT 'C:\temp\file' AS path`)).toBe(true);
   });
 
   it('does not flag write verbs in double-quoted identifiers', () => {

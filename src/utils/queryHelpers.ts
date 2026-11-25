@@ -38,9 +38,10 @@ function nextSqlCodeIndex(sql: string, start: number): number {
  * reveals a quoted identifier only in function-call position, closing quoted side-effect
  * calls without exposing write verbs in ordinary identifiers such as `"delete_log"`.
  */
-function maskLiteralsAndComments(sql: string): { masked: string; functionScan: string } {
+function maskLiteralsAndComments(sql: string): { masked: string; functionScan: string; hasAmbiguousEscape: boolean } {
   let masked = '';
   let functionScan = '';
+  let hasAmbiguousEscape = false;
   const appendSpaces = (count: number) => {
     const spaces = ' '.repeat(count);
     masked += spaces;
@@ -79,10 +80,13 @@ function maskLiteralsAndComments(sql: string): { masked: string; functionScan: s
       i = j;
       continue;
     }
-    // Single-quoted string literal (with '' escaping)
+    // Single-quoted string literal (with '' escaping). With PostgreSQL's legacy
+    // standard_conforming_strings=off, \' also escapes a quote. Reject that ambiguous
+    // form instead of letting the server and this scanner disagree about boundaries.
     if (ch === '\'') {
       let j = i + 1;
       while (j < sql.length) {
+        if (sql[j] === '\\' && sql[j + 1] === '\'') hasAmbiguousEscape = true;
         if (sql[j] === '\'' && sql[j + 1] === '\'') { j += 2; continue; }
         if (sql[j] === '\'') { j++; break; }
         j++;
@@ -135,7 +139,7 @@ function maskLiteralsAndComments(sql: string): { masked: string; functionScan: s
     functionScan += ch;
     i++;
   }
-  return { masked, functionScan };
+  return { masked, functionScan, hasAmbiguousEscape };
 }
 
 /**
@@ -151,7 +155,8 @@ function maskLiteralsAndComments(sql: string): { masked: string; functionScan: s
  * write-verb regex. Only the side-effect function scan uses the second masked form.
  */
 export function isReadOnlyQuery(sql: string): boolean {
-  const { masked, functionScan } = maskLiteralsAndComments(sql);
+  const { masked, functionScan, hasAmbiguousEscape } = maskLiteralsAndComments(sql);
+  if (hasAmbiguousEscape) return false;
   // Split on ; outside of (already masked) strings/comments
   const parts = masked.split(';').map(p => p.trim()).filter(p => p.length > 0);
   if (parts.length === 0) return false;
