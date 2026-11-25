@@ -11,7 +11,8 @@
     "url": "https://github.com/Siyet/viewstor"
   },
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.101.0",
+    "node": "^22.14.0 || >=23.6.0"
   },
   "categories": [
     "Other",
@@ -46,7 +47,7 @@
     "test": "node scripts/sqlite-rebuild.js node && vitest run",
     "test:watch": "vitest",
     "test:single": "vitest run --reporter=verbose",
-    "test:e2e": "node scripts/sqlite-rebuild.js node && vitest run --config vitest.e2e.config.ts",
+    "test:e2e": "node scripts/run-e2e.js",
     "test:e2e:watch": "vitest --config vitest.e2e.config.ts",
     "compile-tests": "tsc -p tsconfig.test.json",
     "compile-vscode-tests": "tsc -p tsconfig.vscode-test.json",
@@ -641,7 +642,7 @@
   "dependencies": {
     "@vscode-elements/elements": "^2.5.1",
     "@vscode/codicons": "^0.0.45",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^13.2.0",
     "echarts": "^5.6.0",
     "leaflet": "^1.9.4",
     "ssh2": "^1.17.0"

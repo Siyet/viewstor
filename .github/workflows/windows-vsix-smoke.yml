@@ -1,0 +1,54 @@
+name: Windows VSIX Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      vscode-version:
+        description: VS Code version to test
+        required: true
+        default: 1.147.0
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  windows-vsix-smoke:
+    name: Production VSIX on Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.1
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run package -- --out viewstor-0.5.3.vsix
+
+      - name: Download VS Code
+        shell: pwsh
+        run: |
+          $url = "https://update.code.visualstudio.com/${{ inputs.vscode-version }}/win32-x64/stable"
+          Invoke-WebRequest -Uri $url -OutFile vscode-win.zip
+          Expand-Archive -Path vscode-win.zip -DestinationPath .vscode-win
+
+      - name: Install VSIX and run SQLite in Extension Host
+        shell: pwsh
+        env:
+          VSCODE_ROOT: ${{ github.workspace }}\.vscode-win
+          VSCODE_EXPECT_VERSION: ${{ inputs.vscode-version }}
+          VIEWSTOR_PRODUCTION_VSIX: ${{ github.workspace }}\viewstor-0.5.3.vsix
+          VIEWSTOR_PRODUCTION_NATIVE_REPORT: ${{ github.workspace }}\windows-native-report.json
+        run: node .github/scripts/windows-vsix-smoke.cjs
+
+      - name: Upload native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-vsix-native-evidence
+          path: windows-native-report.json
+          if-no-files-found: error

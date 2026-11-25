@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License"></a>
-  <a href="https://code.visualstudio.com/"><img src="https://img.shields.io/badge/VS%20Code-%5E1.93.0-007ACC" alt="VS Code"></a>
+  <a href="https://code.visualstudio.com/"><img src="https://img.shields.io/badge/VS%20Code-%5E1.101.0-007ACC" alt="VS Code"></a>
   <a href="https://0ver.org"><img src="https://img.shields.io/badge/zerover-0.x-blue" alt="ZeroVer"></a>
 </p>
 
@@ -282,8 +282,8 @@ All shortcuts use physical key codes — work on any keyboard layout.
 
 ### Prerequisites
 
-- Node.js 18+
-- VS Code 1.93+
+- Node.js ^22.14.0 or >=23.6.0 (N-API 10)
+- VS Code 1.101+
 - Docker (for e2e tests)
 
 ### Commands

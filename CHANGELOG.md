@@ -2,6 +2,12 @@
 
 All notable changes to Viewstor are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+- **Compatibility:** VS Code 1.101+ and Node.js ^22.14.0 or >=23.6.0 are now required because the SQLite N-API 10 prebuild cannot load on older runtimes, including Node 23.0–23.5.
+- Upgraded `better-sqlite3` to v13 with N-API prebuilds, removing the need for separate Node.js and Electron ABI builds. The compatibility script now validates the bundled platform binary with a real SQLite query.
+
 ## [0.5.3] — 2026-08-18
 
 ### Added

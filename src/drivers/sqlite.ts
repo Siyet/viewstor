@@ -6,10 +6,10 @@ import { SchemaObject, TableInfo, ColumnInfo, TableObjects, TableStatistic, Inde
 import { quoteIdentifier } from '../utils/queryHelpers';
 import { wrapError } from '../utils/errors';
 
-// Lazy-load better-sqlite3 to avoid crashing the entire extension on ABI mismatch.
+// Lazy-load better-sqlite3 to avoid crashing the entire extension on native load failure.
 // Top-level require of this native module runs at bundle load time, which means
-// a broken binary (wrong Electron ABI, missing prebuild) prevents activate() from
-// ever executing — no commands get registered and all connections "disappear".
+// a broken or missing prebuild prevents activate() from ever executing — no
+// commands get registered and all connections "disappear".
 function loadSqlite(): typeof BetterSqlite3 {
   return require('better-sqlite3');
 }
@@ -27,8 +27,8 @@ export class SqliteDriver implements DatabaseDriver {
     } catch (err) {
       if (err instanceof Error && err.message.includes('NODE_MODULE_VERSION')) {
         throw new Error(
-          'SQLite native module was compiled for a different Node.js version. '
-          + 'Run: node scripts/sqlite-rebuild.js electron',
+          'SQLite native module is incompatible with this runtime. '
+          + 'Reinstall Viewstor or its dependencies to restore the bundled N-API prebuild.',
         );
       }
       throw err;
