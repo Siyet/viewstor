@@ -44,6 +44,31 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  vscode-integration:
+    name: VS Code Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Download VS Code for integration tests
+        shell: bash
+        run: |
+          # Pin VS Code so better-sqlite3 prebuilds remain reproducible.
+          EXECUTABLE=$(node -e '
+            const { downloadAndUnzipVSCode, SilentReporter } = require("@vscode/test-electron");
+            downloadAndUnzipVSCode({ version: "1.106.3", reporter: new SilentReporter() })
+              .then(executable => console.log(executable))
+              .catch(error => { console.error(error); process.exit(1); });
+          ')
+          echo "VIEWSTOR_VSCODE_EXECUTABLE=$EXECUTABLE" >> "$GITHUB_ENV"
+      - name: Run integration tests
+        run: xvfb-run -a npm run test:vscode -- --fail-zero
+
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest

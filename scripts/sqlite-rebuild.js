@@ -34,7 +34,34 @@ function fileHash(filePath) {
   return crypto.createHash('md5').update(fs.readFileSync(filePath)).digest('hex');
 }
 
+function getElectronVersionFromExecutable(executable) {
+  try {
+    if (!fs.existsSync(executable)) return null;
+    const output = execFileSync(
+      executable,
+      ['-e', 'process.stdout.write(process.versions.electron || "")'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
+    return /^\d+\.\d+\.\d+$/.test(output) ? output : null;
+  } catch {
+    return null;
+  }
+}
+
 function detectVSCodeElectronVersion() {
+  // CI can point directly at the VS Code downloaded by @vscode/test-electron.
+  // An explicit executable must win over any system installation so the native
+  // module and Extension Host always use the same Electron ABI.
+  const configuredExecutable = process.env.VIEWSTOR_VSCODE_EXECUTABLE;
+  if (configuredExecutable) {
+    const version = getElectronVersionFromExecutable(configuredExecutable);
+    if (version) return version;
+  }
+
   const candidates = [
     // Windows
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Microsoft VS Code'),
@@ -59,22 +86,7 @@ function detectVSCodeElectronVersion() {
   // Current macOS VS Code builds no longer ship the framework `version` file.
   // Ask the app executable for process.versions while forcing Electron's Node
   // mode, which does not open a window and returns the exact runtime target.
-  const macExecutable = '/Applications/Visual Studio Code.app/Contents/MacOS/Code';
-  try {
-    if (fs.existsSync(macExecutable)) {
-      const output = execFileSync(
-        macExecutable,
-        ['-e', 'process.stdout.write(process.versions.electron || "")'],
-        {
-          encoding: 'utf8',
-          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-          stdio: ['ignore', 'pipe', 'ignore'],
-        },
-      ).trim();
-      if (/^\d+\.\d+\.\d+$/.test(output)) return output;
-    }
-  } catch { /* skip */ }
-  return null;
+  return getElectronVersionFromExecutable('/Applications/Visual Studio Code.app/Contents/MacOS/Code');
 }
 
 /**
