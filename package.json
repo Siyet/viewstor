@@ -52,6 +52,8 @@
     "compile-tests": "tsc -p tsconfig.test.json",
     "compile-vscode-tests": "tsc -p tsconfig.vscode-test.json",
     "test:vscode": "npm run build && npm run compile-vscode-tests && vscode-test",
+    "sync:codex-plugin-version": "node scripts/sync-codex-plugin-version.mjs",
+    "test:codex-plugin": "node scripts/test-codex-plugin.mjs",
     "package": "vsce package"
   },
   "contributes": {

@@ -1,0 +1,31 @@
+{
+  "name": "viewstor",
+  "version": "0.5.4",
+  "description": "Non-promoted Codex packaging and host smoke for Viewstor.",
+  "author": {
+    "name": "Siyet"
+  },
+  "homepage": "https://github.com/Siyet/viewstor",
+  "repository": "https://github.com/Siyet/viewstor",
+  "license": "AGPL-3.0",
+  "keywords": [
+    "database",
+    "sql",
+    "postgresql",
+    "redis",
+    "clickhouse",
+    "sqlite"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Viewstor",
+    "shortDescription": "Codex packaging smoke",
+    "longDescription": "Validates local Codex plugin packaging and MCP startup. This stage has no broker connection and exposes no database tools.",
+    "developerName": "Siyet",
+    "category": "Productivity",
+    "websiteURL": "https://github.com/Siyet/viewstor",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
+  }
+}

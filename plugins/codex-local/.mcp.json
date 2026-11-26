@@ -1,0 +1,9 @@
+{
+  "viewstor": {
+    "command": "node",
+    "args": [
+      "./adapter/entry.mjs"
+    ],
+    "cwd": "."
+  }
+}

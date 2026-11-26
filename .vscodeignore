@@ -27,5 +27,6 @@ webpack.config.js
 package-lock.json
 CLAUDE.md
 scripts/**
+plugins/**
 resources/icon-font-src/**
 tmp/**
