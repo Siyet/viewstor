@@ -1,0 +1,20 @@
+{
+  "name": "viewstor",
+  "interface": {
+    "displayName": "Viewstor"
+  },
+  "plugins": [
+    {
+      "name": "viewstor",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-local"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

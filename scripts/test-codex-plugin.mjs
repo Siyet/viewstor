@@ -1,12 +1,24 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pluginRoot = path.join(root, 'plugins', 'codex-local');
+const marketplaceManifestPath = path.join(root, '.agents', 'plugins', 'marketplace.json');
 const codex = process.env.CODEX_CLI || 'codex';
 const tempParent = path.join(root, 'tmp');
 mkdirSync(tempParent, { recursive: true });
@@ -17,18 +29,24 @@ function run(command, args, options) {
     const child = spawn(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill('SIGKILL');
-      reject(new Error(`${command} ${args.join(' ')} timed out`));
-    }, 30_000);
+    }, 45_000);
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
-    child.on('error', reject);
+    child.on('error', error => {
+      clearTimeout(timer);
+      reject(error);
+    });
     child.on('close', code => {
       clearTimeout(timer);
-      if (code === 0) {
+      if (timedOut) {
+        reject(new Error(`${command} ${args.join(' ')} timed out\n${stdout}\n${stderr}`));
+      } else if (code === 0) {
         resolve({ stdout, stderr });
       } else {
         reject(new Error(`${command} ${args.join(' ')} exited with ${code}\n${stdout}\n${stderr}`));
@@ -46,7 +64,7 @@ async function stop(child) {
   clearTimeout(timer);
 }
 
-async function hostSmoke({ project, env }) {
+async function hostSmoke({ project, env, expectedVersion, pluginId }) {
   const child = spawn(codex, ['app-server', '--stdio'], {
     cwd: project,
     env,
@@ -54,12 +72,14 @@ async function hostSmoke({ project, env }) {
   });
   const input = createInterface({ input: child.stdout, crlfDelay: Infinity });
   const pending = new Map();
+  const methods = [];
   let nextId = 0;
   let stderr = '';
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', chunk => { stderr += chunk; });
 
   function send(message) {
+    methods.push(message.method);
     child.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
@@ -119,7 +139,11 @@ async function hostSmoke({ project, env }) {
     assert.equal(server.runtimeStatus, 'connected', JSON.stringify(server));
     assert.equal(server.toolsError, null, JSON.stringify(server));
     assert.deepEqual(server.tools, {});
-    return { serverInfo: server.serverInfo, pluginId: server.pluginId };
+    assert.equal(server.serverInfo?.name, 'viewstor');
+    assert.equal(server.serverInfo?.version, expectedVersion);
+    assert.equal(server.pluginId, pluginId);
+    assert.equal(methods.includes('turn/start'), false, 'The smoke must not invoke a model');
+    return { serverInfo: server.serverInfo, pluginId: server.pluginId, methods };
   } finally {
     input.close();
     child.stdin.end();
@@ -127,90 +151,244 @@ async function hostSmoke({ project, env }) {
   }
 }
 
-function findInstalledPlugin(cacheRoot) {
-  const matches = [];
-  function visit(directory) {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        visit(absolute);
-      } else if (entry.isFile() && entry.name === 'plugin.json' && path.basename(directory) === '.codex-plugin') {
-        const manifest = JSON.parse(readFileSync(absolute, 'utf8'));
-        if (manifest.name === 'viewstor') matches.push(path.dirname(directory));
+function createGitServer({ env, projectRoot }) {
+  const gitBackend = path.join(
+    execFileSync('git', ['--exec-path'], { env, encoding: 'utf8' }).trim(),
+    'git-http-backend',
+  );
+  const backends = new Set();
+  const server = http.createServer((request, response) => {
+    const url = new URL(request.url, 'http://127.0.0.1');
+    const output = [];
+    const errors = [];
+    const child = spawn(gitBackend, [], {
+      env: {
+        ...env,
+        GIT_PROJECT_ROOT: projectRoot,
+        GIT_HTTP_EXPORT_ALL: '1',
+        PATH_INFO: url.pathname,
+        QUERY_STRING: url.search.slice(1),
+        REQUEST_METHOD: request.method,
+        CONTENT_TYPE: request.headers['content-type'] || '',
+        CONTENT_LENGTH: request.headers['content-length'] || '',
+        REMOTE_ADDR: '127.0.0.1',
+        SERVER_PROTOCOL: 'HTTP/1.1',
+        SERVER_NAME: '127.0.0.1',
+        SERVER_PORT: String(server.address().port),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    backends.add(child);
+    child.stdout.on('data', chunk => output.push(chunk));
+    child.stderr.on('data', chunk => errors.push(chunk));
+    child.stdin.on('error', () => {});
+    child.on('error', error => {
+      if (response.writableEnded) return;
+      response.statusCode = 500;
+      response.end(String(error));
+    });
+    child.on('close', code => {
+      backends.delete(child);
+      if (response.writableEnded) return;
+      if (code !== 0) {
+        response.statusCode = 500;
+        response.end(Buffer.concat(errors));
+        return;
       }
-    }
-  }
-  visit(cacheRoot);
-  assert.equal(matches.length, 1, `Expected one installed Viewstor plugin, found ${matches.length}`);
-  return matches[0];
+      const body = Buffer.concat(output);
+      const separator = body.indexOf('\r\n\r\n');
+      if (separator < 0) {
+        response.statusCode = 500;
+        response.end('Invalid git-http-backend response');
+        return;
+      }
+      for (const line of body.subarray(0, separator).toString('utf8').split('\r\n')) {
+        const colon = line.indexOf(':');
+        if (colon < 0) continue;
+        const name = line.slice(0, colon).trim().toLowerCase();
+        const value = line.slice(colon + 1).trim();
+        if (name === 'status') response.statusCode = Number(value.split(' ')[0]);
+        else response.setHeader(name, value);
+      }
+      response.end(body.subarray(separator + 4));
+    });
+    request.pipe(child.stdin);
+  });
+
+  return {
+    server,
+    async listen() {
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', resolve);
+      });
+      return `http://127.0.0.1:${server.address().port}/remote.git`;
+    },
+    async close() {
+      const closed = new Promise(resolve => server.close(resolve));
+      server.closeAllConnections();
+      const exiting = [...backends].map(child => new Promise(resolve => {
+        child.once('close', resolve);
+        child.kill('SIGKILL');
+      }));
+      await closed;
+      await Promise.all(exiting);
+    },
+  };
 }
 
 async function main() {
-  const marketplace = path.join(work, 'marketplace');
-  const installedSource = path.join(marketplace, 'plugins', 'viewstor');
+  const source = path.join(work, 'source');
+  const remote = path.join(work, 'remote.git');
   const home = path.join(work, 'home');
   const codexHome = path.join(work, 'codex-home');
   const project = path.join(work, 'project with spaces');
-  mkdirSync(path.dirname(installedSource), { recursive: true });
-  mkdirSync(path.join(marketplace, '.agents', 'plugins'), { recursive: true });
+  const fixturePlugin = path.join(source, 'plugins', 'codex-local');
+  const fixtureManifest = path.join(fixturePlugin, '.codex-plugin', 'plugin.json');
+  const fixtureMarketplace = path.join(source, '.agents', 'plugins', 'marketplace.json');
+  mkdirSync(path.dirname(fixtureMarketplace), { recursive: true });
   mkdirSync(home, { recursive: true });
   mkdirSync(codexHome, { recursive: true, mode: 0o700 });
   mkdirSync(project, { recursive: true });
-  cpSync(pluginRoot, installedSource, { recursive: true });
+  cpSync(pluginRoot, fixturePlugin, { recursive: true });
+  copyFileSync(marketplaceManifestPath, fixtureMarketplace);
+  assert.ok(readFileSync(marketplaceManifestPath).equals(readFileSync(fixtureMarketplace)));
 
-  const manifest = JSON.parse(readFileSync(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), 'utf8'));
-  writeFileSync(path.join(marketplace, '.agents', 'plugins', 'marketplace.json'), `${JSON.stringify({
-    name: 'viewstor-test',
-    interface: { displayName: 'Viewstor Isolated Test' },
-    plugins: [{
-      name: 'viewstor',
-      source: { source: 'local', path: './plugins/viewstor' },
-      policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
-      category: 'Productivity',
-    }],
-  }, null, 2)}\n`);
-
+  const gitConfig = path.join(work, 'gitconfig');
+  writeFileSync(gitConfig, '');
   const env = {
-    ...process.env,
     PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH || ''}`,
     HOME: home,
     CODEX_HOME: codexHome,
     TMPDIR: work,
     XDG_CONFIG_HOME: path.join(home, '.config'),
     XDG_CACHE_HOME: path.join(home, '.cache'),
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: gitConfig,
     NODE_NO_WARNINGS: '1',
     NO_COLOR: '1',
     TERM: 'dumb',
   };
-  delete env.OPENAI_API_KEY;
-  delete env.CODEX_API_KEY;
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ELECTRON_RUN_AS_NODE;
+  const git = (args, cwd = source) => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
+  const setVersion = version => {
+    const manifest = JSON.parse(readFileSync(fixtureManifest, 'utf8'));
+    manifest.version = version;
+    writeFileSync(fixtureManifest, `${JSON.stringify(manifest, null, 2)}\n`);
+  };
+  const commitAndPush = message => {
+    git(['add', '.agents/plugins/marketplace.json', 'plugins/codex-local']);
+    git(['-c', 'user.name=Viewstor Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', message]);
+    git(['push', 'origin', 'main']);
+  };
 
-  await run(codex, ['plugin', 'marketplace', 'add', marketplace, '--json'], { cwd: project, env });
-  await run(codex, ['plugin', 'add', 'viewstor@viewstor-test', '--json'], { cwd: project, env });
+  git(['init', '--bare', '--initial-branch=main', remote], work);
+  git(['init', '--initial-branch=main', source], work);
+  git(['remote', 'add', 'origin', remote]);
+  setVersion('0.0.1');
+  commitAndPush('fixture 0.0.1');
 
-  const installed = findInstalledPlugin(path.join(codexHome, 'plugins', 'cache'));
-  const cacheVersion = path.basename(installed);
-  assert.ok(cacheVersion === 'local' || cacheVersion === manifest.version, `Unexpected Codex cache version: ${cacheVersion}`);
-  const installedManifest = JSON.parse(readFileSync(path.join(installed, '.codex-plugin', 'plugin.json'), 'utf8'));
-  assert.equal(installedManifest.version, manifest.version);
-  assert.equal(readFileSync(path.join(installed, 'adapter', 'entry.mjs'), 'utf8'), readFileSync(path.join(pluginRoot, 'adapter', 'entry.mjs'), 'utf8'));
+  const gitServer = createGitServer({ env, projectRoot: work });
+  try {
+    const marketplaceUrl = await gitServer.listen();
+    const addedMarketplace = JSON.parse((await run(
+      codex,
+      ['plugin', 'marketplace', 'add', marketplaceUrl, '--ref', 'main', '--json'],
+      { cwd: project, env },
+    )).stdout);
+    assert.equal(addedMarketplace.marketplaceName, 'viewstor');
+    const installedMarketplace = addedMarketplace.installedRoot;
+    const addedPlugin = JSON.parse((await run(
+      codex,
+      ['plugin', 'add', 'viewstor@viewstor', '--json'],
+      { cwd: project, env },
+    )).stdout);
+    assert.equal(addedPlugin.pluginId, 'viewstor@viewstor');
+    assert.equal(addedPlugin.version, '0.0.1');
 
-  // Prove the host loads the installed cache rather than the marketplace source.
-  rmSync(installedSource, { recursive: true, force: true });
-  const host = await hostSmoke({ project, env });
-  assert.equal(host.serverInfo?.name, 'viewstor');
-  assert.equal(host.serverInfo?.version, manifest.version);
-  assert.equal(typeof host.pluginId, 'string');
+    const cacheRoot = path.join(codexHome, 'plugins', 'cache', 'viewstor', 'viewstor');
+    const assertInstalledCache = version => {
+      const versions = readdirSync(cacheRoot, { withFileTypes: true })
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name);
+      assert.deepEqual(versions, [version]);
+      const installed = path.join(cacheRoot, version);
+      const installedManifest = JSON.parse(readFileSync(path.join(installed, '.codex-plugin', 'plugin.json'), 'utf8'));
+      assert.equal(installedManifest.version, version);
+      assert.ok(readFileSync(path.join(installed, 'adapter', 'entry.mjs'))
+        .equals(readFileSync(path.join(fixturePlugin, 'adapter', 'entry.mjs'))));
+      return installed;
+    };
 
-  process.stdout.write(`${JSON.stringify({
-    result: 'pass',
-    plugin: 'viewstor',
-    version: manifest.version,
-    host: 'codex app-server',
-    tools: [],
-  }, null, 2)}\n`);
+    const oldInstalled = assertInstalledCache('0.0.1');
+    assert.equal(path.resolve(oldInstalled), path.resolve(addedPlugin.installedPath));
+    const oldHost = await hostSmoke({
+      project,
+      env,
+      expectedVersion: '0.0.1',
+      pluginId: 'viewstor@viewstor',
+    });
+
+    setVersion('0.0.2');
+    writeFileSync(path.join(fixturePlugin, 'adapter', 'update-marker.txt'), 'updated fixture\n');
+    commitAndPush('fixture 0.0.2');
+    const upgrade = JSON.parse((await run(
+      codex,
+      ['plugin', 'marketplace', 'upgrade', 'viewstor', '--json'],
+      { cwd: project, env },
+    )).stdout);
+    assert.deepEqual(upgrade.selectedMarketplaces, ['viewstor']);
+    assert.deepEqual(upgrade.upgradedRoots, [installedMarketplace]);
+    assert.deepEqual(upgrade.errors, []);
+
+    // Check the direct upgrade result before plugin list can trigger its own refresh.
+    assertInstalledCache('0.0.2');
+    assert.equal(existsSync(path.join(cacheRoot, '0.0.1')), false);
+    const listed = JSON.parse((await run(
+      codex,
+      ['plugin', 'list', '--marketplace', 'viewstor', '--available', '--json'],
+      { cwd: project, env },
+    )).stdout);
+    assert.equal(listed.installed.length, 1);
+    assert.deepEqual(listed.available, []);
+    assert.deepEqual(listed.installed[0], {
+      ...listed.installed[0],
+      pluginId: 'viewstor@viewstor',
+      name: 'viewstor',
+      marketplaceName: 'viewstor',
+      version: '0.0.2',
+      installed: true,
+      enabled: true,
+      installPolicy: 'AVAILABLE',
+      authPolicy: 'ON_INSTALL',
+    });
+
+    // The final host must use the installed cache without any marketplace source.
+    rmSync(installedMarketplace, { recursive: true, force: true });
+    rmSync(remote, { recursive: true, force: true });
+    rmSync(source, { recursive: true, force: true });
+    const newHost = await hostSmoke({
+      project,
+      env,
+      expectedVersion: '0.0.2',
+      pluginId: 'viewstor@viewstor',
+    });
+    assert.equal(existsSync(installedMarketplace), false);
+    assert.equal(existsSync(remote), false);
+    assert.equal(existsSync(source), false);
+    assert.equal(readFileSync(path.join(cacheRoot, '0.0.2', 'adapter', 'update-marker.txt'), 'utf8'), 'updated fixture\n');
+
+    process.stdout.write(`${JSON.stringify({
+      result: 'pass',
+      plugin: 'viewstor@viewstor',
+      from: oldHost.serverInfo.version,
+      to: newHost.serverInfo.version,
+      host: 'codex app-server',
+      tools: [],
+      modelCalls: 0,
+    }, null, 2)}\n`);
+  } finally {
+    await gitServer.close();
+  }
 }
 
 main()

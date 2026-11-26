@@ -138,6 +138,35 @@ function runReleaseFixture(fixture: ReleaseFixture) {
 }
 
 describe('Codex local plugin packaging', () => {
+  it('lists only the existing contained plugin in the repository marketplace', () => {
+    const marketplace = readJson(path.join(root, '.agents', 'plugins', 'marketplace.json')) as {
+      name: string;
+      interface: { displayName: string };
+      plugins: Array<{
+        name: string;
+        source: { source: string; path: string };
+        policy: { installation: string; authentication: string };
+        category: string;
+      }>;
+    };
+    const manifest = readJson(manifestPath);
+
+    expect(marketplace).toEqual({
+      name: 'viewstor',
+      interface: { displayName: 'Viewstor' },
+      plugins: [{
+        name: manifest.name,
+        source: { source: 'local', path: './plugins/codex-local' },
+        policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+        category: 'Productivity',
+      }],
+    });
+    const [entry] = marketplace.plugins;
+    const resolved = path.resolve(root, entry.source.path);
+    expect(path.relative(root, resolved)).toBe(path.join('plugins', 'codex-local'));
+    expect(fs.realpathSync(resolved)).toBe(fs.realpathSync(pluginRoot));
+  });
+
   it('keeps the plugin and product versions synchronized', () => {
     const packageJson = readJson(path.join(root, 'package.json'));
     const manifest = readJson(manifestPath);
