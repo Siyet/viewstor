@@ -80,7 +80,7 @@ Supports PostgreSQL (`Seq Scan`), SQLite (`SCAN TABLE` via `EXPLAIN QUERY PLAN`)
 
 ### Read-only Mode
 
-Mark a connection or an entire folder as read-only. Child connections inherit the setting. Mutations are blocked in the query editor, result grid, and MCP commands.
+Mark a connection or an entire folder as read-only. Child connections inherit the setting. Mutations are blocked in the query editor, result grid, and MCP commands, including raw SQL supplied to standalone `execute_query` and `build_chart`. PostgreSQL connections also set `default_transaction_read_only=on`, and ClickHouse requests use `readonly=1`, providing database-level enforcement in addition to SQL screening.
 
 ### Connections
 
@@ -242,9 +242,18 @@ Or add manually:
 }
 ```
 
-9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
+9 tools: `list_connections`, `get_schema`, `execute_query`, `get_table_data`, `get_table_info`, `add_connection`, `reload_connections`, `build_chart`, `export_grafana_dashboard`. Reads connections from `~/.viewstor/connections.json` and `.vscode/viewstor.json`. Connections sync bidirectionally with the VS Code extension. See the [MCP Server wiki page](https://github.com/Siyet/viewstor/wiki/MCP-Server) for setup instructions.
 
 All MCP interfaces auto-connect and respect read-only mode.
+
+**`add_connection` safety modes** — controlled by `settings.allowAddConnection` in the user-owned `~/.viewstor/connections.json` (project files cannot override it):
+- `"restricted"` (default): agent-created connections are forced read-only, project-scoped (password stripped), and prefixed `[agent] `. PostgreSQL, ClickHouse, and file-backed SQLite are supported; Redis and in-memory/temporary SQLite are rejected with `invalid_config` because safe read-only enforcement is unavailable.
+- `"off"`: tool removed entirely — agents cannot create connections.
+- `"unrestricted"`: no restrictions (opt-in only).
+
+The explicit user-global VS Code setting `viewstor.standaloneMcp.allowAddConnection` syncs to the same JSON key on activation and configuration changes. Default and workspace-only values do not overwrite a manually edited JSON policy. Restart the standalone server or call `reload_connections` after changing the file.
+
+Every call is recorded in `~/.viewstor/audit.jsonl`, including disabled/malformed calls, the resolved final configuration, and persistence failures. Passwords and other secrets are omitted from the audit log.
 
 Data-oriented tools (`execute_query`, `get_schema`, `get_table_data`, `get_table_info`, `build_chart`) accept an optional `database` parameter — query another database on the same server without creating a new connection or re-entering the password.
 

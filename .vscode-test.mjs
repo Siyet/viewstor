@@ -1,9 +1,11 @@
 import { defineConfig } from '@vscode/test-cli';
 
+const vscodeExecutable = process.env.VIEWSTOR_VSCODE_EXECUTABLE || process.env.VSCODE_EXECUTABLE_PATH;
+
 export default defineConfig({
   files: 'dist/test/test/vscode/**/*.vscode.test.js',
-  useInstallation: process.env.VSCODE_EXECUTABLE_PATH
-    ? { fromPath: process.env.VSCODE_EXECUTABLE_PATH }
+  useInstallation: vscodeExecutable
+    ? { fromPath: vscodeExecutable }
     : undefined,
   mocha: {
     ui: 'tdd',

@@ -10,8 +10,10 @@ export class ClickHouseDriver implements DatabaseDriver {
   private client: ClickHouseClient | undefined;
   private abortController: AbortController | undefined;
   private database: string | undefined;
+  private isReadonly = false;
 
   async connect(config: ConnectionConfig): Promise<void> {
+    this.isReadonly = config.readonly === true;
     const protocol = config.ssl ? 'https' : 'http';
     this.database = config.database;
     this.client = createClient({
@@ -45,8 +47,9 @@ export class ClickHouseDriver implements DatabaseDriver {
       const trimmed = query.trim().toUpperCase();
       const isSelect = trimmed.startsWith('SELECT') || trimmed.startsWith('SHOW') || trimmed.startsWith('DESCRIBE') || trimmed.startsWith('EXPLAIN');
 
+      const nativeReadonly = this.isReadonly ? { clickhouse_settings: { readonly: '1' as const } } : {};
       if (!isSelect) {
-        await this.client!.command({ query, abort_signal: abortController.signal });
+        await this.client!.command({ query, abort_signal: abortController.signal, ...nativeReadonly });
         return {
           columns: [{ name: 'status', dataType: 'string' }],
           rows: [{ status: 'OK' }],
@@ -55,7 +58,7 @@ export class ClickHouseDriver implements DatabaseDriver {
         };
       }
 
-      const resultSet = await this.client!.query({ query, format: 'JSON', abort_signal: abortController.signal });
+      const resultSet = await this.client!.query({ query, format: 'JSON', abort_signal: abortController.signal, ...nativeReadonly });
       const json = await resultSet.json<{
         meta: { name: string; type: string }[];
         data: Record<string, unknown>[];

@@ -4,7 +4,10 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('vscode', () => ({}));
+vi.mock('vscode', () => ({
+  window: { showInformationMessage: vi.fn() },
+  l10n: { t: (message: string) => message },
+}));
 
 import { ConnectionFormPanel } from '../views/connectionForm';
 import { ConnectionConfig } from '../types/connection';
@@ -87,5 +90,24 @@ describe('ConnectionFormPanel.parseFormData — SSH proxy', () => {
       sshHop2Passphrase: 'hunter2',
     });
     expect(config.proxy?.sshHops?.[0].passphrase).toBe('hunter2');
+  });
+});
+
+describe('ConnectionFormPanel.handleSave', () => {
+  it('preserves agentCreated when an agent connection is edited', async () => {
+    const existing: ConnectionConfig = {
+      id: 'agent-1', name: 'Agent DB', type: 'postgresql', host: 'localhost', port: 5432, agentCreated: true,
+    };
+    const update = vi.fn(async () => {});
+    const manager = { get: () => ({ config: existing }), update };
+    const panel = new ConnectionFormPanel({} as never, manager as never);
+
+    await (panel as unknown as { handleSave(data: Record<string, string>): Promise<void> }).handleSave({
+      ...baseData,
+      id: existing.id,
+      proxyType: 'none',
+    });
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ id: existing.id, agentCreated: true }));
   });
 });

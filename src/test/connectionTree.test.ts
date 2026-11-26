@@ -181,4 +181,21 @@ describe('ConnectionTreeProvider — connection item description', () => {
     const [item] = await provider.getChildren();
     expect(item.description).toBe('db.example.com:5432');
   });
+
+  it('marks agent-created connections without hiding their endpoint', async () => {
+    const connections = new Map([
+      ['conn-agent', {
+        config: {
+          id: 'conn-agent', name: '[agent] Direct', type: 'postgresql', host: 'db.example.com', port: 5432,
+          agentCreated: true,
+        },
+        connected: true,
+      }],
+    ]);
+    const mgr = createMockConnectionManager(connections);
+    const provider = new ConnectionTreeProvider(mgr as never);
+
+    const [item] = await provider.getChildren();
+    expect(item.description).toBe('db.example.com:5432 · agent');
+  });
 });

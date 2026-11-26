@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { ConnectionConfig, ConnectionFolder } from '../types/connection';
+import { ConnectionConfig, ConnectionFolder, StandaloneMcpSettings } from '../types/connection';
 import { DatabaseDriver } from '../types/driver';
 import { createDriver } from '../drivers';
 import { AnonymizationPolicy, resolveAnonymizationPolicy } from '../mcp/anonymizer';
@@ -13,6 +13,8 @@ const PROJECT_CONFIG_FILE = '.vscode/viewstor.json';
 interface ConfigData {
   connections: ConnectionConfig[];
   folders?: ConnectionFolder[];
+  settings?: StandaloneMcpSettings;
+  [key: string]: unknown;
 }
 
 export class ConnectionStore {
@@ -21,6 +23,7 @@ export class ConnectionStore {
   private drivers = new Map<string, DatabaseDriver>();
   private dbDrivers = new Map<string, DatabaseDriver>();
   private dbDriverLocks = new Map<string, Promise<DatabaseDriver>>();
+  private settings: StandaloneMcpSettings = {};
 
   constructor() {
     this.reload();
@@ -29,12 +32,17 @@ export class ConnectionStore {
   reload() {
     this.connections.clear();
     this.folders.clear();
+    this.settings = {};
     // Load user-level config
     this.loadFile(USER_CONFIG_FILE, 'user');
 
     // Load project-level config
     const projectFile = path.join(process.cwd(), PROJECT_CONFIG_FILE);
     this.loadFile(projectFile, 'project');
+  }
+
+  getSettings(): StandaloneMcpSettings {
+    return this.settings;
   }
 
   private loadFile(filePath: string, scope: 'user' | 'project') {
@@ -49,6 +57,11 @@ export class ConnectionStore {
       for (const folder of data.folders || []) {
         folder.scope = scope;
         this.folders.set(folder.id, folder);
+      }
+      // Security settings are user-owned: a project file must never be able to
+      // override an `off` / `restricted` policy chosen in the user config.
+      if (scope === 'user' && data.settings) {
+        this.settings = { ...data.settings };
       }
     } catch {
       // File doesn't exist or invalid JSON — skip silently
@@ -132,20 +145,38 @@ export class ConnectionStore {
   }
 
   async add(config: ConnectionConfig): Promise<void> {
-    this.connections.set(config.id, config);
-    await this.saveUserConfig();
-  }
+    const project = config.scope === 'project';
+    const targetFile = project ? path.join(process.cwd(), PROJECT_CONFIG_FILE) : USER_CONFIG_FILE;
 
-  private async saveUserConfig() {
-    const userConfigs = Array.from(this.connections.values())
-      .filter(c => c.scope !== 'project');
-
-    if (!fs.existsSync(USER_CONFIG_DIR)) {
-      fs.mkdirSync(USER_CONFIG_DIR, { recursive: true });
+    // The process may have been running while VS Code or another MCP client changed
+    // the file. Merge into a fresh snapshot instead of serializing our stale Map.
+    let existing: ConfigData = { connections: [] };
+    if (fs.existsSync(targetFile)) {
+      const parsed: unknown = JSON.parse(fs.readFileSync(targetFile, 'utf8'));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(`Invalid connection config: ${targetFile}`);
+      }
+      const data = parsed as Partial<ConfigData>;
+      if (data.connections !== undefined && !Array.isArray(data.connections)) {
+        throw new Error(`Invalid connections array: ${targetFile}`);
+      }
+      existing = { ...data, connections: data.connections || [] };
     }
 
-    const data: ConfigData = { connections: userConfigs };
-    fs.writeFileSync(USER_CONFIG_FILE, JSON.stringify(data, null, 2), 'utf8');
+    let persisted = config;
+    if (project) {
+      const { password, ...withoutPassword } = config;
+      persisted = withoutPassword;
+    }
+    existing.connections = [
+      ...existing.connections.filter(item => item.id !== config.id),
+      persisted,
+    ];
+
+    fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+    fs.writeFileSync(targetFile, JSON.stringify(existing, null, 2), 'utf8');
+    // A failed write must not expose a connection that was never persisted.
+    this.connections.set(config.id, config);
   }
 
   async disconnectAll() {

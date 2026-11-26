@@ -24,13 +24,14 @@ import { ErDiagramPanelManager } from './er/erDiagramPanel';
 import { TempFileManager } from './services/tempFileManager';
 import { QueryFileManager } from './services/queryFileManager';
 import { setDebugChannel, dbg } from './utils/debug';
+import { createStandaloneMcpSettingsSync } from './utils/standaloneMcpSettingsSync';
 
 let connectionManager: ConnectionManager;
 let outputChannel: vscode.LogOutputChannel;
 let tempFileManager: TempFileManager;
 let queryFileManager: QueryFileManager;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('Viewstor', { log: true });
   context.subscriptions.push(outputChannel);
   setDebugChannel(outputChannel);
@@ -38,6 +39,28 @@ export function activate(context: vscode.ExtensionContext) {
   try {
     dbg('activate', 'starting activation');
     connectionManager = new ConnectionManager(context);
+
+    // Only an explicitly user-scoped VS Code value is synchronized. Defaults and
+    // workspace settings must not overwrite the user-owned standalone MCP policy.
+    const syncStandaloneMcpSetting = createStandaloneMcpSettingsSync(
+      value => connectionManager.syncStandaloneMcpSettings(value),
+      context.globalState,
+    );
+    const syncStandaloneMcpSettings = async () => {
+      const value = vscode.workspace.getConfiguration('viewstor')
+        .inspect<'off' | 'restricted' | 'unrestricted'>('standaloneMcp.allowAddConnection')?.globalValue;
+      try {
+        await syncStandaloneMcpSetting(value);
+      } catch (err) {
+        outputChannel.error(`Failed to sync standalone MCP settings: ${wrapError(err)}`);
+      }
+    };
+    await syncStandaloneMcpSettings();
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async event => {
+      if (event.affectsConfiguration('viewstor.standaloneMcp.allowAddConnection')) {
+        await syncStandaloneMcpSettings();
+      }
+    }));
 
     const connectionTreeProvider = new ConnectionTreeProvider(connectionManager);
     const queryHistoryProvider = new QueryHistoryProvider(context);
