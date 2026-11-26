@@ -44,6 +44,29 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  codex-plugin:
+    name: Codex Plugin Host
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          cache: npm
+      - run: npm ci
+      - name: Install pinned Codex CLI
+        run: npm install --prefix "${{ runner.temp }}/viewstor-codex-cli" --no-audit --no-fund @openai/codex@0.172.0
+      - name: Verify Codex CLI version
+        run: |
+          VERSION="$("${{ runner.temp }}/viewstor-codex-cli/node_modules/.bin/codex" --version)"
+          echo "$VERSION"
+          test "$VERSION" = "codex-cli 0.172.0"
+      - name: Run Codex plugin host smoke
+        run: npm run test:codex-plugin
+        env:
+          CODEX_CLI: ${{ runner.temp }}/viewstor-codex-cli/node_modules/.bin/codex
+
   vscode-integration:
     name: VS Code Integration Tests
     runs-on: ubuntu-latest
