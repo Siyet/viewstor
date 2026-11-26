@@ -12,6 +12,18 @@ function readJson(file: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
 }
 
+function initializeParams(protocolVersion = '2025-03-26') {
+  return {
+    protocolVersion,
+    capabilities: {},
+    clientInfo: { name: 'vitest', version: '1.0.0' },
+  };
+}
+
+function initializeRequest(id: number, protocolVersion?: string): string {
+  return JSON.stringify({ jsonrpc: '2.0', id, method: 'initialize', params: initializeParams(protocolVersion) });
+}
+
 interface AdapterResult {
   messages: Array<Record<string, unknown>>;
   stderr: string;
@@ -48,6 +60,80 @@ function runAdapter(lines: string[]): Promise<AdapterResult> {
 
     for (const line of lines) child.stdin.write(`${line}\n`);
     child.stdin.end();
+  });
+}
+
+interface ReleaseFixture {
+  directory: string;
+  manifestPath: string;
+  gitLogPath: string;
+}
+
+function writeExecutable(file: string, contents: string): void {
+  fs.writeFileSync(file, contents, { mode: 0o755 });
+}
+
+function createReleaseFixture(failSync = false): ReleaseFixture {
+  const tempParent = path.join(root, 'tmp');
+  fs.mkdirSync(tempParent, { recursive: true });
+  const directory = fs.mkdtempSync(path.join(tempParent, 'viewstor codex release '));
+  const releaseScript = path.join(directory, '.github', 'scripts', 'prepare-release.sh');
+  const syncScript = path.join(directory, 'scripts', 'sync-codex-plugin-version.mjs');
+  const manifestPath = path.join(directory, 'plugins', 'codex-local', '.codex-plugin', 'plugin.json');
+  const bin = path.join(directory, 'bin');
+  const gitLogPath = path.join(directory, 'git.log');
+  fs.mkdirSync(path.dirname(releaseScript), { recursive: true });
+  fs.mkdirSync(path.dirname(syncScript), { recursive: true });
+  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+  fs.mkdirSync(bin, { recursive: true });
+
+  fs.copyFileSync(path.join(root, '.github', 'scripts', 'prepare-release.sh'), releaseScript);
+  if (failSync) {
+    fs.writeFileSync(syncScript, 'throw new Error(\'forced sync failure\');\n');
+  } else {
+    fs.copyFileSync(path.join(root, 'scripts', 'sync-codex-plugin-version.mjs'), syncScript);
+  }
+  fs.writeFileSync(path.join(directory, 'package.json'), `${JSON.stringify({ name: 'fixture', version: '0.5.4' }, null, 2)}\n`);
+  fs.writeFileSync(path.join(directory, 'package-lock.json'), '{}\n');
+  fs.writeFileSync(path.join(directory, 'CHANGELOG.md'), '## [Unreleased]\n');
+  fs.writeFileSync(manifestPath, `${JSON.stringify({ name: 'viewstor', version: '0.0.1' }, null, 2)}\n`);
+
+  writeExecutable(path.join(bin, 'gh'), `#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  printf '%s\\n' '[{"number":1,"labels":[],"body":""}]'
+  exit 0
+fi
+exit 1
+`);
+  writeExecutable(path.join(bin, 'npm'), '#!/bin/sh\nexit 0\n');
+  writeExecutable(path.join(bin, 'sed'), '#!/bin/sh\nexit 0\n');
+  writeExecutable(path.join(bin, 'git'), `#!/bin/sh
+printf '%s\\n' "$*" >> "$VIEWSTOR_TEST_GIT_LOG"
+case "$1" in
+  describe|log) exit 1 ;;
+esac
+if [ "$1" = "add" ]; then
+  PACKAGE_VERSION=$(node -p "require('./package.json').version")
+  MANIFEST_VERSION=$(node -p "require('./plugins/codex-local/.codex-plugin/plugin.json').version")
+  [ "$PACKAGE_VERSION" = "$MANIFEST_VERSION" ] || exit 1
+fi
+exit 0
+`);
+
+  return { directory, manifestPath, gitLogPath };
+}
+
+function runReleaseFixture(fixture: ReleaseFixture) {
+  const env = {
+    ...process.env,
+    PATH: `${path.join(fixture.directory, 'bin')}${path.delimiter}${process.env.PATH || ''}`,
+    VIEWSTOR_TEST_GIT_LOG: fixture.gitLogPath,
+  };
+  delete env.GITHUB_ENV;
+  return spawnSync('bash', ['.github/scripts/prepare-release.sh'], {
+    cwd: fixture.directory,
+    env,
+    encoding: 'utf8',
   });
 }
 
@@ -102,16 +188,40 @@ describe('Codex local plugin packaging', () => {
   });
 
   it('synchronizes and stages the plugin manifest before a release commit', () => {
-    const releaseScript = fs.readFileSync(path.join(root, '.github', 'scripts', 'prepare-release.sh'), 'utf8');
-    const lockIndex = releaseScript.indexOf('npm install --package-lock-only --ignore-scripts');
-    const syncIndex = releaseScript.indexOf('node scripts/sync-codex-plugin-version.mjs');
-    const stageIndex = releaseScript.indexOf('git add package.json package-lock.json CHANGELOG.md plugins/codex-local/.codex-plugin/plugin.json');
-    const commitIndex = releaseScript.indexOf('git commit -m "release: v${NEW_VERSION}"');
+    const fixture = createReleaseFixture();
+    try {
+      const result = runReleaseFixture(fixture);
+      expect(result.status, result.stderr).toBe(0);
+      expect(readJson(fixture.manifestPath).version).toBe('0.5.5');
+      expect(readJson(path.join(fixture.directory, 'package.json')).version).toBe('0.5.5');
 
-    expect(lockIndex).toBeGreaterThanOrEqual(0);
-    expect(syncIndex).toBeGreaterThan(lockIndex);
-    expect(stageIndex).toBeGreaterThan(syncIndex);
-    expect(commitIndex).toBeGreaterThan(stageIndex);
+      const gitCalls = fs.readFileSync(fixture.gitLogPath, 'utf8').trim().split('\n');
+      const stageIndex = gitCalls.indexOf('add package.json package-lock.json CHANGELOG.md plugins/codex-local/.codex-plugin/plugin.json');
+      const commitIndex = gitCalls.findIndex(call => call.startsWith('commit -m '));
+      const tagIndex = gitCalls.findIndex(call => call.startsWith('tag '));
+      const pushIndex = gitCalls.findIndex(call => call.startsWith('push '));
+      expect(stageIndex).toBeGreaterThanOrEqual(0);
+      expect(commitIndex).toBeGreaterThan(stageIndex);
+      expect(tagIndex).toBeGreaterThan(commitIndex);
+      expect(pushIndex).toBeGreaterThan(tagIndex);
+    } finally {
+      fs.rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it('stops the release before staging when plugin synchronization fails', () => {
+    const fixture = createReleaseFixture(true);
+    try {
+      const result = runReleaseFixture(fixture);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('forced sync failure');
+      const gitCalls = fs.existsSync(fixture.gitLogPath)
+        ? fs.readFileSync(fixture.gitLogPath, 'utf8').trim().split('\n')
+        : [];
+      expect(gitCalls.some(call => /^(add|commit|tag|push) /.test(call))).toBe(false);
+    } finally {
+      fs.rmSync(fixture.directory, { recursive: true, force: true });
+    }
   });
 
   it('uses one documented local MCP registration with contained paths', () => {
@@ -127,7 +237,6 @@ describe('Codex local plugin packaging', () => {
       args: ['./adapter/entry.mjs'],
       cwd: '.',
     });
-    expect(fs.existsSync(path.join(pluginRoot, 'adapter', 'entry.mjs'))).toBe(true);
     expect(fs.existsSync(path.join(pluginRoot, 'skills', 'viewstor', 'SKILL.md'))).toBe(true);
   });
 
@@ -154,7 +263,7 @@ describe('Codex local plugin packaging', () => {
 describe('Codex local MCP adapter', () => {
   it('initializes and exposes an intentionally empty tool surface', async () => {
     const { messages, stderr } = await runAdapter([
-      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } }),
+      initializeRequest(1),
       JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
       JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
       JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'ping', params: {} }),
@@ -179,14 +288,46 @@ describe('Codex local MCP adapter', () => {
   }, 15_000);
 
   it('offers only the supported protocol version for an unknown request', async () => {
-    const { messages, stderr } = await runAdapter([
-      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '1900-01-01' } }),
-    ]);
+    const { messages, stderr } = await runAdapter([initializeRequest(1, '1900-01-01')]);
 
     expect(stderr).toBe('');
     expect(messages).toHaveLength(1);
     expect(messages[0].result).toMatchObject({ protocolVersion: '2025-03-26' });
-    expect(messages[0].result).not.toMatchObject({ protocolVersion: '1900-01-01' });
+  });
+
+  it('allows ping after the initialize response and before initialized', async () => {
+    const { messages, stderr } = await runAdapter([
+      initializeRequest(1),
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'ping', params: {} }),
+      JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
+      JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} }),
+    ]);
+
+    expect(stderr).toBe('');
+    expect(messages.find(message => message.id === 2)?.result).toEqual({});
+    expect(messages.find(message => message.id === 3)?.result).toEqual({ tools: [] });
+  });
+
+  it('rejects malformed requests without committing initialization state', async () => {
+    const { messages, stderr } = await runAdapter([
+      JSON.stringify({ id: 1, method: 'initialize', params: initializeParams() }),
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'initialize' }),
+      JSON.stringify({ jsonrpc: '2.0', id: { invalid: true }, method: 'initialize', params: initializeParams() }),
+      initializeRequest(3),
+      JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
+      JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/list', params: 'invalid' }),
+      JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/list', params: {} }),
+    ]);
+
+    expect(stderr).toBe('');
+    expect(messages).toHaveLength(6);
+    expect(messages[0].error).toMatchObject({ code: -32600 });
+    expect(messages[1].error).toMatchObject({ code: -32602 });
+    expect(messages[2]).toMatchObject({ id: null, error: { code: -32600 } });
+    expect(messages[3]).toMatchObject({ id: 3 });
+    expect(messages[3].result).toBeDefined();
+    expect(messages[4].error).toMatchObject({ code: -32602 });
+    expect(messages[5].result).toEqual({ tools: [] });
   });
 
   it('rejects calls before initialization without opening a data surface', async () => {
@@ -200,7 +341,7 @@ describe('Codex local MCP adapter', () => {
   it('returns protocol errors for malformed input and remains usable', async () => {
     const { messages } = await runAdapter([
       'not-json',
-      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+      initializeRequest(1),
       JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }),
       JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
     ]);

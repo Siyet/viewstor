@@ -15,16 +15,29 @@ function sendError(id, code, message) {
   send({ jsonrpc: '2.0', id, error: { code, message } });
 }
 
+function isObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isValidRequestId(id) {
+  return typeof id === 'string' || (typeof id === 'number' && Number.isInteger(id));
+}
+
 function handleRequest(message) {
   const { id, method } = message;
-  if (typeof method !== 'string') {
-    sendError(id, -32600, 'Invalid Request: method must be a string');
-    return;
-  }
-
   if (method === 'initialize') {
     if (initializeReceived) {
       sendError(id, -32600, 'Server is already initialized');
+      return;
+    }
+    const params = message.params;
+    if (!isObject(params)
+      || typeof params.protocolVersion !== 'string'
+      || !isObject(params.capabilities)
+      || !isObject(params.clientInfo)
+      || typeof params.clientInfo.name !== 'string'
+      || typeof params.clientInfo.version !== 'string') {
+      sendError(id, -32602, 'Invalid params: initialize requires protocolVersion, capabilities, and clientInfo');
       return;
     }
     initializeReceived = true;
@@ -41,15 +54,18 @@ function handleRequest(message) {
     return;
   }
 
+  // MCP permits ping while initialization is still in progress.
+  if (method === 'ping') {
+    send({ jsonrpc: '2.0', id, result: {} });
+    return;
+  }
+
   if (!initialized) {
     sendError(id, -32002, 'Server is not initialized');
     return;
   }
 
   switch (method) {
-    case 'ping':
-      send({ jsonrpc: '2.0', id, result: {} });
-      return;
     case 'tools/list':
       // No database surface is exposed until the shared local-agent runtime is integrated.
       send({ jsonrpc: '2.0', id, result: { tools: [] } });
@@ -60,8 +76,20 @@ function handleRequest(message) {
 }
 
 function handleMessage(message) {
-  if (!message || typeof message !== 'object' || Array.isArray(message)) {
+  if (!isObject(message)) {
     sendError(null, -32600, 'Invalid Request: expected a JSON object');
+    return;
+  }
+  if (message.jsonrpc !== '2.0' || typeof message.method !== 'string') {
+    sendError(isValidRequestId(message.id) ? message.id : null, -32600, 'Invalid Request: expected jsonrpc 2.0 and a string method');
+    return;
+  }
+  if (message.id !== undefined && !isValidRequestId(message.id)) {
+    sendError(null, -32600, 'Invalid Request: id must be a string or integer');
+    return;
+  }
+  if (message.params !== undefined && !isObject(message.params)) {
+    if (message.id !== undefined) sendError(message.id, -32602, 'Invalid params: expected an object');
     return;
   }
   if (message.id === undefined) {

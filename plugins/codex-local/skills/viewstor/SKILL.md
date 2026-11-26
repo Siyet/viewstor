@@ -1,6 +1,6 @@
 ---
 name: viewstor
-description: Work with explicitly authorized Viewstor database connections through the local broker.
+description: Use explicitly authorized Viewstor MCP capabilities when available; this stage exposes no database tools.
 ---
 
 Use only the tools currently exposed by the Viewstor MCP server. Never ask the user to paste database passwords, private keys, tokens, or other credentials into chat.
