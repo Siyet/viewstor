@@ -24,52 +24,115 @@ const tempParent = path.join(root, 'tmp');
 mkdirSync(tempParent, { recursive: true });
 const work = mkdtempSync(path.join(tempParent, 'viewstor codex '));
 
+function observeClose(child) {
+  const state = { closed: false, promise: null };
+  state.promise = new Promise(resolve => {
+    child.once('close', (code, signal) => {
+      state.closed = true;
+      resolve({ code, signal });
+    });
+  });
+  return state;
+}
+
+function signalChild(child, signal) {
+  if (child.pid === undefined) return;
+  try {
+    if (process.platform === 'win32') child.kill(signal);
+    else process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error.code === 'ESRCH') return;
+    try {
+      child.kill(signal);
+    } catch (fallbackError) {
+      if (fallbackError.code !== 'ESRCH') throw fallbackError;
+    }
+  }
+}
+
+function waitForClose(state, timeoutMs) {
+  if (state.closed) return Promise.resolve(true);
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    state.promise.then(() => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
+async function stop(child, closeState) {
+  if (closeState.closed) return;
+  if (child.pid === undefined) {
+    await waitForClose(closeState, 2_000);
+    return;
+  }
+  if (child.exitCode === null && child.signalCode === null) {
+    signalChild(child, 'SIGTERM');
+    if (await waitForClose(closeState, 2_000)) return;
+  }
+  if (!closeState.closed) {
+    signalChild(child, 'SIGKILL');
+    await waitForClose(closeState, 2_000);
+  }
+}
+
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, {
+      ...options,
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const closeState = observeClose(child);
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let settled = false;
+    let killTimer;
+    const timeoutError = () => new Error(`${command} ${args.join(' ')} timed out\n${stdout}\n${stderr}`);
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(killTimer);
+      callback(value);
+    };
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      try {
+        signalChild(child, 'SIGKILL');
+      } catch (error) {
+        finish(reject, error);
+        return;
+      }
+      killTimer = setTimeout(() => finish(reject, timeoutError()), 2_000);
     }, 45_000);
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
-    child.on('error', error => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on('close', code => {
-      clearTimeout(timer);
+    child.on('error', error => finish(reject, error));
+    closeState.promise.then(({ code }) => {
       if (timedOut) {
-        reject(new Error(`${command} ${args.join(' ')} timed out\n${stdout}\n${stderr}`));
+        finish(reject, timeoutError());
       } else if (code === 0) {
-        resolve({ stdout, stderr });
+        finish(resolve, { stdout, stderr });
       } else {
-        reject(new Error(`${command} ${args.join(' ')} exited with ${code}\n${stdout}\n${stderr}`));
+        finish(reject, new Error(`${command} ${args.join(' ')} exited with ${code}\n${stdout}\n${stderr}`));
       }
     });
   });
-}
-
-async function stop(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exited = new Promise(resolve => child.once('exit', resolve));
-  child.kill('SIGTERM');
-  const timer = setTimeout(() => child.kill('SIGKILL'), 2_000);
-  await exited;
-  clearTimeout(timer);
 }
 
 async function hostSmoke({ project, env, expectedVersion, pluginId }) {
   const child = spawn(codex, ['app-server', '--stdio'], {
     cwd: project,
     env,
+    detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+  const closeState = observeClose(child);
   const input = createInterface({ input: child.stdout, crlfDelay: Infinity });
   const pending = new Map();
   const methods = [];
@@ -95,6 +158,14 @@ async function hostSmoke({ project, env, expectedVersion, pluginId }) {
     });
   }
 
+  function rejectPending(error) {
+    for (const request of pending.values()) {
+      clearTimeout(request.timer);
+      request.reject(error);
+    }
+    pending.clear();
+  }
+
   input.on('line', line => {
     let message;
     try {
@@ -113,12 +184,10 @@ async function hostSmoke({ project, env, expectedVersion, pluginId }) {
       request.resolve(message.result);
     }
   });
-  child.on('error', error => {
-    for (const request of pending.values()) {
-      clearTimeout(request.timer);
-      request.reject(error);
-    }
-    pending.clear();
+  child.on('error', rejectPending);
+  child.stdin.on('error', rejectPending);
+  closeState.promise.then(({ code, signal }) => {
+    rejectPending(new Error(`Codex app-server closed before responding (code ${code}, signal ${signal})\n${stderr}`));
   });
 
   try {
@@ -147,7 +216,7 @@ async function hostSmoke({ project, env, expectedVersion, pluginId }) {
   } finally {
     input.close();
     child.stdin.end();
-    await stop(child);
+    await stop(child, closeState);
   }
 }
 
