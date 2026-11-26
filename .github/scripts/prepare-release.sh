@@ -87,7 +87,10 @@ echo "Updated package.json to $NEW_VERSION"
 npm install --package-lock-only --ignore-scripts
 echo "Updated package-lock.json"
 
-# 8. Update CHANGELOG.md
+# 8. Synchronize the local Codex plugin version before tagging
+node scripts/sync-codex-plugin-version.mjs
+
+# 9. Update CHANGELOG.md
 TODAY=$(date +%Y-%m-%d)
 if grep -q '## \[Unreleased\]' CHANGELOG.md; then
   sed -i "s/## \[Unreleased\]/## [${NEW_VERSION}] — ${TODAY}/" CHANGELOG.md
@@ -96,8 +99,8 @@ else
   echo "WARNING: No [Unreleased] section found in CHANGELOG.md. Skipping CHANGELOG update."
 fi
 
-# 9. Commit, tag, push
-git add package.json package-lock.json CHANGELOG.md
+# 10. Commit, tag, push
+git add package.json package-lock.json CHANGELOG.md plugins/codex-local/.codex-plugin/plugin.json
 git commit -m "release: v${NEW_VERSION}"
 git tag "v${NEW_VERSION}"
 echo "Created tag v${NEW_VERSION}"
