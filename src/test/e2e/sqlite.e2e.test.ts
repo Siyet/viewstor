@@ -9,17 +9,17 @@ import { runDriverInterfaceTests } from './helpers/driverTestSuite';
 // Native module ABI validation
 // ============================================================
 
-describe('SQLite native module ABI', () => {
-  const CACHE_DIR = path.join(__dirname, '..', '..', '..', 'node_modules', '.cache', 'sqlite-builds');
-  const NODE_META = path.join(CACHE_DIR, 'better_sqlite3.node.meta');
-  const BINARY = path.join(__dirname, '..', '..', '..', 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+describe('SQLite native N-API module', () => {
+  const BINARY = path.join(
+    __dirname, '..', '..', '..', 'node_modules', 'better-sqlite3',
+    'prebuilds', `${process.platform}-${process.arch}.node`,
+  );
 
-  it('better-sqlite3 binary exists', () => {
+  it('better-sqlite3 platform prebuild exists', () => {
     expect(fs.existsSync(BINARY)).toBe(true);
   });
 
-  it('better-sqlite3 loads without ABI error in current Node.js', () => {
-    // This will throw "NODE_MODULE_VERSION" error if ABI mismatch
+  it('better-sqlite3 loads in current Node.js', () => {
     expect(() => require('better-sqlite3')).not.toThrow();
   });
 
@@ -35,20 +35,8 @@ describe('SQLite native module ABI', () => {
     db.close();
   });
 
-  it('Node cache meta file contains correct ABI for current runtime', () => {
-    if (!fs.existsSync(NODE_META)) {
-      // Meta might not exist if cache was just created; skip gracefully
-      return;
-    }
-    const meta = JSON.parse(fs.readFileSync(NODE_META, 'utf8'));
-    expect(meta.abi).toBe(String(process.versions.modules));
-  });
-
-  it('SqliteDriver.connect() provides actionable error on ABI mismatch', async () => {
-    // Simulate the error message format that Node.js produces
+  it('SqliteDriver.connect() works through the public N-API package', async () => {
     const driver = new SqliteDriver();
-    // We can't actually trigger ABI mismatch in tests (we just rebuilt for Node),
-    // but we verify the driver loads correctly
     await driver.connect({
       id: 'abi-test',
       name: 'ABI Test',

@@ -1,7 +1,15 @@
 .vscode/**
 .github/**
 .claude/**
+.codex/**
+.kimi*/**
+.agents/**
+.agent*/**
+.worktrees/**
+.spikes/**
+spikes/**
 .envrc
+.vscode-test/**
 .vscode-test.mjs
 src/**
 tests/**

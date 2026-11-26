@@ -4,6 +4,10 @@ All notable changes to Viewstor are documented here. Format based on [Keep a Cha
 
 ## [Unreleased]
 
+### Changed
+- **Compatibility:** VS Code 1.101+ and Node.js ^22.14.0 or >=23.6.0 are now required because the SQLite N-API 10 prebuild cannot load on older runtimes, including Node 23.0–23.5.
+- Upgraded `better-sqlite3` to v13 with N-API prebuilds, removing the need for separate Node.js and Electron ABI builds. The compatibility script now validates the bundled platform binary with a real SQLite query.
+
 ### Security
 - **Standalone MCP: restrict `add_connection` tool** — agents can no longer silently create writeable connections that bypass `readonly`, `agentAccess`, and `agentWriteApproval` gates. New user-owned `allowAddConnection` setting in `~/.viewstor/connections.json` (`'off' | 'restricted' | 'unrestricted'`, default `'restricted'`), also synchronized from the explicit user-global `viewstor.standaloneMcp.allowAddConnection` VS Code setting. In restricted mode, agent-created connections are forced `readonly: true`, `scope: 'project'` (passwords stripped), and name-prefixed `[agent] `; PostgreSQL, ClickHouse, and file-backed SQLite are supported, while Redis and in-memory/temporary SQLite are rejected with `invalid_config`. In off mode the tool is removed entirely. Every call is audited in `~/.viewstor/audit.jsonl` with secrets omitted. Tree view shows an `agent` badge on agent-created connections. Raw SQL in `build_chart` now uses the same readonly guard as `execute_query`; PostgreSQL and ClickHouse additionally enforce readonly mode through native connection/query settings. ([#119](https://github.com/Siyet/viewstor/issues/119))
 

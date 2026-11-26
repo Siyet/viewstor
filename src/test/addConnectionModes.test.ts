@@ -32,17 +32,22 @@ vi.mock('../drivers', () => ({
 
 describe('add_connection modes', () => {
   const origHome = process.env.HOME;
+  const origUserProfile = process.env.USERPROFILE;
   const origCwd = process.cwd();
 
   beforeEach(() => {
     fs.mkdirSync(USER_CONFIG_DIR, { recursive: true });
     fs.mkdirSync(PROJECT_DIR, { recursive: true });
     process.env.HOME = TEST_DIR;
+    process.env.USERPROFILE = TEST_DIR;
     process.chdir(PROJECT_DIR);
   });
 
   afterEach(() => {
-    process.env.HOME = origHome;
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    if (origUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = origUserProfile;
     process.chdir(origCwd);
     fs.rmSync(TEST_DIR, { recursive: true, force: true });
     vi.resetModules();

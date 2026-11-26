@@ -1,171 +1,66 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import * as crypto from 'crypto';
+import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 const ROOT = path.join(__dirname, '..', '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'sqlite-rebuild.js');
-const CACHE_DIR = path.join(ROOT, 'node_modules', '.cache', 'sqlite-builds');
-const NODE_META = path.join(CACHE_DIR, 'better_sqlite3.node.meta');
-const NODE_CACHE = path.join(CACHE_DIR, 'better_sqlite3.node.node');
-const ELECTRON_META = path.join(CACHE_DIR, 'better_sqlite3.electron.meta');
-const ELECTRON_CACHE = path.join(CACHE_DIR, 'better_sqlite3.electron.node');
-const BINARY = path.join(ROOT, 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+const PACKAGE_DIR = path.join(ROOT, 'node_modules', 'better-sqlite3');
+const BINARY = path.join(PACKAGE_DIR, 'prebuilds', `${process.platform}-${process.arch}.node`);
 
-function md5(filePath: string): string {
-  return crypto.createHash('md5').update(fs.readFileSync(filePath)).digest('hex');
-}
-
-/** Check if better-sqlite3 can load in the current Node.js process. */
-function canLoadSqlite(): boolean {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const Db = require('better-sqlite3');
-    const db = new Db(':memory:');
-    db.close();
-    return true;
-  } catch {
-    return false;
-  }
+function runScript(target?: string): string {
+  return execFileSync(process.execPath, [SCRIPT, ...(target ? [target] : [])], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  });
 }
 
 describe('better-sqlite3 package.json consistency', () => {
   it('better-sqlite3 must be in dependencies (not only devDependencies)', () => {
-    const pkgPath = path.join(ROOT, 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     expect(pkg.dependencies).toHaveProperty('better-sqlite3');
+    expect(pkg.dependencies['better-sqlite3']).toMatch(/^\^13\./);
   });
 
   it('better-sqlite3 must NOT appear in devDependencies (avoids version mismatch in VSIX)', () => {
-    const pkgPath = path.join(ROOT, 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     expect(pkg.devDependencies).not.toHaveProperty('better-sqlite3');
   });
 
+  it('ships the N-API prebuild for the current platform and architecture', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(PACKAGE_DIR, 'package.json'), 'utf8'));
+    expect(pkg.version).toMatch(/^13\./);
+    expect(Number(process.versions.napi)).toBeGreaterThan(0);
+    expect(fs.existsSync(BINARY)).toBe(true);
+  });
+
   it('require("better-sqlite3") returns a constructor function', () => {
-    let Database: unknown;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      Database = require('better-sqlite3');
-    } catch {
-      // Binary may be for Electron ABI — skip when incompatible
-      return;
-    }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Database = require('better-sqlite3');
     expect(typeof Database).toBe('function');
-    // Verify it's a constructor (can be called with new)
     expect(Database).toHaveProperty('prototype');
   });
 });
 
-describe('sqlite-rebuild.js', () => {
-  let sqliteUnavailable = false;
-
-  beforeAll(() => {
-    sqliteUnavailable = !canLoadSqlite();
-    if (sqliteUnavailable) {
-      console.log('NOTE: better-sqlite3 binary incompatible with current Node.js (Extension Host may have Electron binary locked) — some tests will be skipped');
-    }
-  });
-
+describe('sqlite-rebuild.js N-API compatibility validator', () => {
   it('script file exists', () => {
     expect(fs.existsSync(SCRIPT)).toBe(true);
   });
 
-  it('binary exists', () => {
-    expect(fs.existsSync(BINARY)).toBe(true);
+  it.each(['node', 'electron'])('validates the same prebuild for %s', (target) => {
+    const output = runScript(target);
+    expect(output).toContain(`N-API prebuild validated for ${target}`);
+    expect(output).toContain(`${process.platform}-${process.arch}.node`);
   });
 
-  it('node cache binary exists', () => {
-    if (!fs.existsSync(NODE_CACHE)) {
-      // Cache might not exist if binary is locked and rebuild was skipped
-      expect(sqliteUnavailable).toBe(true);
-      return;
-    }
-    expect(fs.existsSync(NODE_CACHE)).toBe(true);
-  });
-
-  it('node meta file has correct structure and ABI', () => {
-    if (!fs.existsSync(NODE_META)) {
-      expect(sqliteUnavailable).toBe(true);
-      return;
-    }
-    const meta = JSON.parse(fs.readFileSync(NODE_META, 'utf8'));
-    expect(meta).toHaveProperty('abi');
-    expect(meta).toHaveProperty('version');
-    expect(meta).toHaveProperty('hash');
-    expect(meta).toHaveProperty('builtAt');
-    expect(meta.abi).toBe(String(process.versions.modules));
-  });
-
-  it('active binary hash matches Node cache (when not locked)', () => {
-    if (sqliteUnavailable || !fs.existsSync(NODE_CACHE)) return;
-    expect(md5(BINARY)).toBe(md5(NODE_CACHE));
-  });
-
-  it('Electron cache differs from Node cache (different prebuilds)', () => {
-    if (!fs.existsSync(ELECTRON_CACHE) || !fs.existsSync(NODE_CACHE)) return;
-    expect(md5(ELECTRON_CACHE)).not.toBe(md5(NODE_CACHE));
-  });
-
-  it('Electron meta tracks electronVersion', () => {
-    if (!fs.existsSync(ELECTRON_META)) return;
-    const meta = JSON.parse(fs.readFileSync(ELECTRON_META, 'utf8'));
-    expect(meta).toHaveProperty('electronVersion');
-    expect(meta).toHaveProperty('hash');
-    expect(meta.electronVersion).toMatch(/^\d+\.\d+\.\d+$/);
-  });
-
-  it('cache invalidation: wrong ABI in meta triggers rebuild', () => {
-    if (sqliteUnavailable || !fs.existsSync(NODE_META)) return;
-    const originalMeta = fs.readFileSync(NODE_META, 'utf8');
-    try {
-      fs.writeFileSync(NODE_META, JSON.stringify({
-        abi: '999', version: 'v0.0.0', hash: 'fake', builtAt: new Date().toISOString(),
-      }));
-      const output = execSync(`node "${SCRIPT}" node`, { cwd: ROOT, encoding: 'utf8' });
-      // If binary locked, script warns and skips; otherwise detects stale
-      expect(output).toMatch(/stale|locked/);
-    } catch {
-      // npm rebuild failed due to EBUSY — skip
-    } finally {
-      // Restore meta
-      try {
-        const currentMeta = JSON.parse(fs.readFileSync(NODE_META, 'utf8'));
-        if (currentMeta.abi !== String(process.versions.modules)) {
-          fs.writeFileSync(NODE_META, originalMeta);
-        }
-      } catch {
-        fs.writeFileSync(NODE_META, originalMeta);
-      }
-    }
-  });
-
-  it('missing meta file triggers rebuild (not crash)', () => {
-    if (sqliteUnavailable) return;
-    const originalMeta = fs.existsSync(NODE_META) ? fs.readFileSync(NODE_META, 'utf8') : null;
-    try {
-      if (fs.existsSync(NODE_META)) fs.unlinkSync(NODE_META);
-      const output = execSync(`node "${SCRIPT}" node`, { cwd: ROOT, encoding: 'utf8' });
-      expect(output).toBeTruthy();
-    } catch {
-      // npm rebuild failed due to EBUSY — skip
-    } finally {
-      if (originalMeta && !fs.existsSync(NODE_META)) {
-        fs.writeFileSync(NODE_META, originalMeta);
-      }
-    }
-  });
-
-  it('better-sqlite3 loads and works', () => {
-    if (sqliteUnavailable) return;
+  it('better-sqlite3 loads and executes real writes and reads', () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const Database = require('better-sqlite3');
     const db = new Database(':memory:');
     try {
       db.exec('CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)');
       db.prepare('INSERT INTO t VALUES (1, ?)').run('ok');
-      const row = db.prepare('SELECT v FROM t WHERE id = 1').get();
+      const row = db.prepare('SELECT v FROM t WHERE id = 1').get() as { v: string };
       expect(row.v).toBe('ok');
     } finally {
       db.close();
@@ -173,14 +68,10 @@ describe('sqlite-rebuild.js', () => {
   });
 
   it('rejects invalid target', () => {
-    expect(() => {
-      execSync(`node "${SCRIPT}" invalid`, { cwd: ROOT, encoding: 'utf8' });
-    }).toThrow();
+    expect(() => runScript('invalid')).toThrow();
   });
 
   it('shows usage with no arguments', () => {
-    expect(() => {
-      execSync(`node "${SCRIPT}"`, { cwd: ROOT, encoding: 'utf8' });
-    }).toThrow();
+    expect(() => runScript()).toThrow();
   });
 });

@@ -1716,24 +1716,11 @@ suite('Regressions', () => {
 // ============================================================
 
 suite('SQLite Native Module', () => {
-  test('better-sqlite3 loads without ABI mismatch in Extension Host', () => {
-    // This test runs inside Electron (VS Code Extension Host).
-    // If better-sqlite3 was compiled for a different Node.js/Electron version,
-    // require() will throw "was compiled against a different Node.js version".
-    let Database: typeof import('better-sqlite3');
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      Database = require('better-sqlite3');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('NODE_MODULE_VERSION')) {
-        assert.fail(
-          'better-sqlite3 ABI mismatch in Extension Host. '
-          + 'Run: node scripts/sqlite-rebuild.js electron\n' + message
-        );
-      }
-      throw err;
-    }
+  test('better-sqlite3 N-API module loads in Extension Host', () => {
+    // This test runs inside Electron (VS Code Extension Host). The following
+    // in-memory test instantiates the binding and proves native loadability.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Database = require('better-sqlite3');
     assert.ok(Database, 'better-sqlite3 module loaded');
   });
 
