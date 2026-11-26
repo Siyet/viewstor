@@ -47,7 +47,7 @@
     "test": "node scripts/sqlite-rebuild.js node && vitest run",
     "test:watch": "vitest",
     "test:single": "vitest run --reporter=verbose",
-    "test:e2e": "node scripts/run-e2e.js",
+    "test:e2e": "node scripts/sqlite-rebuild.js node && vitest run --config vitest.e2e.config.ts",
     "test:e2e:watch": "vitest --config vitest.e2e.config.ts",
     "compile-tests": "tsc -p tsconfig.test.json",
     "compile-vscode-tests": "tsc -p tsconfig.vscode-test.json",
